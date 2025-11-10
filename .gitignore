@@ -1,0 +1,7 @@
+/build
+/.cache
+/bpf/.cache
+/bpf/build
+/bpf/compile_commands.json
+/bpf/vmlinux.h
+/test/build

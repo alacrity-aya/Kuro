@@ -1,0 +1,6 @@
+[process]
+
+target_pid = 12284
+rate_bps = "1M"
+gress = "egress"
+time_scale = "1s"
