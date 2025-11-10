@@ -15,22 +15,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus)
 
-# 查找 libbpf、libelf、zlib
 find_library(LIBBPF_LIB   bpf   REQUIRED)
 find_library(ELF_LIB      elf   REQUIRED)
 find_library(ZLIB_LIB     z     REQUIRED)
 
-# 查找 libbpf 头文件（bpf/libbpf.h）
 find_path(LIBBPF_INCLUDE_DIR NAMES bpf/libbpf.h REQUIRED)
 
 
-# 添加可执行文件，按目录组织源文件
 add_executable(wirefisher
-  # src/main.cpp
-  # src/kafka_producer.cpp
-  # modules/ip_pro_port_module.cpp
-  # modules/eth_module.cpp
-  # modules/cgroup_module.cpp
   main.cpp
 )
 
