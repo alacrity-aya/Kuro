@@ -4,6 +4,7 @@
 #include <expected>
 #include <functional>
 #include <memory>
+#include <print>
 #include <toml++/impl/node.hpp>
 #include <toml++/toml.hpp>
 #include <vector>
@@ -14,6 +15,13 @@ struct EbpfModule {
     std::string toml_key;
     std::function<int(const toml::node& node)> load;
     std::function<void(void)> unload;
+
+    ~EbpfModule() {
+        if (unload) {
+            std::println("unload module {}...", this->name);
+            unload();
+        }
+    }
 };
 
 using RingBufferPtr = std::unique_ptr<ring_buffer, std::function<void(ring_buffer*)>>;

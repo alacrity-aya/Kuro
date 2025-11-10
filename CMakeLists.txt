@@ -29,7 +29,6 @@ find_path(LIBBPF_INCLUDE_DIR NAMES bpf/libbpf.h REQUIRED)
 add_executable(wirefisher
   # src/main.cpp
   # src/kafka_producer.cpp
-  modules/process_module.cpp
   # modules/ip_pro_port_module.cpp
   # modules/eth_module.cpp
   # modules/cgroup_module.cpp
