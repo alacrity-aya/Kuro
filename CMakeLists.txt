@@ -5,8 +5,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# 查找 yaml-cpp
-find_package(yaml-cpp REQUIRED)
+add_compile_definitions(TOML_EXCEPTIONS=0)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -42,6 +41,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}
 )
 
+target_compile_definitions(wirefisher PRIVATE TOML_EXCEPTIONS=0)
 
 # 链接所需库
 target_link_libraries(wirefisher

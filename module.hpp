@@ -5,7 +5,6 @@
 #include <functional>
 #include <memory>
 #include <print>
-#include <toml++/impl/node.hpp>
 #include <toml++/toml.hpp>
 #include <vector>
 #include <yaml-cpp/yaml.h>
