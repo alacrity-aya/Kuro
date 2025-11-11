@@ -4,4 +4,5 @@
 /bpf/build
 /bpf/compile_commands.json
 /bpf/vmlinux.h
+/bpf/skel
 /test/build

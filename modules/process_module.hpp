@@ -1,30 +1,27 @@
 #pragma once
 #include <arpa/inet.h>
 #include <array>
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
-#include <bpf/libbpf_legacy.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <error/error.hpp>
 #include <expected>
 #include <fcntl.h>
-#include <filesystem>
 #include <getopt.h>
-#include <linux/bpf.h>
 #include <linux/netfilter.h>
 #include <net/if.h>
 #include <nlohmann/json.hpp>
 #include <print>
 #include <string>
 #include <sys/syscall.h>
+#include <tc_process.skel.h>
 #include <unistd.h>
 #include <utils.hpp>
-#include <yaml-cpp/yaml.h>
 
 namespace process_module {
 using module_error::ModuleError;
+
+using ModuleResult = std::expected<void, ModuleError>;
 
 struct ProcessRule {
     uint32_t target_pid;
@@ -54,14 +51,26 @@ public:
         unload();
     }
 
-    std::expected<void, ModuleError> load(const std::filesystem::path& project_root) {
+    ModuleResult load() {
         // Is it a good implementation? I have no idea about this.
         // Anyway, it looks good.
-        auto tc_process_path = project_root / "bpf" / "build" / "tc_process.o";
-        return open_bpf_obj(tc_process_path)
-            .and_then([this]() { return load_bpf_obj(); })
-            .and_then([this]() { return attach_probe("security_socket_recvmsg", recvmsg_kprobe_); })
-            .and_then([this]() { return attach_probe("security_socket_sendmsg", sendmsg_kprobe_); })
+        libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
+
+        auto open_and_load_bpf = [this]() -> ModuleResult {
+            skel = tc_process__open_and_load();
+            if (skel == nullptr) {
+                return std::unexpected { ModuleError::OPEN_AND_LOAD_BPF_FAILED };
+            }
+            return {};
+        };
+
+        return open_and_load_bpf()
+            .and_then([this]() -> ModuleResult {
+                if (tc_process__attach(skel) != 0) {
+                    return std::unexpected { ModuleError::ATTACH_BPF_FAILED };
+                }
+                return {};
+            })
             .and_then([this]() { return setup_local_ip_map(); })
             .and_then([this]() { return attach_netfilter_hook(); })
             .and_then([this]() { return init_ring_buffer(); });
@@ -72,26 +81,12 @@ public:
             ring_buffer__free(rb_);
             rb_ = nullptr;
         }
-        if (recvmsg_kprobe_ != nullptr) {
-            bpf_link__destroy(recvmsg_kprobe_);
-            recvmsg_kprobe_ = nullptr;
-        }
-        if (sendmsg_kprobe_ != nullptr) {
-            bpf_link__destroy(sendmsg_kprobe_);
-            sendmsg_kprobe_ = nullptr;
-        }
-        if (nf_fd_ingress_ >= 0)
-            close(nf_fd_ingress_);
-        if (nf_fd_egress_ >= 0)
-            close(nf_fd_egress_);
-        if (obj_ != nullptr) {
-            bpf_object__close(obj_);
-            obj_ = nullptr;
-        }
+
+        tc_process__destroy(skel);
     }
 
-    std::expected<void, ModuleError> update_rule(const ProcessRule& rule) {
-        auto* map = bpf_object__find_map_by_name(obj_, "process_rules");
+    ModuleResult update_rule(const ProcessRule& rule) {
+        auto* map = skel->maps.process_rules;
         if (map == nullptr) {
             // Changed: process_rules map not found
             std::println("[process_module] 'process_rules' map not found");
@@ -108,24 +103,31 @@ public:
         return {};
     }
 
-    struct ring_buffer* rb_ = nullptr; // TODO(alacrity):  shoule be private
+    //poll ring buffer once, omitting ctrl-c in this function
+    ModuleResult poll_ring_buffer(int timeout_ms) {
+        auto err = ring_buffer__poll(rb_, timeout_ms);
+        if (err < 0 && err != -EINTR) {
+            return std::unexpected { ModuleError::POLL_RINGBUF_FAILED };
+        }
+        return {};
+    }
 
 private:
-    struct bpf_object* obj_ = nullptr;
+    struct ring_buffer* rb_ = nullptr;
+    tc_process* skel {};
     struct bpf_link* recvmsg_kprobe_ = nullptr;
     struct bpf_link* sendmsg_kprobe_ = nullptr;
-    int nf_fd_ingress_ = -1;
-    int nf_fd_egress_ = -1;
 
     static int handle_event(void*, void* data, size_t data_sz) {
         if (data_sz != sizeof(MessageGet)) {
-            // Changed: Data size mismatch
             std::println("Data size mismatch: {} (expected {})", data_sz, sizeof(MessageGet));
             return 0;
         }
+
         const auto* e = static_cast<const MessageGet*>(data);
 
-        // Changed: Use std::println with formatting
+        std::print("\033[2J\033[H");
+
         std::println("=== process_traffic ===");
         std::println(
             " instant_rate_bps : {:.2f} MB/s",
@@ -145,11 +147,14 @@ private:
         );
         std::println("=====================");
 
+        // 手动刷新标准输出缓冲区
+        std::fflush(stdout);
+
         return 0;
     }
 
-    std::expected<void, ModuleError> setup_local_ip_map() {
-        struct bpf_map* map = bpf_object__find_map_by_name(obj_, "local_ip_map");
+    ModuleResult setup_local_ip_map() {
+        auto* map = skel->maps.local_ip_map;
         if (map == nullptr) {
             // Changed: local_ip_map not found
             std::println("'local_ip_map' not found");
@@ -197,42 +202,8 @@ private:
         return { ip_str.data() };
     }
 
-    std::expected<void, ModuleError> open_bpf_obj(const std::filesystem::path& path) {
-        obj_ = bpf_object__open_file(path.c_str(), nullptr);
-        if ((obj_ == nullptr) || (libbpf_get_error(obj_) != 0)) {
-            // Changed: Failed to open BPF object
-            std::println("[process_module] Failed to open BPF object");
-            return std::unexpected { ModuleError::FAILED_TO_OPEN_BPF_OBJECT };
-        }
-        return {};
-    }
-
-    std::expected<void, ModuleError> load_bpf_obj() {
-        if (bpf_object__load(obj_) != 0) {
-            // Changed: Failed to load BPF object
-            std::println("[process_module] Failed to load BPF object");
-            bpf_object__close(obj_);
-            obj_ = nullptr;
-            return std::unexpected { ModuleError::FAILED_TO_LOAD_BPF_OBJECT };
-        }
-        return {};
-    }
-
-    std::expected<void, ModuleError> attach_probe(const char* prog_name, struct bpf_link*& link) {
-        auto* prog = bpf_object__find_program_by_name(obj_, prog_name);
-        if (prog == nullptr)
-            return std::unexpected { ModuleError::FAILED_TO_FIND_BPF_PROG };
-        link = bpf_program__attach_kprobe(prog, false, prog_name);
-        if (link == nullptr) {
-            // Changed: attach kprobe failed
-            std::println("[process_module] Failed to attach kprobe: {}", prog_name);
-            return std::unexpected { ModuleError::KPROBE_HOOK_ATTACH_FAILED };
-        }
-        return {};
-    }
-
-    std::expected<void, ModuleError> attach_netfilter_hook() {
-        auto* prog = bpf_object__find_program_by_name(obj_, "netfilter_hook");
+    ModuleResult attach_netfilter_hook() {
+        auto* prog = skel->progs.netfilter_hook;
         if (prog == nullptr)
             return std::unexpected { ModuleError::FAILED_TO_FIND_BPF_PROG };
 
@@ -243,17 +214,24 @@ private:
             .hooknum = NF_INET_LOCAL_OUT,
             .priority = -128,
         };
-        auto* nf_link = bpf_program__attach_netfilter(prog, &opts);
-        if (libbpf_get_error(nf_link) != 0) {
-            // Changed: attach netfilter hook failed
+        auto* nf_link_out = bpf_program__attach_netfilter(prog, &opts);
+        if (libbpf_get_error(nf_link_out) != 0) {
             std::println("Failed to attach netfilter hook");
             return std::unexpected { ModuleError::NETFILTER_HOOK_ATTACH_FAILED };
         }
+
+        opts.hooknum = NF_INET_LOCAL_IN;
+        auto* nf_link_in = bpf_program__attach_netfilter(prog, &opts);
+        if (libbpf_get_error(nf_link_out) != 0) {
+            std::println("Failed to attach netfilter hook");
+            return std::unexpected { ModuleError::NETFILTER_HOOK_ATTACH_FAILED };
+        }
+
         return {};
     }
 
-    std::expected<void, ModuleError> init_ring_buffer() {
-        auto* map = bpf_object__find_map_by_name(obj_, "ringbuf");
+    ModuleResult init_ring_buffer() {
+        auto* map = skel->maps.ringbuf;
         if (map == nullptr)
             return std::unexpected { ModuleError::FAILED_TO_FIND_MAP };
 

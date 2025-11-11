@@ -3,23 +3,22 @@
 
 char __license[] SEC("license") = "GPL";
 
-#define NF_INET_LOCAL_IN     1
-#define NF_INET_LOCAL_OUT    3
+#define NF_INET_LOCAL_IN 1
+#define NF_INET_LOCAL_OUT 3
 
 #define NF_ACCEPT 1
-#define NF_DROP   0
-
+#define NF_DROP 0
 
 struct ip_pro_port_rule {
-    __u32    target_ip;    
-    __u16    target_port;  
-    __u8     target_protocol; 
-    __u64    rate_bps;      
-    __u32    time_scale;    
-    __u8     gress : 1;    
-    __u8     ip_enable : 1;
-    __u8     port_enable : 1;
-    __u8     protocol_enable : 5;   
+    __u32 target_ip;
+    __u16 target_port;
+    __u8 target_protocol;
+    __u64 rate_bps;
+    __u32 time_scale;
+    __u8 gress : 1;
+    __u8 ip_enable : 1;
+    __u8 port_enable : 1;
+    __u8 protocol_enable : 5;
 };
 
 struct packet_tuple {
@@ -27,11 +26,11 @@ struct packet_tuple {
     __u32 dst_ip;
     __u16 src_port;
     __u16 dst_port;
-    __u8  protocol;
+    __u8 protocol;
 };
 
 struct message_get {
-    __u64 instance_rate_bps; 
+    __u64 instance_rate_bps;
     __u64 rate_bps;
     __u64 peak_rate_bps;
     __u64 smoothed_rate_bps;
@@ -46,14 +45,14 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(key_size, sizeof(__u32));     
+    __uint(key_size, sizeof(__u32));
     __uint(value_size, sizeof(struct flow_rate_info));
-    __uint(max_entries, 1);      
+    __uint(max_entries, 1);
 } flow_rate_stats SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key,  __u32);              
+    __type(key, __u32);
     __type(value, struct ip_pro_port_rule);
     __uint(max_entries, 1024);
 } ip_pro_port_rules SEC(".maps");
@@ -61,13 +60,12 @@ struct {
 // Token bucket mapping - using IP + protocol + port as key
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key,  __u64);              
+    __type(key, __u64);
     __type(value, struct rate_bucket);
     __uint(max_entries, 1024);
 } buckets SEC(".maps");
 
-static struct udphdr *udp_hdr(struct sk_buff *skb, u32 offset)
-{
+static struct udphdr* udp_hdr(struct sk_buff* skb, u32 offset) {
     struct bpf_dynptr ptr;
     struct udphdr udph = {};
 
@@ -75,15 +73,14 @@ static struct udphdr *udp_hdr(struct sk_buff *skb, u32 offset)
         return NULL;
     }
 
-    if (bpf_dynptr_from_skb((struct __sk_buff *)skb, 0, &ptr)) {
+    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr)) {
         return NULL;
     }
 
     return bpf_dynptr_slice(&ptr, offset, &udph, sizeof(udph));
 }
 
-static struct tcphdr *tcp_hdr(struct sk_buff *skb, u32 offset)
-{
+static struct tcphdr* tcp_hdr(struct sk_buff* skb, u32 offset) {
     struct bpf_dynptr ptr;
     struct tcphdr tcph = {};
 
@@ -91,15 +88,14 @@ static struct tcphdr *tcp_hdr(struct sk_buff *skb, u32 offset)
         return NULL;
     }
 
-    if (bpf_dynptr_from_skb((struct __sk_buff *)skb, 0, &ptr)) {
+    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr)) {
         return NULL;
     }
 
     return bpf_dynptr_slice(&ptr, offset, &tcph, sizeof(tcph));
 }
 
-static struct iphdr *ip_hdr(struct sk_buff *skb)
-{
+static struct iphdr* ip_hdr(struct sk_buff* skb) {
     struct bpf_dynptr ptr;
     struct iphdr iph = {};
 
@@ -107,37 +103,34 @@ static struct iphdr *ip_hdr(struct sk_buff *skb)
         return NULL;
     }
 
-    if (bpf_dynptr_from_skb((struct __sk_buff *)skb, 0, &ptr)) {
+    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr)) {
         return NULL;
     }
 
     return bpf_dynptr_slice(&ptr, 0, &iph, sizeof(iph));
 }
 
+static __inline void send_message(struct message_get* mes) {
+    struct message_get* e;
 
-static __inline void send_message(struct message_get *mes)
-{
-	struct message_get *e;
-
-	e = bpf_ringbuf_reserve(&ringbuf, sizeof(*e), 0);
-	if (!e) {
-		return;
-	}
+    e = bpf_ringbuf_reserve(&ringbuf, sizeof(*e), 0);
+    if (!e) {
+        return;
+    }
     *e = *mes;
 
-	struct packet_tuple *tuple = &(e->tuple);
+    struct packet_tuple* tuple = &(e->tuple);
     tuple->src_ip = mes->tuple.src_ip;
     tuple->dst_ip = mes->tuple.dst_ip;
-    tuple->src_port = mes->tuple.src_port;        
+    tuple->src_port = mes->tuple.src_port;
     tuple->dst_port = mes->tuple.dst_port;
     tuple->protocol = mes->tuple.protocol;
     e->timestamp = bpf_ktime_get_ns();
 
-	bpf_ringbuf_submit(e, 0);
+    bpf_ringbuf_submit(e, 0);
 }
 
-static __inline bool parse_sk_buff(struct sk_buff *skb, struct packet_tuple *tuple)
-{
+static __inline bool parse_sk_buff(struct sk_buff* skb, struct packet_tuple* tuple) {
     if (!skb || !tuple) {
         return false;
     }
@@ -146,7 +139,7 @@ static __inline bool parse_sk_buff(struct sk_buff *skb, struct packet_tuple *tup
         return false;
     }
 
-    struct iphdr *iph = ip_hdr(skb);
+    struct iphdr* iph = ip_hdr(skb);
     if (!iph) {
         return false;
     }
@@ -169,7 +162,7 @@ static __inline bool parse_sk_buff(struct sk_buff *skb, struct packet_tuple *tup
             return false;
         }
 
-        struct udphdr *udph = udp_hdr(skb, iphl);
+        struct udphdr* udph = udp_hdr(skb, iphl);
         if (!udph) {
             return false;
         }
@@ -181,7 +174,7 @@ static __inline bool parse_sk_buff(struct sk_buff *skb, struct packet_tuple *tup
             return false;
         }
 
-        struct tcphdr *tcph = tcp_hdr(skb, iphl);
+        struct tcphdr* tcph = tcp_hdr(skb, iphl);
         if (!tcph) {
             return false;
         }
@@ -196,12 +189,11 @@ static __inline bool parse_sk_buff(struct sk_buff *skb, struct packet_tuple *tup
     return true;
 }
 
-static int netfilter_handle(struct bpf_nf_ctx *ctx)
-{
-    struct ip_pro_port_rule *rule;
+static int netfilter_handle(struct bpf_nf_ctx* ctx) {
+    struct ip_pro_port_rule* rule;
     __u32 rule_key = 0;
-    struct message_get mes = {0};
-    struct packet_tuple *tuple = &(mes.tuple);
+    struct message_get mes = { 0 };
+    struct packet_tuple* tuple = &(mes.tuple);
 
     if (!ctx || !ctx->skb) {
         return NF_ACCEPT;
@@ -223,7 +215,7 @@ static int netfilter_handle(struct bpf_nf_ctx *ctx)
     }
 
     if (!parse_sk_buff(ctx->skb, tuple)) {
-        return NF_ACCEPT; 
+        return NF_ACCEPT;
     }
 
     if (rule->ip_enable == true && rule->target_ip != tuple->dst_ip) {
@@ -237,22 +229,20 @@ static int netfilter_handle(struct bpf_nf_ctx *ctx)
     if (rule->protocol_enable == true && rule->target_protocol != tuple->protocol) {
         return NF_ACCEPT;
     }
-    
+
     __u64 now = bpf_ktime_get_ns();
     __u32 flow_key = 1;
-    struct flow_rate_info *info = bpf_map_lookup_elem(&flow_rate_stats, &flow_key);
+    struct flow_rate_info* info = bpf_map_lookup_elem(&flow_rate_stats, &flow_key);
     if (!info) {
-        struct flow_rate_info new_flow = {
-            .window_start_ns = now,
-            .total_bytes = ctx->skb->len,
-            .packet_bytes = ctx->skb->len,
-            .last_ns = now,
-            .instance_rate_bps = 0,
-            .rate_bps = 0,
-            .peak_rate_bps = 0,
-            .smooth_rate_bps = 0
-        };
-        bpf_map_update_elem(&flow_rate_stats, &flow_key, &new_flow, BPF_ANY); 
+        struct flow_rate_info new_flow = { .window_start_ns = now,
+                                           .total_bytes = ctx->skb->len,
+                                           .packet_bytes = ctx->skb->len,
+                                           .last_ns = now,
+                                           .instance_rate_bps = 0,
+                                           .rate_bps = 0,
+                                           .peak_rate_bps = 0,
+                                           .smooth_rate_bps = 0 };
+        bpf_map_update_elem(&flow_rate_stats, &flow_key, &new_flow, BPF_ANY);
     }
     info = bpf_map_lookup_elem(&flow_rate_stats, &flow_key);
     if (info) {
@@ -271,21 +261,18 @@ static int netfilter_handle(struct bpf_nf_ctx *ctx)
     } else {
         bucket_key = ((__u64)tuple->dst_ip << 16) | tuple->dst_port | tuple->protocol;
     }
-    struct rate_limit rate = {
-        .bucket_key = &bucket_key,
-        .buckets = &buckets,
-        .packet_len = ctx->skb->len,
-        .rate_bps = rule->rate_bps,
-        .time_scale = rule->time_scale
-    };
+    struct rate_limit rate = { .bucket_key = &bucket_key,
+                               .buckets = &buckets,
+                               .packet_len = ctx->skb->len,
+                               .rate_bps = rule->rate_bps,
+                               .time_scale = rule->time_scale };
     if (rate_limit_check(&rate) == ACCEPT) {
-        return NF_ACCEPT; 
-    } 
+        return NF_ACCEPT;
+    }
     return NF_DROP;
 }
 
 SEC("netfilter")
-int netfilter_hook(struct bpf_nf_ctx *ctx)
-{
+int netfilter_hook(struct bpf_nf_ctx* ctx) {
     return netfilter_handle(ctx);
 }

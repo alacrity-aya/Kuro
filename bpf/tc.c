@@ -7,24 +7,17 @@ char __license[] SEC("license") = "GPL";
 #define EGRESS 1
 #define INGRESS 0
 
-#define NF_INET_PRE_ROUTING 0
+/* Netfilter constants kept for compatibility in rule semantics */
 #define NF_INET_LOCAL_IN 1
-#define NF_INET_FORWARD 2
 #define NF_INET_LOCAL_OUT 3
-#define NF_INET_POST_ROUTING 4
 
-#define NF_DROP \
-    0 /* 丢弃数据包：包被丢弃，不再进行后续协议栈或其他 hook 处理              \
-     */
-#define NF_ACCEPT \
-    1 /* 接收数据包：允许继续正常传递，或进入下一个 hook/协议栈                \
-     */
-#define NF_STOLEN 2 /* 包已被 hook “接管”：hook 函数已自行处理该包，不再做其他处理 */
-#define NF_QUEUE \
-    3 /* 将包排队交给 userspace：通过 netlink 送到 userspace（nfnetlink_queue） \
-     */
-#define NF_REPEAT 4 /* 重复调用本 hook：在同一样点重新遍历所有注册的 hook 函数 */
-#define NF_STOP 5 /* 停止后续 hook 调用（已弃用，仅为 userspace nf_queue 兼容） */
+/* Return codes: map NF_* semantics to tc actions at the end */
+#ifndef TC_ACT_OK
+    #define TC_ACT_OK 0
+#endif
+#ifndef TC_ACT_SHOT
+    #define TC_ACT_SHOT 2
+#endif
 
 struct ProcInfo {
     __u32 pid;
@@ -40,7 +33,7 @@ struct net_group {
 struct process_rule {
     __u32 target_pid;
     __u64 rate_bps;
-    __u8 gress;
+    __u8 gress; /* EGRESS or INGRESS */
     __u32 time_scale;
 };
 
@@ -53,6 +46,7 @@ struct message_get {
     __u64 timestamp;
 };
 
+/* maps: keep same definitions as original */
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 16);
@@ -100,47 +94,47 @@ struct {
     __uint(max_entries, 1);
 } local_ip_map SEC(".maps");
 
-static struct udphdr* udp_hdr(struct sk_buff* skb, u32 offset) {
-    struct bpf_dynptr ptr;
-    struct udphdr *p, udph = {};
-    if (skb->len <= offset) {
-        return NULL;
-    }
+/* Helpers: use __sk_buff for TC. We reuse bpf_dynptr_from_skb as before.
+   Note: in TC skb points to packet starting at ethernet header. */
 
-    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr)) {
+/* load UDP header at offset (from start of packet) */
+static struct udphdr* udp_hdr(struct __sk_buff* skb, u32 offset) {
+    struct bpf_dynptr ptr;
+    struct udphdr udph = {};
+    if ((u64)skb->len <= offset)
         return NULL;
-    }
+
+    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr))
+        return NULL;
 
     return bpf_dynptr_slice(&ptr, offset, &udph, sizeof(udph));
 }
 
-static struct tcphdr* tcp_hdr(struct sk_buff* skb, u32 offset) {
+/* load TCP header at offset (from start of packet) */
+static struct tcphdr* tcp_hdr(struct __sk_buff* skb, u32 offset) {
     struct bpf_dynptr ptr;
-    struct tcphdr *p, tcph = {};
-    if (skb->len <= offset) {
+    struct tcphdr tcph = {};
+    if ((u64)skb->len <= offset)
         return NULL;
-    }
 
-    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr)) {
+    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr))
         return NULL;
-    }
 
     return bpf_dynptr_slice(&ptr, offset, &tcph, sizeof(tcph));
 }
 
-static struct iphdr* ip_hdr(struct sk_buff* skb) {
+/* load IP header at offset (from start of packet) */
+static struct iphdr* ip_hdr(struct __sk_buff* skb, u32 offset) {
     struct bpf_dynptr ptr;
-    struct iphdr *p, iph = {};
+    struct iphdr iph = {};
 
-    if (skb->len <= 20) {
+    if ((u64)skb->len <= offset + sizeof(iph))
         return NULL;
-    }
 
-    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr)) {
+    if (bpf_dynptr_from_skb((struct __sk_buff*)skb, 0, &ptr))
         return NULL;
-    }
 
-    return bpf_dynptr_slice(&ptr, 0, &iph, sizeof(iph));
+    return bpf_dynptr_slice(&ptr, offset, &iph, sizeof(iph));
 }
 
 static __inline void send_message(struct message_get* mes) {
@@ -156,63 +150,61 @@ static __inline void send_message(struct message_get* mes) {
     bpf_ringbuf_submit(e, 0);
 }
 
+/* parse packet in TC context:
+   - skb points to Ethernet header start
+   - direction: EGRESS or INGRESS (decides which ip/port to extract)
+   - tuple: output net_group (ip, port, protocol)
+   returns true on success */
 static __attribute__((noinline)) bool
-parse_sk_buff(struct sk_buff* skb, __u8 direction, struct net_group* tuple) {
+parse_skb_tc(struct __sk_buff* skb, __u8 direction, struct net_group* tuple) {
     struct iphdr* iph;
     struct udphdr* udph;
     struct tcphdr* tcph;
     unsigned int iphl;
+    const u32 eth_hdr_len = sizeof(struct ethhdr);
+    u32 ip_offset = eth_hdr_len;
 
-    if (skb->len < 28) {
+    if ((u64)skb->len < eth_hdr_len + 20) { /* at least eth + ip */
         return false;
     }
 
-    iph = ip_hdr(skb);
-    if (!iph) {
+    iph = ip_hdr(skb, ip_offset);
+    if (!iph)
         return false;
-    }
 
-    if (iph->version != 4) {
+    if (iph->version != 4)
         return false;
-    }
 
     iphl = iph->ihl * 4;
-
-    if (iph->ihl < 5) {
+    if (iph->ihl < 5)
         return false;
-    }
 
-    if (skb->len <= iphl) {
+    if ((u64)skb->len <= ip_offset + iphl)
         return false;
-    }
 
     if (iph->protocol == IPPROTO_UDP) {
-        if (skb->len < iphl + sizeof(struct udphdr)) {
+        if ((u64)skb->len < ip_offset + iphl + sizeof(struct udphdr))
             return false;
-        }
 
-        udph = udp_hdr(skb, iphl);
-        if (!udph) {
+        udph = udp_hdr(skb, ip_offset + iphl);
+        if (!udph)
             return false;
-        }
 
         tuple->protocol = IPPROTO_UDP;
         if (direction == EGRESS) {
             tuple->ip = bpf_ntohl(iph->saddr);
             tuple->port = bpf_ntohs(udph->source);
         } else {
-            tuple->ip = (iph->daddr);
-            tuple->port = (udph->dest);
+            tuple->ip = bpf_ntohl(iph->daddr);
+            tuple->port = bpf_ntohs(udph->dest);
         }
     } else if (iph->protocol == IPPROTO_TCP) {
-        if (skb->len < iphl + sizeof(struct tcphdr)) {
+        if ((u64)skb->len < ip_offset + iphl + sizeof(struct tcphdr))
             return false;
-        }
 
-        tcph = tcp_hdr(skb, iphl);
-        if (!tcph) {
+        tcph = tcp_hdr(skb, ip_offset + iphl);
+        if (!tcph)
             return false;
-        }
 
         tuple->protocol = IPPROTO_TCP;
         if (direction == EGRESS) {
@@ -229,6 +221,8 @@ parse_sk_buff(struct sk_buff* skb, __u8 direction, struct net_group* tuple) {
     return true;
 }
 
+/* save_sock and the kprobes remain useful: they populate sock_map & tuple_map
+   same as original implementation (no change necessary) */
 static void save_sock(struct socket* sock) {
     struct sock* sk = BPF_CORE_READ(sock, sk);
     if (!sk)
@@ -238,7 +232,7 @@ static void save_sock(struct socket* sock) {
     proc.pid = bpf_get_current_pid_tgid() >> 32;
     bpf_get_current_comm(proc.comm, sizeof(proc.comm));
 
-    bpf_map_update_elem(&sock_map, &sk, &proc, BPF_ANY);
+    bpf_map_update_elem(&sock_map, (void*)&sk, &proc, BPF_ANY);
 }
 
 SEC("kprobe/security_socket_recvmsg")
@@ -287,71 +281,68 @@ int BPF_KPROBE(security_socket_sendmsg, struct socket* sock) {
     return 0;
 }
 
-SEC("netfilter")
-int netfilter_hook(struct bpf_nf_ctx* ctx) {
+/* Common handler used by both ingress and egress TC programs.
+   Returns TC_ACT_OK to accept, TC_ACT_SHOT to drop. */
+static __attribute__((noinline)) int tc_handle(struct __sk_buff* skb, __u8 direction) {
     struct process_rule* rule;
     struct message_get mes = { 0 };
     __u32 rule_key = 0;
 
     rule = bpf_map_lookup_elem(&process_rules, &rule_key);
-
     if (!rule) {
-        return NF_ACCEPT;
+        return TC_ACT_OK;
     }
 
-    if (!ctx || !ctx->skb) {
-        return NF_ACCEPT;
-    }
+    /* rule->gress uses NF_INET_LOCAL_OUT (egress) semantics in original.
+       Keep same meaning: if mismatch, accept. */
+    if (rule->gress == EGRESS && direction != EGRESS)
+        return TC_ACT_OK;
+    if (rule->gress == INGRESS && direction != INGRESS)
+        return TC_ACT_OK;
 
-    __u32 hook_state = BPF_CORE_READ(ctx->state, hook);
-
-    if (rule->gress == EGRESS && hook_state != NF_INET_LOCAL_OUT) {
-        return NF_ACCEPT;
-    }
-
-    if (rule->gress == INGRESS && hook_state != NF_INET_LOCAL_IN) {
-        return NF_ACCEPT;
-    }
-
-    volatile struct sock* pre_sk = BPF_CORE_READ(ctx->skb, sk);
-
-    struct ProcInfo* proc;
+    /* parse packet to get tuple */
     struct net_group key = {};
-    int i = parse_sk_buff(ctx->skb, INGRESS, &key);
-    if (i == false) {
-        return NF_ACCEPT;
-    }
+    bool ok = parse_skb_tc(skb, direction, &key);
+    if (!ok)
+        return TC_ACT_OK;
 
-    if (hook_state == NF_INET_LOCAL_IN && key.protocol == IPPROTO_UDP) {
+    /* try to find proc info:
+       - for ingress UDP we try tuple_map (no skb->sk)
+       - otherwise try sock_map (if skb has associated sk pointer) */
+    struct ProcInfo* proc = NULL;
+
+    /* attempt to get skb->sk if present */
+    volatile struct bpf_sock* pre_sk = BPF_CORE_READ(skb, sk);
+
+    if (direction == INGRESS && key.protocol == IPPROTO_UDP) {
         proc = bpf_map_lookup_elem(&tuple_map, &key);
     } else {
         if (!pre_sk) {
-            return NF_ACCEPT;
+            /* fall back to tuple lookup if no sk pointer */
+            proc = bpf_map_lookup_elem(&tuple_map, &key);
+        } else {
+            struct sock* sk_ptr = (struct sock*)pre_sk;
+            proc = bpf_map_lookup_elem(&sock_map, (void*)&sk_ptr);
         }
-        struct sock* sk_ptr = (struct sock*)pre_sk;
-        proc = bpf_map_lookup_elem(&sock_map, &sk_ptr);
     }
 
-    if (!proc) {
-        return NF_ACCEPT;
-    }
+    if (!proc)
+        return TC_ACT_OK;
 
     __u32 pid = proc->pid;
-    if (pid == 0) {
-        return NF_ACCEPT;
-    }
+    if (pid == 0)
+        return TC_ACT_OK;
 
-    if (rule->target_pid != proc->pid) {
-        return NF_ACCEPT;
-    }
+    if (rule->target_pid != proc->pid)
+        return TC_ACT_OK;
 
     __u64 now = bpf_ktime_get_ns();
     __u32 flow_key = 1;
     struct flow_rate_info* info = bpf_map_lookup_elem(&flow_rate_stats, &flow_key);
-    if (!info) { // not-exsitent info -> SEC(netfilter) is called firstly
+    if (!info) {
         struct flow_rate_info new_flow = { .window_start_ns = now,
-                                           .total_bytes = ctx->skb->len,
-                                           .packet_bytes = ctx->skb->len,
+                                           .total_bytes = skb->len,
+                                           .packet_bytes = skb->len,
                                            .last_ns = now,
                                            .instance_rate_bps = 0,
                                            .rate_bps = 0,
@@ -361,24 +352,37 @@ int netfilter_hook(struct bpf_nf_ctx* ctx) {
     }
     info = bpf_map_lookup_elem(&flow_rate_stats, &flow_key);
     if (info) {
-        update_flow_rate(info, ctx->skb->len);
+        update_flow_rate(info, skb->len);
         mes.rate_bps = info->rate_bps;
         mes.instance_rate_bps = info->instance_rate_bps;
         mes.peak_rate_bps = info->peak_rate_bps;
         mes.smoothed_rate_bps = info->smooth_rate_bps;
     }
 
-    send_message(&mes); // send flow rate info back to user-space
+    send_message(&mes);
 
     __u64 bucket_key = proc->pid;
     struct rate_limit rate = { .bucket_key = &bucket_key,
                                .buckets = &buckets,
-                               .packet_len = ctx->skb->len,
+                               .packet_len = skb->len,
                                .rate_bps = rule->rate_bps,
                                .time_scale = rule->time_scale };
 
     if (rate_limit_check(&rate) == ACCEPT) {
-        return NF_ACCEPT;
+        return TC_ACT_OK;
     }
-    return NF_DROP;
+
+    return TC_ACT_SHOT;
+}
+
+/* TC egress program: attach to device egress */
+SEC("tc_egress")
+int tc_egress_prog(struct __sk_buff* skb) {
+    return tc_handle(skb, EGRESS);
+}
+
+/* TC ingress program: attach to device ingress */
+SEC("tc_ingress")
+int tc_ingress_prog(struct __sk_buff* skb) {
+    return tc_handle(skb, INGRESS);
 }

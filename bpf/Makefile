@@ -12,24 +12,34 @@ INCLUDES    := \
 
 SRCS        := $(wildcard tc_*.c)
 BUILD_DIR   := build
+SKEL_DIR    := skel
 OBJS        := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
+SKELS       := $(patsubst %.c,$(SKEL_DIR)/%.skel.h,$(SRCS))
 
 .PHONY: all clean
 
-all: $(BUILD_DIR) vmlinux.h $(OBJS)
+all: $(BUILD_DIR) $(SKEL_DIR) vmlinux.h $(OBJS) $(SKELS)
 
-# 创建 build 目录
+# Create build directory for object files
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-# 自动生成 vmlinux.h
+# Create skel directory for skeleton headers
+$(SKEL_DIR):
+	mkdir -p $(SKEL_DIR)
+
+# Auto-generate vmlinux.h from kernel BTF
 vmlinux.h:
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
 
-# 编译规则：将 .o 文件输出到 build/
+# Compile .c -> .o into build/
 $(BUILD_DIR)/%.o: %.c vmlinux.h common.h
 	$(CC) $(BPF_CFLAGS) $(PKG_CFLAGS) $(INCLUDES) -c $< -o $@
 
-clean:
-	rm -rf $(BUILD_DIR) vmlinux.h
+# Generate skeleton headers from .o files into skel/
+$(SKEL_DIR)/%.skel.h: $(BUILD_DIR)/%.o
+	bpftool gen skeleton $< > $@
 
+# Clean all build artifacts
+clean:
+	rm -rf $(BUILD_DIR) $(SKEL_DIR) vmlinux.h

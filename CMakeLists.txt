@@ -31,6 +31,7 @@ target_include_directories(
   PRIVATE
   ${LIBBPF_INCLUDE_DIR}   # libbpf
   ${CMAKE_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/bpf/skel # skel
 )
 
 target_compile_definitions(wirefisher PRIVATE TOML_EXCEPTIONS=0)

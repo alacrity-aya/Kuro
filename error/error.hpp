@@ -9,6 +9,10 @@ enum class ModuleError : uint8_t {
     ROOT_PRIVILEGES_REQUIRED,
     FAILED_TO_OPEN_BPF_OBJECT,
     FAILED_TO_LOAD_BPF_OBJECT,
+    OPEN_AND_LOAD_BPF_FAILED,
+    POLL_RINGBUF_FAILED,
+    ATTACH_BPF_FAILED,
+    BPF_LOAD_FAILED,
     LOCAL_IP_MAP_SETUP_FAILED,
     NETFILTER_HOOK_ATTACH_FAILED,
     KPROBE_HOOK_ATTACH_FAILED,
@@ -25,6 +29,14 @@ inline std::string error_to_string(ModuleError err) {
     switch (err) {
         case ModuleError::ROOT_PRIVILEGES_REQUIRED:
             return "Root privileges are required to run this module.";
+        case ModuleError::POLL_RINGBUF_FAILED:
+            return "Poll ring buffer failed.";
+        case ModuleError::ATTACH_BPF_FAILED:
+            return "Failed to attach bpf program";
+        case ModuleError::BPF_LOAD_FAILED:
+            return "Failed to load skel.";
+        case ModuleError::OPEN_AND_LOAD_BPF_FAILED:
+            return "Failed to open skel.";
         case ModuleError::FAILED_TO_OPEN_BPF_OBJECT:
             return "Failed to open BPF object file.";
         case ModuleError::FAILED_TO_LOAD_BPF_OBJECT:
