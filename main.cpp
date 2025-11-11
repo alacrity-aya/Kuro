@@ -1,16 +1,10 @@
-// 1. toml
-
 #include "error/error.hpp"
-#include "utils.hpp"
-#include <bpf/libbpf.h>
-#include <expected>
-#include <module.hpp>
-#include <print>
-#include <toml++/toml.hpp>
-
 #include "modules/process_module.hpp"
+#include "utils.hpp"
 #include <cstdint>
+#include <expected>
 #include <iostream>
+#include <print>
 
 namespace {
 
