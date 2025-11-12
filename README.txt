@@ -1,1 +1,1 @@
-![kuro CG](./doc/kuro.jpg)
+![kuro CG](assert/kuro.jpg)
