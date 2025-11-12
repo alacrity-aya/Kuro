@@ -1,6 +1,15 @@
-[process]
+[rule]
 
-target_pid = 12284
-rate_bps = "1M"
+[[rule.process]]
+
+target_pid = 19852
+rate_bps = "10M"
 gress = "egress"
 time_scale = "1s"
+
+# [[process]]
+#
+# target_pid = 12284
+# rate_bps = "1M"
+# gress = "egress"
+# time_scale = "1s"

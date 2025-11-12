@@ -6,3 +6,4 @@
 /bpf/vmlinux.h
 /bpf/skel
 /test/build
+iwyu_tool.py

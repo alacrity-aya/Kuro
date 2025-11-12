@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(wirefisher)
+project(kuro)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,22 +22,28 @@ find_library(ZLIB_LIB     z     REQUIRED)
 find_path(LIBBPF_INCLUDE_DIR NAMES bpf/libbpf.h REQUIRED)
 
 
-add_executable(wirefisher
-  main.cpp
-)
+add_executable(kuro main.cpp)
+
 
 target_include_directories(
-  wirefisher
+  kuro
   PRIVATE
   ${LIBBPF_INCLUDE_DIR}   # libbpf
   ${CMAKE_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/bpf/skel # skel
 )
 
-target_compile_definitions(wirefisher PRIVATE TOML_EXCEPTIONS=0)
+configure_file(
+  config.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/config.h
+  @ONLY
+)
 
-# 链接所需库
-target_link_libraries(wirefisher
+target_include_directories(kuro PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+
+target_compile_definitions(kuro PRIVATE TOML_EXCEPTIONS=0)
+
+target_link_libraries(kuro
     PRIVATE
     tomlplusplus::tomlplusplus
     ${LIBBPF_LIB}
@@ -46,7 +52,7 @@ target_link_libraries(wirefisher
 )
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(RDKAFKA REQUIRED rdkafka)
-target_link_libraries(wirefisher PRIVATE ${RDKAFKA_LIBRARIES})
-target_include_directories(wirefisher PRIVATE ${RDKAFKA_INCLUDE_DIRS})
+# pkg_check_modules(RDKAFKA REQUIRED rdkafka)
+target_link_libraries(kuro PRIVATE ${RDKAFKA_LIBRARIES})
+target_include_directories(kuro PRIVATE ${RDKAFKA_INCLUDE_DIRS})
 

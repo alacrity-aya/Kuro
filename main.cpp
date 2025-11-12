@@ -1,14 +1,13 @@
+#include "config.h"
 #include "error/error.hpp"
 #include "modules/process_module.hpp"
 #include "utils.hpp"
-#include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <iostream>
 #include <print>
 
 namespace {
-
-using module_error::ModuleError;
 
 volatile bool running = true;
 
@@ -16,48 +15,46 @@ void on_signal(int) {
     running = false;
 }
 
-std::expected<void, ModuleError> check() {
-    auto project_root = utils::find_project_root();
-    return {};
-}
-
 } // namespace
 
-//     auto deleter = [](auto* ring_buf) { ring_buffer__free(ring_buf); };
-//     auto& manager = ModuleManager::instance();
+// auto deleter = [](auto* ring_buf) { ring_buffer__free(ring_buf); };
+// auto& manager = ModuleManager::instance();
 // using process_module::ProcessModule;
 // using process_module::ProcessRule;
 int main() {
-    process_module::ProcessModule module;
-
-    if (auto result = module.load(); !result.has_value()) {
-        std::println("Error: {}", module_error::error_to_string(result.error()));
+    toml::parse_result result = toml::parse_file(
+        (std::filesystem::path(PROJECT_ROOT_DIR) / "config" / "config.toml").c_str()
+    );
+    if (!result) {
+        std::cerr << "Parsing failed:\n" << result.error() << "\n";
+        return 1;
+    }
+    const auto& config = result.table();
+    const auto* processes = config["rule"]["process"].as_array();
+    if (processes == nullptr) {
+        utils::panic("process = nullptr");
     }
 
-    uint32_t pid;
-    std::cin >> pid;
-    process_module::ProcessRule rule {
-        .target_pid = pid,
-        .rate_bps = 1024ULL * 1024 * 10,
-        .gress = 1,
-        .time_scale = 10,
-    };
-    if (!module.update_rule(rule).has_value()) {
-        std::println(stderr, "update_rule failed!");
-        return -1;
-    }
+    for (const auto& process: *processes) {
+        process_module::ProcessModule module { process.as_table() };
 
-    std::cout << "module is running...\n";
-    while (running) {
-        if (auto result = module.poll_ring_buffer(100); !result.has_value()) {
+        if (auto result = module.load(); !result.has_value()) {
             std::println("Error: {}", module_error::error_to_string(result.error()));
-            break;
+            return -1;
         }
-    }
 
-    module.unload();
+        std::cout << "module is running...\n";
+        while (running) {
+            if (auto result = module.poll_ring_buffer(100); !result.has_value()) {
+                std::println("Error: {}", module_error::error_to_string(result.error()));
+                break;
+            }
+        }
+
+        module.unload();
+
+        utils::todo("while(running)");
+    }
 
     return 0;
-
-    // TODO(alacrity): toml -> ProcessRule
 }

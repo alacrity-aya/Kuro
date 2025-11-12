@@ -1,4 +1,6 @@
 #pragma once
+#include <toml++/toml.hpp>
+
 #include <arpa/inet.h>
 #include <array>
 #include <cstddef>
@@ -46,7 +48,7 @@ struct MessageGet {
 
 class ProcessModule {
 public:
-    ProcessModule() = default;
+    explicit ProcessModule(const toml::table* config): config { config } {}
     ~ProcessModule() {
         unload();
     }
@@ -56,15 +58,17 @@ public:
         // Anyway, it looks good.
         libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
 
-        auto open_and_load_bpf = [this]() -> ModuleResult {
-            skel = tc_process__open_and_load();
-            if (skel == nullptr) {
-                return std::unexpected { ModuleError::OPEN_AND_LOAD_BPF_FAILED };
-            }
-            return {};
-        };
+        ModuleResult ret {};
+        return ret
 
-        return open_and_load_bpf()
+            .and_then([this]() { return parse_config(); })
+            .and_then([this]() -> ModuleResult {
+                skel = tc_process__open_and_load();
+                if (skel == nullptr) {
+                    return std::unexpected { ModuleError::OPEN_AND_LOAD_BPF_FAILED };
+                }
+                return {};
+            })
             .and_then([this]() -> ModuleResult {
                 if (tc_process__attach(skel) != 0) {
                     return std::unexpected { ModuleError::ATTACH_BPF_FAILED };
@@ -73,34 +77,15 @@ public:
             })
             .and_then([this]() { return setup_local_ip_map(); })
             .and_then([this]() { return attach_netfilter_hook(); })
-            .and_then([this]() { return init_ring_buffer(); });
+            .and_then([this]() { return init_ring_buffer(); })
+            .and_then([this]() { return update_rule(); });
     }
 
     void unload() {
-        if (rb_ != nullptr) {
+        if (rb_ != nullptr)
             ring_buffer__free(rb_);
-            rb_ = nullptr;
-        }
 
         tc_process__destroy(skel);
-    }
-
-    ModuleResult update_rule(const ProcessRule& rule) {
-        auto* map = skel->maps.process_rules;
-        if (map == nullptr) {
-            // Changed: process_rules map not found
-            std::println("[process_module] 'process_rules' map not found");
-            return std::unexpected { ModuleError::FAILED_TO_FIND_MAP };
-        }
-
-        uint32_t key = 0;
-        int err = bpf_map__update_elem(map, &key, sizeof(key), &rule, sizeof(rule), BPF_ANY);
-        if (err != 0) {
-            // Changed: Failed to update process_rules
-            std::println("[process_module] Failed to update process_rules: {}", err);
-            return std::unexpected { ModuleError::FAILED_TO_UPDATE_MAP };
-        }
-        return {};
     }
 
     //poll ring buffer once, omitting ctrl-c in this function
@@ -113,10 +98,51 @@ public:
     }
 
 private:
-    struct ring_buffer* rb_ = nullptr;
+    ring_buffer* rb_ { nullptr };
     tc_process* skel {};
-    struct bpf_link* recvmsg_kprobe_ = nullptr;
-    struct bpf_link* sendmsg_kprobe_ = nullptr;
+    const toml::table* config;
+    ProcessRule rule;
+
+    ModuleResult parse_config() {
+        if (config == nullptr)
+            return std::unexpected { ModuleError::PARSING_FAILED };
+        try {
+            uint32_t target_pid = config->get("target_pid")->value<uint32_t>().value();
+            uint64_t rate_bps =
+                utils::parse_rate_bps(config->get("rate_bps")->value<std::string>().value())
+                    .value();
+            uint8_t gress =
+                utils::parse_gress(config->get("gress")->value<std::string>().value()).value();
+            uint32_t time_scale =
+                utils::parse_time_scale(config->get("time_scale")->value<std::string>().value())
+                    .value();
+
+            rule = ProcessRule { .target_pid = target_pid,
+                                 .rate_bps = rate_bps,
+                                 .gress = gress,
+                                 .time_scale = time_scale };
+
+        } catch (const std::bad_optional_access& err) {
+            return std::unexpected { ModuleError::PARSING_FAILED };
+        }
+        return {};
+    }
+
+    ModuleResult update_rule() {
+        auto* map = skel->maps.process_rules;
+        if (map == nullptr) {
+            std::println("[process_module] 'process_rules' map not found");
+            return std::unexpected { ModuleError::FAILED_TO_FIND_MAP };
+        }
+
+        uint32_t key = 0;
+        int err = bpf_map__update_elem(map, &key, sizeof(key), &rule, sizeof(rule), BPF_ANY);
+        if (err != 0) {
+            std::println("[process_module] Failed to update process_rules: {}", err);
+            return std::unexpected { ModuleError::FAILED_TO_UPDATE_MAP };
+        }
+        return {};
+    }
 
     static int handle_event(void*, void* data, size_t data_sz) {
         if (data_sz != sizeof(MessageGet)) {

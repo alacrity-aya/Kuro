@@ -2,38 +2,20 @@
 
 #include <arpa/inet.h>
 #include <array>
-#include <expected>
-#include <filesystem>
+#include <cstdlib>
+#include <execinfo.h>
 #include <format>
+#include <iomanip>
 #include <netinet/in.h>
 #include <optional>
+#include <print>
 #include <regex>
+#include <stdexcept>
 #include <string>
 
 namespace utils {
 
-namespace fs = std::filesystem;
-inline std::optional<fs::path>
-find_project_root(const std::string& landmark_file_name = "README.txt") {
-    fs::path current_dir = fs::current_path();
-
-    while (current_dir.has_parent_path() && current_dir != current_dir.parent_path()) {
-        fs::path landmark_path = current_dir / landmark_file_name;
-
-        if (fs::exists(landmark_path)) {
-            return current_dir;
-        }
-
-        current_dir = current_dir.parent_path();
-    }
-
-    return std::nullopt;
-}
-
-template<typename T>
-using ParseResult = std::expected<T, std::string>;
-
-inline ParseResult<uint64_t> parse_rate_bps(const std::string& rate_str) {
+inline std::optional<uint64_t> parse_rate_bps(const std::string& rate_str) {
     std::regex pattern(R"((\d+)([KMG]?))");
     std::smatch match;
     if (std::regex_match(rate_str, match, pattern)) {
@@ -47,10 +29,10 @@ inline ParseResult<uint64_t> parse_rate_bps(const std::string& rate_str) {
             return base * 1024ULL * 1024 * 1024;
         return base;
     }
-    return std::unexpected { "Invalid rate_bps format: " + rate_str };
+    return std::nullopt;
 }
 
-inline ParseResult<uint32_t> parse_time_scale(const std::string& time_str) {
+inline std::optional<uint32_t> parse_time_scale(const std::string& time_str) {
     std::regex pattern(R"((\d+)(s|ms|m))");
     std::smatch match;
     if (std::regex_match(time_str, match, pattern)) {
@@ -62,15 +44,15 @@ inline ParseResult<uint32_t> parse_time_scale(const std::string& time_str) {
             return base * 60;
         return base; // "s"
     }
-    return std::unexpected { "Invalid time_scale format: " + time_str };
+    return std::nullopt;
 }
 
-inline ParseResult<uint8_t> parse_gress(const std::string& gress_str) {
+inline std::optional<uint8_t> parse_gress(const std::string& gress_str) {
     if (gress_str == "ingress")
         return 0;
     if (gress_str == "egress")
         return 1;
-    return std::unexpected { "Invalid gress value: " + gress_str };
+    return std::nullopt;
 }
 
 inline std::string ip_to_string(uint32_t ip_hbo) {
@@ -81,33 +63,33 @@ inline std::string ip_to_string(uint32_t ip_hbo) {
     return std::string { buf.data() };
 }
 
-inline ParseResult<uint32_t> parse_ip(const std::string& ip_str) {
+inline std::optional<uint32_t> parse_ip(const std::string& ip_str) {
     in_addr addr;
     if (inet_pton(AF_INET, ip_str.c_str(), &addr) != 1) {
-        return std::unexpected { "Invalid IPv4 address: " + ip_str };
+        return std::nullopt;
     }
     return ntohl(addr.s_addr);
 }
 
-inline ParseResult<std::string> protocol_to_string(uint8_t proto) {
+inline std::optional<std::string> protocol_to_string(uint8_t proto) {
     switch (proto) {
         case IPPROTO_TCP:
             return "TCP";
         case IPPROTO_UDP:
             return "UDP";
         default:
-            return std::unexpected { std::format("unknown protocol id: {}", proto) };
+            return std::nullopt;
     }
 }
 
 // only support tcp and udp
-inline ParseResult<uint8_t> parse_protocol(const std::string& proto_str) {
+inline std::optional<uint8_t> parse_protocol(const std::string& proto_str) {
     if (proto_str == "TCP" || proto_str == "tcp")
         return IPPROTO_TCP;
     if (proto_str == "UDP" || proto_str == "udp")
         return IPPROTO_UDP;
 
-    return std::unexpected { "Invalid protocol: " + proto_str };
+    return std::nullopt;
 }
 
 inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
@@ -121,6 +103,32 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
     oss << std::setfill('0') << std::setw(2) << hours << ':' << std::setw(2) << minutes << ':'
         << std::setw(2) << seconds << '.' << std::setw(3) << millis;
     return oss.str();
+}
+
+inline void todo(const std::string& str) {
+    throw std::runtime_error(str);
+}
+
+inline void todo() {
+    throw std::runtime_error("Not implementation\n");
+}
+
+template<typename... Args>
+[[noreturn]] inline void panic(std::format_string<Args...> fmt, Args&&... args) {
+    std::string msg = std::format(fmt, std::forward<Args>(args)...);
+    std::println(stderr, "panic at '{}':{}", __builtin_FILE(), __builtin_LINE());
+    std::println(stderr, "    {}", msg);
+
+    std::array<void*, 32> trace {};
+    int size = ::backtrace(trace.data(), 32);
+    char** symbols = ::backtrace_symbols(trace.data(), size);
+
+    std::println(stderr, "\nStack trace:");
+    for (int i = 0; i < size; ++i)
+        std::println(stderr, "  {}", symbols[i]);
+
+    std::free(static_cast<void*>(symbols));
+    std::abort();
 }
 
 } // namespace utils
