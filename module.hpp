@@ -7,7 +7,6 @@
 #include <print>
 #include <toml++/toml.hpp>
 #include <vector>
-#include <yaml-cpp/yaml.h>
 
 struct EbpfModule {
     std::string name;
