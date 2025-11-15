@@ -1,6 +1,6 @@
 #include "config.h"
 #include "error/error.hpp"
-#include "modules/process_module.hpp"
+#include "modules/process.hpp"
 #include "utils.hpp"
 #include <expected>
 #include <filesystem>
@@ -17,14 +17,9 @@ void on_signal(int) {
 
 } // namespace
 
-// auto deleter = [](auto* ring_buf) { ring_buffer__free(ring_buf); };
-// auto& manager = ModuleManager::instance();
-// using process_module::ProcessModule;
-// using process_module::ProcessRule;
 int main() {
-    toml::parse_result result = toml::parse_file(
-        (std::filesystem::path(PROJECT_ROOT_DIR) / "config" / "config.toml").c_str()
-    );
+    toml::parse_result result =
+        toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "config.toml").c_str());
     if (!result) {
         std::cerr << "Parsing failed:\n" << result.error() << "\n";
         return 1;

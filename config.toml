@@ -2,7 +2,7 @@
 
 [[rule.process]]
 
-target_pid = 19852
+target_pid = 22081
 rate_bps = "10M"
 gress = "egress"
 time_scale = "1s"
