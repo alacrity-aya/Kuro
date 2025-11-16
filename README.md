@@ -6,9 +6,15 @@
 
 ## TODO:
 
-1. using tc to rewrite tc_process.c
-2. adding cgroup eth port module
-3. making the volume of token bucket configurable
+1. adding cgroup eth port module
+2. making the volume of token bucket configurable
+
+
+### flow limitation for pid
+
+- Cgroup-skb: 这种方案的前提是把二进制程序挂在到systemd中，直接屏蔽了pid。通过对cgroup的控制进行限制流量，但问题是无法实时的控制流量
+- tc: tc 层的 PID 不等于应用程序 PID，直接否决
+- sockmap: 只适用于tcp
 
 ---
 
