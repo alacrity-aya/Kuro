@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_definitions(TOML_EXCEPTIONS=0)
 
+# Configure config.h
 configure_file(
   config.h.in
   ${CMAKE_CURRENT_BINARY_DIR}/config.h
@@ -13,7 +14,7 @@ configure_file(
 )
 
 # -----------------------------
-# 1️⃣ BPF 配置
+# 1️⃣ BPF Configuration
 # -----------------------------
 set(BPF_DIR ${CMAKE_SOURCE_DIR}/bpf)
 set(BPF_SRC_DIR ${BPF_DIR}/src)
@@ -23,12 +24,12 @@ set(BPF_SKEL_DIR ${BPF_DIR}/skel)
 
 file(GLOB BPF_SRCS "${BPF_SRC_DIR}/tc_*.c")
 
-# 创建输出目录
+# Create output directories
 file(MAKE_DIRECTORY ${BPF_BUILD_DIR})
 file(MAKE_DIRECTORY ${BPF_SKEL_DIR})
 
 # -----------------------------
-# 2️⃣ 生成 vmlinux.h
+# 2️⃣ Generate vmlinux.h
 # -----------------------------
 set(VMLINUX_H ${BPF_BUILD_DIR}/vmlinux.h)
 add_custom_command(
@@ -39,7 +40,7 @@ add_custom_command(
 )
 
 # -----------------------------
-# 3️⃣ 为每个 BPF 源文件生成 .o + skeleton
+# 3️⃣ Compile each BPF source to .o and generate skeleton
 # -----------------------------
 set(BPF_OBJS)
 set(BPF_SKELS)
@@ -49,7 +50,7 @@ foreach(BPF_FILE IN LISTS BPF_SRCS)
     set(OBJ_FILE ${BPF_BUILD_DIR}/${BPF_NAME}.o)
     set(SKEL_FILE ${BPF_SKEL_DIR}/${BPF_NAME}.skel.h)
 
-    # 编译 .c -> .o
+    # Compile .c -> .o
     add_custom_command(
         OUTPUT ${OBJ_FILE}
         COMMAND clang -O2 -g -target bpf -Wno-unknown-attributes
@@ -62,7 +63,7 @@ foreach(BPF_FILE IN LISTS BPF_SRCS)
         VERBATIM
     )
 
-    # 生成 skeleton
+    # Generate skeleton header
     add_custom_command(
         OUTPUT ${SKEL_FILE}
         COMMAND bpftool gen skeleton ${OBJ_FILE} > ${SKEL_FILE}
@@ -76,19 +77,19 @@ foreach(BPF_FILE IN LISTS BPF_SRCS)
 endforeach()
 
 # -----------------------------
-# 4️⃣ BPF 总 target
+# 4️⃣ BPF aggregate target
 # -----------------------------
 add_custom_target(bpf_skel ALL
     DEPENDS ${BPF_OBJS} ${BPF_SKELS}
 )
 
 # -----------------------------
-# 5️⃣ 用户态可执行文件
+# 5️⃣ User-space executable
 # -----------------------------
 add_executable(kuro main.cpp)
 add_dependencies(kuro bpf_skel)
 
-# 包含 skeleton 头和 BPF include
+# Include skeleton headers and BPF include directories
 target_include_directories(kuro PRIVATE
     ${BPF_SKEL_DIR}
     ${BPF_INCLUDE_DIRS}
@@ -96,7 +97,7 @@ target_include_directories(kuro PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 
-# 链接 libbpf、zlib、elf、toml++
+# Link libraries: libbpf, elf, zlib, toml++
 find_library(LIBBPF_LIB bpf REQUIRED)
 find_library(ELF_LIB elf REQUIRED)
 find_library(ZLIB_LIB z REQUIRED)

@@ -12,7 +12,6 @@
 #include <getopt.h>
 #include <linux/netfilter.h>
 #include <net/if.h>
-#include <nlohmann/json.hpp>
 #include <print>
 #include <string>
 #include <sys/syscall.h>
