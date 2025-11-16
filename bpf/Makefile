@@ -8,32 +8,33 @@ PKG_CFLAGS  := $(shell pkg-config --cflags libbpf)
 INCLUDES    := \
 	-I$(KHEAD) \
 	-I/usr/include \
-	-I/usr/include/$(shell dpkg-architecture -q DEB_HOST_MULTIARCH)
+	-I$(CURDIR)/include \
+	-I$(CURDIR)/build   # vmlinux.h 所在目录
 
-SRCS        := $(wildcard tc_*.c)
+SRCS        := $(wildcard src/tc_*.c)
 BUILD_DIR   := build
 SKEL_DIR    := skel
-OBJS        := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
-SKELS       := $(patsubst %.c,$(SKEL_DIR)/%.skel.h,$(SRCS))
+OBJS        := $(patsubst src/%.c,$(BUILD_DIR)/%.o,$(SRCS))
+SKELS       := $(patsubst src/%.c,$(SKEL_DIR)/%.skel.h,$(SRCS))
+VMLINUX     := $(BUILD_DIR)/vmlinux.h
 
 .PHONY: all clean
 
-all: $(BUILD_DIR) $(SKEL_DIR) vmlinux.h $(OBJS) $(SKELS)
+all: $(BUILD_DIR) $(SKEL_DIR) $(VMLINUX) $(OBJS) $(SKELS)
 
-# Create build directory for object files
+# Create build and skel directories
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-# Create skel directory for skeleton headers
 $(SKEL_DIR):
 	mkdir -p $(SKEL_DIR)
 
-# Auto-generate vmlinux.h from kernel BTF
-vmlinux.h:
-	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
+# Auto-generate vmlinux.h into build/
+$(VMLINUX):
+	bpftool btf dump file /sys/kernel/btf/vmlinux format c > $@
 
 # Compile .c -> .o into build/
-$(BUILD_DIR)/%.o: %.c vmlinux.h common.h
+$(BUILD_DIR)/%.o: src/%.c $(BUILD_DIR)/vmlinux.h include/common.h
 	$(CC) $(BPF_CFLAGS) $(PKG_CFLAGS) $(INCLUDES) -c $< -o $@
 
 # Generate skeleton headers from .o files into skel/
@@ -42,4 +43,4 @@ $(SKEL_DIR)/%.skel.h: $(BUILD_DIR)/%.o
 
 # Clean all build artifacts
 clean:
-	rm -rf $(BUILD_DIR) $(SKEL_DIR) vmlinux.h
+	rm -rf $(BUILD_DIR) $(SKEL_DIR)
