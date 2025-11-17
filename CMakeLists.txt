@@ -4,6 +4,17 @@ project(kuro)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0 -Wall -Wextra -Werror")
+set(CMAKE_C_FLAGS_DEBUG   "${CMAKE_C_FLAGS_DEBUG} -g -O0 -Wall -Wextra -Werror")
+
+
 add_compile_definitions(TOML_EXCEPTIONS=0)
 
 # Configure config.h
@@ -86,7 +97,7 @@ add_custom_target(bpf_skel ALL
 # -----------------------------
 # 5️⃣ User-space executable
 # -----------------------------
-add_executable(kuro main.cpp)
+add_executable(kuro main.cpp modules/cgroup.cpp)
 add_dependencies(kuro bpf_skel)
 
 # Include skeleton headers and BPF include directories

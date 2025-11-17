@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace module_error {
+namespace error {
 
 enum class ModuleError : uint8_t {
     OPEN_AND_LOAD_BPF_FAILED,
@@ -44,4 +44,4 @@ inline std::string error_to_string(ModuleError err) {
     // Default case for completeness, although all enums should be covered.
     return "Unknown Module Error";
 }
-} // namespace module_error
+} // namespace error

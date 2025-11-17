@@ -15,6 +15,8 @@
 
 namespace utils {
 
+#define TODO(str) utils::todo(__PRETTY_FUNCTION__);
+
 inline std::optional<uint64_t> parse_rate_bps(const std::string& rate_str) {
     std::regex pattern(R"((\d+)([KMG]?))");
     std::smatch match;
@@ -105,14 +107,6 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
     return oss.str();
 }
 
-inline void todo(const std::string& str) {
-    throw std::runtime_error(str);
-}
-
-inline void todo() {
-    throw std::runtime_error("Not implementation\n");
-}
-
 template<typename... Args>
 [[noreturn]] inline void panic(std::format_string<Args...> fmt, Args&&... args) {
     std::string msg = std::format(fmt, std::forward<Args>(args)...);
@@ -129,6 +123,10 @@ template<typename... Args>
 
     std::free(static_cast<void*>(symbols));
     std::abort();
+}
+
+inline void todo(const char* function) {
+    utils::panic("{}: Not implemented", function);
 }
 
 } // namespace utils

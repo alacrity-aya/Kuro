@@ -19,8 +19,8 @@
 #include <unistd.h>
 #include <utils.hpp>
 
-namespace process_module {
-using module_error::ModuleError;
+namespace module {
+using error::ModuleError;
 
 using ModuleResult = std::expected<void, ModuleError>;
 
@@ -269,4 +269,4 @@ private:
     }
 };
 
-} // namespace process_module
+} // namespace module

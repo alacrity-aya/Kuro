@@ -1,5 +1,12 @@
 [rule]
 
+[[rule.cgroups]]
+
+path = "/home/alacrity/work/kuro/test/build/client"
+gress = "egress"
+time_scale = "1s"
+rate_bps = "10M"
+
 [[rule.process]]
 
 target_pid = 19852
