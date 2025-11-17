@@ -1,4 +1,6 @@
 
+#include "logger/logger.hpp"
+#include <cassert>
 #include <error/error.hpp>
 #include <expected>
 #include <toml++/toml.hpp>
@@ -14,7 +16,13 @@ public:
     virtual ModuleResult parse_config(const toml::table* table) = 0;
     virtual ~IModule() = default;
 
-private:
+    IModule() {
+        logger = logger::Logger::get_instance();
+        assert(logger.get());
+    }
+
+protected:
+    std::shared_ptr<logger::Logger> logger;
 };
 
 } // namespace module

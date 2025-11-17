@@ -15,17 +15,20 @@ enum class ModuleError : uint8_t {
     FAILED_TO_UPDATE_MAP,
     FAILED_TO_FIND_MAP,
     FAILED_TO_FIND_BPF_PROG,
-    PARSING_FAILED,
+    EMPTY_CONFIG_NODE,
+    PARSING_CONFIG_FAILED,
 };
 
 inline std::string error_to_string(ModuleError err) {
     switch (err) {
         case ModuleError::POLL_RINGBUF_FAILED:
             return "Poll ring buffer failed.";
-        case ModuleError::PARSING_FAILED:
-            return "Parsing config file failed.";
+        case ModuleError::PARSING_CONFIG_FAILED:
+            return "Parsing config failed.";
+        case ModuleError::EMPTY_CONFIG_NODE:
+            return "Config node is empty.";
         case ModuleError::ATTACH_BPF_FAILED:
-            return "Failed to attach bpf program";
+            return "Failed to attach bpf program.";
         case ModuleError::OPEN_AND_LOAD_BPF_FAILED:
             return "Failed to open skel."; // This covers open and load failure
         case ModuleError::LOCAL_IP_MAP_SETUP_FAILED:

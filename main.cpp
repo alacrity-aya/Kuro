@@ -1,8 +1,8 @@
-#include "config.h"
-#include "error/error.hpp"
-#include "modules/cgroup.hpp"
+#include <config.h>
+#include <error/error.hpp>
 #include <filesystem>
 #include <iostream>
+#include <modules/cgroup.hpp>
 
 #include <logger/logger.hpp>
 
@@ -31,14 +31,19 @@ int main() {
     const auto& config = result.table();
     const auto* cgroups = config["rule"]["cgroups"].as_array();
 
+    logger->trace("entering loop...");
     for (const auto& cgroup: *cgroups) {
         auto cgroup_module = module::CgroupModule {};
         if (auto ret = cgroup_module.parse_config(cgroup.as_table()); !ret.has_value()) {
-            logger->error("{}", error::error_to_string(ret.error()));
-            return -1;
+            logger->trace("after parsing config");
+            logger->error(
+                "{}",
+                error::error_to_string(ret.error()) + " skipping loading this module"
+            );
+            continue;
         }
-        logger->trace("parse_config successed");
     }
+    logger->trace("function main end");
 
     return 0;
 }

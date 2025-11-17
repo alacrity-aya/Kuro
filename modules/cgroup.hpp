@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <error/error.hpp>
 #include <filesystem>
 #include <modules/module.hpp>
@@ -18,18 +19,19 @@ public:
     ~CgroupModule() final = default;
 
     // table -> CgroupRule
-    ModuleResult parse_config(const toml::table* table) final;
+    ModuleResult parse_config(const toml::table* config) final;
 
     struct CgroupRule {
-        bool engress;
+        bool gress; //true-egress false-ingress
         uint32_t time_scale;
         uint64_t rate_bps;
         std::filesystem::path path;
     };
 
 private:
-    tc_process* skel {};
     CgroupRule rule {};
+    tc_process* skel {};
+    uint32_t time_scale {};
 };
 
 }; // namespace module

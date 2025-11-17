@@ -65,11 +65,11 @@ inline std::optional<uint32_t> parse_time_scale(const std::string& time_str) {
     return std::nullopt;
 }
 
-inline std::optional<uint8_t> parse_gress(const std::string& gress_str) {
+inline std::optional<bool> parse_gress(const std::string& gress_str) {
     if (gress_str == "ingress")
-        return 0;
+        return false;
     if (gress_str == "egress")
-        return 1;
+        return true;
     return std::nullopt;
 }
 
