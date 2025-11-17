@@ -2,20 +2,36 @@
 
 #include <arpa/inet.h>
 #include <array>
-#include <cstdlib>
-#include <execinfo.h>
-#include <format>
+#include <cpptrace/cpptrace.hpp>
 #include <iomanip>
+#include <iostream>
 #include <netinet/in.h>
 #include <optional>
 #include <print>
 #include <regex>
-#include <stdexcept>
+#include <source_location>
 #include <string>
 
 namespace utils {
 
-#define TODO(str) utils::todo(__PRETTY_FUNCTION__);
+[[noreturn]] inline void
+panic(std::string_view msg, const std::source_location& loc = std::source_location::current()) {
+    std::println(
+        "\033[31mPANIC at {}:{} in {}: {}\033[0m",
+        loc.file_name(),
+        loc.line(),
+        loc.function_name(),
+        msg
+    );
+
+    cpptrace::generate_trace().print();
+    std::abort();
+}
+
+[[noreturn]]
+inline void todo(const std::source_location& loc = std::source_location::current()) {
+    panic("Not implemented", loc);
+}
 
 inline std::optional<uint64_t> parse_rate_bps(const std::string& rate_str) {
     std::regex pattern(R"((\d+)([KMG]?))");
@@ -105,28 +121,6 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
     oss << std::setfill('0') << std::setw(2) << hours << ':' << std::setw(2) << minutes << ':'
         << std::setw(2) << seconds << '.' << std::setw(3) << millis;
     return oss.str();
-}
-
-template<typename... Args>
-[[noreturn]] inline void panic(std::format_string<Args...> fmt, Args&&... args) {
-    std::string msg = std::format(fmt, std::forward<Args>(args)...);
-    std::println(stderr, "panic at '{}':{}", __builtin_FILE(), __builtin_LINE());
-    std::println(stderr, "    {}", msg);
-
-    std::array<void*, 32> trace {};
-    int size = ::backtrace(trace.data(), 32);
-    char** symbols = ::backtrace_symbols(trace.data(), size);
-
-    std::println(stderr, "\nStack trace:");
-    for (int i = 0; i < size; ++i)
-        std::println(stderr, "  {}", symbols[i]);
-
-    std::free(static_cast<void*>(symbols));
-    std::abort();
-}
-
-inline void todo(const char* function) {
-    utils::panic("{}: Not implemented", function);
 }
 
 } // namespace utils

@@ -24,7 +24,7 @@ std::string CgroupModule::type() {
 }
 
 ModuleResult CgroupModule::parse_config(const toml::table* table) {
-    TODO();
+    utils::todo();
     std::cout << table << "\n";
     return {};
 }
