@@ -2,7 +2,6 @@
     <h2>kuro: the project is still in progress...</h2>
 </div>
 
----
 
 ## TODO:
 
@@ -10,13 +9,46 @@
 2. making the volume of token bucket configurable
 3. how to move socket in cgroup ?
 4. using std::source_location to upgrade logger
+5. update error, for example:
+
+```C++
+struct DetailedError {
+    ModuleError code;
+    std::string message;
+    int system_errno = 0; 
+
+    std::string to_string() const {
+        std::string base_msg = error_to_string(code);
+        
+        return base_msg + (message.empty() ? "" : ": " + message) + 
+               (system_errno != 0 ? " (errno: " + std::to_string(system_errno) + ")" : "");
+    }
+};
+
+using ModuleResult = std::expected<void, DetailedError>;
+
+ModuleResult some_function() {
+    if (/* failed */) {
+        return std::unexpected { 
+            DetailedError {
+                ModuleError::OPEN_AND_LOAD_BPF_FAILED,
+                "Could not open skel file at /path/to/bpf.o",
+                errno 
+            } 
+        };
+    }
+    return {};
+}
+
+if (auto ret = some_function(); !ret.has_value()) {
+    logger->error("Operation failed: {}", ret.error().to_string()); 
+}
+```
 
 
 ### flow limitation for pid
 
-- Cgroup-skb: 这种方案的前提是把二进制程序挂在到systemd中，直接屏蔽了pid。通过对cgroup的控制进行限制流量，但问题是无法实时的控制流量
-- tc: tc 层的 PID 不等于应用程序 PID，直接否决
-- sockmap: 只适用于tcp
+- Cgroup-skb: I will use cgroup + systemd to solve this
 
 ---
 
