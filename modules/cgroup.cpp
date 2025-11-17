@@ -1,9 +1,10 @@
 #include "utils.hpp"
-#include <iostream>
 #include <modules/cgroup.hpp>
 #include <tc_process.skel.h>
 
 namespace module {
+
+using utils::todo;
 
 ModuleResult CgroupModule::load() {
     skel = tc_process__open_and_load();
@@ -11,6 +12,8 @@ ModuleResult CgroupModule::load() {
         unload();
         return std::unexpected { ModuleError::OPEN_AND_LOAD_BPF_FAILED };
     }
+
+    todo();
 
     return {};
 }
@@ -24,8 +27,9 @@ std::string CgroupModule::type() {
 }
 
 ModuleResult CgroupModule::parse_config(const toml::table* table) {
-    utils::todo();
-    std::cout << table << "\n";
+    if (table == nullptr) {
+        return std::unexpected { ModuleError::PARSING_FAILED };
+    }
     return {};
 }
 

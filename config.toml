@@ -2,10 +2,10 @@
 
 [[rule.cgroups]]
 
-path = "/home/alacrity/work/kuro/test/build/client"
-gress = "egress"
-time_scale = "1s"
-rate_bps = "10M"
+# path = "/home/alacrity/work/kuro/test/build/client"
+# gress = "egress"
+# time_scale = "1s"
+# rate_bps = "10M"
 
 [[rule.process]]
 
