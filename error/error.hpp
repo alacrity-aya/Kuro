@@ -4,6 +4,7 @@
 #include <format>
 #include <source_location>
 #include <string>
+#include <utility>
 
 namespace error {
 
@@ -21,12 +22,15 @@ enum class ErrorCode : uint8_t {
     EMPTY_RULE,
     PARSING_CONFIG_FAILED,
     RUN_SHELL_CMD_FAILED,
+    FAILED_TO_GET_CGROUP_FD
 };
 
 inline std::string error_to_string(ErrorCode err) {
     switch (err) {
         case ErrorCode::POLL_RINGBUF_FAILED:
             return "Poll ring buffer failed.";
+        case ErrorCode::FAILED_TO_GET_CGROUP_FD:
+            return "Failed to find cgroup fd";
         case ErrorCode::RUN_SHELL_CMD_FAILED:
             return "Shell command failed";
         case ErrorCode::EMPTY_RULE:
@@ -60,12 +64,12 @@ struct ModuleError {
 public:
     explicit ModuleError(
         ErrorCode code,
-        std::string_view msg = "",
+        std::string msg = "",
         std::source_location loc = std::source_location::current()
     ):
         code { code },
         loc { loc },
-        msg { msg } {}
+        msg { std::move(msg) } {}
 
     [[nodiscard]] std::string to_string() const {
         auto base_msg = error_to_string(code);
@@ -82,6 +86,6 @@ public:
 private:
     ErrorCode code;
     const std::source_location loc;
-    std::string_view msg;
+    std::string msg;
 };
 } // namespace error

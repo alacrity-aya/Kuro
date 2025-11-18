@@ -127,15 +127,19 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
 }
 
 using module::ModuleResult;
-inline ModuleResult run_systemd(std::string cmd) {
+inline ModuleResult run_systemd(const std::string& path, const std::string& args) {
     const std::string cmd_prefix { "sudo systemd-run --unit=mytest --scope -p Slice=limit.slice " };
-    if (auto ret = system((cmd_prefix + cmd).c_str()); ret != 0) {
+    if (auto ret = system((cmd_prefix + path + " " + args).c_str()); ret != 0) {
         return std::unexpected {
             error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                 std::format("cmd :{}", cmd) },
+                                 std::format("cmd :{}", path + " " + args) },
         };
     }
     return {};
+}
+
+inline std::optional<std::string> get_cgroup_path(const std::string& path) {
+    todo();
 }
 
 } // namespace utils
