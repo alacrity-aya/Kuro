@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <format>
 #include <source_location>
 #include <string>
@@ -88,4 +89,6 @@ private:
     const std::source_location loc;
     std::string msg;
 };
+
+using ModuleResult = std::expected<void, ModuleError>;
 } // namespace error

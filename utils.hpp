@@ -1,19 +1,20 @@
 #pragma once
 
+#include "error/error.hpp"
 #include <arpa/inet.h>
-#include <array>
 #include <cpptrace/cpptrace.hpp>
-#include <error/error.hpp>
+#include <fcntl.h>
 #include <format>
 #include <iomanip>
 #include <iostream>
-#include <modules/cgroup.hpp>
 #include <netinet/in.h>
 #include <optional>
 #include <print>
+#include <random>
 #include <regex>
 #include <source_location>
 #include <string>
+#include <unistd.h>
 
 namespace utils {
 
@@ -126,20 +127,49 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
     return oss.str();
 }
 
-using module::ModuleResult;
-inline ModuleResult run_systemd(const std::string& path, const std::string& args) {
-    const std::string cmd_prefix { "sudo systemd-run --unit=mytest --scope -p Slice=limit.slice " };
-    if (auto ret = system((cmd_prefix + path + " " + args).c_str()); ret != 0) {
+inline std::string uuid_v4() {
+    static thread_local std::mt19937_64 rng(std::random_device {}());
+    static thread_local std::uniform_int_distribution<uint64_t> dist;
+
+    uint64_t part1 = dist(rng);
+    uint64_t part2 = dist(rng);
+
+    // UUID v4 standard：version=4, variant=10xxxxxx
+    part2 = (part2 & 0x3FFFFFFFFFFFFFFF) | 0x8000000000000000; // variant
+    part1 = (part1 & 0xFFFFFFFFFFFF0FFF) | 0x0000000000004000; // version 4
+
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0') << std::setw(8) << ((part1 >> 32) & 0xFFFFFFFF) << "-"
+       << std::setw(4) << ((part1 >> 16) & 0xFFFF) << "-" << std::setw(4) << (part1 & 0xFFFF) << "-"
+       << std::setw(4) << ((part2 >> 48) & 0xFFFF) << "-" << std::setw(12)
+       << (part2 & 0xFFFFFFFFFFFF);
+
+    return ss.str();
+}
+
+// TODO(alacrity): the following two functions need to be refactored
+using error::ModuleResult;
+inline ModuleResult
+create_service(const std::string& path, const std::string& args, const std::string& uuid) {
+    auto cmd = std::format(
+        "sudo systemd-run --unit={} --property=Slice=limit.slice --property=Description=Kuro-Flow-Control {} {}",
+        uuid,
+        path,
+        args
+    );
+    if (auto ret = system(cmd.c_str()); ret != 0)
         return std::unexpected {
-            error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                 std::format("cmd :{}", path + " " + args) },
+            error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED, cmd + " failed" },
         };
-    }
     return {};
 }
 
-inline std::optional<std::string> get_cgroup_path(const std::string& path) {
-    todo();
+inline std::optional<int> get_cgroup_fd(const std::string& uuid) {
+    auto ret = open(std::format("/sys/fs/cgroup/limit.slice/{}.service", uuid).c_str(), O_RDONLY);
+    if (ret == 0) {
+        return std::nullopt;
+    }
+    return ret;
 }
 
 } // namespace utils

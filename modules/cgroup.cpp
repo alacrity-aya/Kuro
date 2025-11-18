@@ -1,4 +1,5 @@
 #include <cassert>
+#include <error/error.hpp>
 #include <expected>
 #include <fcntl.h>
 #include <modules/cgroup.hpp>
@@ -32,14 +33,15 @@ ModuleResult CgroupModule::load() {
             return {};
         })
 
+        .and_then([this]() -> ModuleResult { return this->attach_cgroup(); })
+
         // TODO(alacrity): use sd-bus.h, not use utils::run_command
         .and_then([this]() -> ModuleResult {
-            return utils::run_systemd(this->rule->path, this->rule->args);
-        })
-
-        .and_then([this]() -> ModuleResult { return this->attach_cgroup(); });
+            return utils::create_service(this->rule->path, this->rule->args, this->uuid);
+        });
 }
 
+// TODO(alacrity): using RAII to load and unload
 void CgroupModule::unload() {
     if (this->skel != nullptr) {
         tc_process__destroy(this->skel);
@@ -58,6 +60,7 @@ ModuleResult CgroupModule::parse_config(
     const toml::table* config
 ) { // TODO(alacrity): bad implemetation, refactor it one day
 
+    this->uuid = utils::uuid_v4();
     if (config == nullptr) {
         logger->error("config = nullptr");
         return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE } };
@@ -122,12 +125,17 @@ ModuleResult CgroupModule::parse_config(
 }
 
 ModuleResult CgroupModule::attach_cgroup() {
-    //we should get the cgroup path via rule->path
+    if (this->cgroup_fd = utils::get_cgroup_fd(this->uuid); !this->cgroup_fd.has_value()) {
+        return std::unexpected { ModuleError { ErrorCode::FAILED_TO_GET_CGROUP_FD } };
+    }
+    logger->trace("get cgroup fd {}", this->cgroup_fd.value());
 
-    auto cgroup_path_opt = utils::get_cgroup_path(this->rule->path);
-    this->cgroup_fd = open(cgroup_path_opt.value().c_str(), O_RDONLY);
-    this->skel->links.drop_egress =
-        bpf_program__attach_cgroup(this->skel->progs.drop_egress, cgroup_fd.value());
+    if (auto* ret = this->skel->links.drop_egress =
+            bpf_program__attach_cgroup(this->skel->progs.drop_egress, cgroup_fd.value());
+        ret == nullptr)
+    {
+        return std::unexpected { ModuleError { ErrorCode::ATTACH_BPF_FAILED } };
+    }
 
     return {};
 }

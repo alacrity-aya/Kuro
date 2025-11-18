@@ -32,8 +32,8 @@ public:
 private:
     std::optional<CgroupRule> rule { std::nullopt };
     tc_process* skel {};
-
     std::optional<int> cgroup_fd = { std::nullopt };
+    std::string uuid;
 
     ModuleResult attach_cgroup();
 };

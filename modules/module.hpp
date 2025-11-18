@@ -1,14 +1,13 @@
-
+#pragma once
 #include "logger/logger.hpp"
 #include <cassert>
 #include <error/error.hpp>
-#include <expected>
 #include <toml++/toml.hpp>
 namespace module {
 
 using error::ErrorCode;
 using error::ModuleError;
-using ModuleResult = std::expected<void, ModuleError>;
+using error::ModuleResult;
 class IModule {
 public:
     virtual ModuleResult load() = 0;
