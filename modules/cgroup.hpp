@@ -18,7 +18,7 @@ public:
 
     ~CgroupModule() final = default;
 
-    // table -> CgroupRule
+    // config -> CgroupRule
     ModuleResult parse_config(const toml::table* config) final;
 
     struct CgroupRule {
@@ -29,9 +29,8 @@ public:
     };
 
 private:
-    CgroupRule rule {};
+    std::optional<CgroupRule> rule { std::nullopt };
     tc_process* skel {};
-    uint32_t time_scale {};
 };
 
 }; // namespace module

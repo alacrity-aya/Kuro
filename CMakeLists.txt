@@ -68,7 +68,7 @@ target_link_libraries(kuro PRIVATE
 # BPF Build using Make
 set(BPF_DIR ${CMAKE_SOURCE_DIR}/bpf)
 add_custom_target(bpf_skel ALL
-    COMMAND bear --append --output ../build/compile_commands.json -- make -B
+    COMMAND bear --append --output ../build/compile_commands.json -- make
     WORKING_DIRECTORY ${BPF_DIR}
     COMMENT "Building BPF programs via bpf/Makefile"
     VERBATIM

@@ -1,11 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <format>
+#include <source_location>
 #include <string>
 
 namespace error {
 
-enum class ModuleError : uint8_t {
+enum class ErrorCode : uint8_t {
     OPEN_AND_LOAD_BPF_FAILED,
     POLL_RINGBUF_FAILED,
     ATTACH_BPF_FAILED,
@@ -16,35 +18,67 @@ enum class ModuleError : uint8_t {
     FAILED_TO_FIND_MAP,
     FAILED_TO_FIND_BPF_PROG,
     EMPTY_CONFIG_NODE,
+    EMPTY_RULE,
     PARSING_CONFIG_FAILED,
 };
 
-inline std::string error_to_string(ModuleError err) {
+inline std::string error_to_string(ErrorCode err) {
     switch (err) {
-        case ModuleError::POLL_RINGBUF_FAILED:
+        case ErrorCode::POLL_RINGBUF_FAILED:
             return "Poll ring buffer failed.";
-        case ModuleError::PARSING_CONFIG_FAILED:
+        case ErrorCode::EMPTY_RULE:
+            return "Rule is empty, initialize it first";
+        case ErrorCode::PARSING_CONFIG_FAILED:
             return "Parsing config failed.";
-        case ModuleError::EMPTY_CONFIG_NODE:
+        case ErrorCode::EMPTY_CONFIG_NODE:
             return "Config node is empty.";
-        case ModuleError::ATTACH_BPF_FAILED:
+        case ErrorCode::ATTACH_BPF_FAILED:
             return "Failed to attach bpf program.";
-        case ModuleError::OPEN_AND_LOAD_BPF_FAILED:
+        case ErrorCode::OPEN_AND_LOAD_BPF_FAILED:
             return "Failed to open skel."; // This covers open and load failure
-        case ModuleError::LOCAL_IP_MAP_SETUP_FAILED:
+        case ErrorCode::LOCAL_IP_MAP_SETUP_FAILED:
             return "Failed to initialize or update the local IP map.";
-        case ModuleError::NETFILTER_HOOK_ATTACH_FAILED:
+        case ErrorCode::NETFILTER_HOOK_ATTACH_FAILED:
             return "Failed to attach the BPF program to the netfilter hook.";
-        case ModuleError::RING_BUFFER_INIT_FAILED:
+        case ErrorCode::RING_BUFFER_INIT_FAILED:
             return "Failed to initialize the ring buffer for data communication.";
-        case ModuleError::FAILED_TO_UPDATE_MAP:
+        case ErrorCode::FAILED_TO_UPDATE_MAP:
             return "Failed to update an element in a BPF map.";
-        case ModuleError::FAILED_TO_FIND_MAP:
+        case ErrorCode::FAILED_TO_FIND_MAP:
             return "Failed to find bpf map";
-        case ModuleError::FAILED_TO_FIND_BPF_PROG:
+        case ErrorCode::FAILED_TO_FIND_BPF_PROG:
             return "Failed to find bpf program";
     }
     // Default case for completeness, although all enums should be covered.
     return "Unknown Module Error";
 }
+
+struct ModuleError {
+public:
+    explicit ModuleError(
+        ErrorCode code,
+        std::string_view msg = "",
+        std::source_location loc = std::source_location::current()
+    ):
+        code { code },
+        loc { loc },
+        msg { msg } {}
+
+    [[nodiscard]] std::string to_string() const {
+        auto base_msg = error_to_string(code);
+        return std::format(
+            "at {}:{} in {}: {} {}",
+            loc.file_name(),
+            loc.line(),
+            loc.function_name(),
+            base_msg,
+            msg
+        );
+    }
+
+private:
+    ErrorCode code;
+    const std::source_location loc;
+    std::string_view msg;
+};
 } // namespace error

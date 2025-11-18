@@ -11,19 +11,29 @@ namespace module {
 using utils::todo;
 
 ModuleResult CgroupModule::load() {
-    skel = tc_process__open_and_load();
-    if (skel == nullptr) {
-        unload();
-        return std::unexpected { ModuleError::OPEN_AND_LOAD_BPF_FAILED };
+    if (this->skel = tc_process__open_and_load(); skel == nullptr) {
+        return std::unexpected { ModuleError { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
     }
 
+    if (auto* map = skel->maps.cgroup_rules; map == nullptr) {
+        return std::unexpected { ModuleError { ErrorCode::FAILED_TO_FIND_MAP } };
+    }
+
+    if (!this->rule.has_value()) {
+        return std::unexpected { ModuleError { ErrorCode::EMPTY_RULE } };
+    }
+
+    //using systemd to create service here.
     todo();
 
     return {};
 }
 
 void CgroupModule::unload() {
-    tc_process__destroy(skel);
+    if (skel != nullptr) {
+        tc_process__destroy(skel);
+    }
+    logger->info("{} is called", __PRETTY_FUNCTION__);
 }
 
 std::string CgroupModule::type() {
@@ -35,11 +45,13 @@ ModuleResult CgroupModule::parse_config(
 ) { // TODO(alacrity): bad implemetation, refactor it one day
     if (config == nullptr) {
         logger->error("config = nullptr");
-        return std::unexpected { ModuleError::EMPTY_CONFIG_NODE };
+        return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE } };
     }
 
     while (true) {
         try {
+            CgroupRule rule {};
+
             const auto* path_opt = config->get("path");
             if (path_opt == nullptr) {
                 break;
@@ -77,15 +89,17 @@ ModuleResult CgroupModule::parse_config(
                 rule.time_scale
             );
 
+            this->rule = rule;
+
             return {};
 
         } catch (std::bad_optional_access& err) {
             logger->error("{}", err.what());
-            return std::unexpected { ModuleError::PARSING_CONFIG_FAILED };
+            return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
         }
     }
     logger->error("parse error");
-    return std::unexpected { ModuleError::PARSING_CONFIG_FAILED };
+    return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
 }
 
 } // namespace module

@@ -21,6 +21,8 @@ int main() {
     logger::StdoutAppender::ptr stdout_appender = std::make_shared<logger::StdoutAppender>();
     logger->set_priority(logger::LogPriority::TRACE).add_appender(stdout_appender);
 
+    logger->trace("function main start");
+
     toml::parse_result result =
         toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "config.toml").c_str());
     if (!result) {
@@ -31,16 +33,15 @@ int main() {
     const auto& config = result.table();
     const auto* cgroups = config["rule"]["cgroups"].as_array();
 
-    logger->trace("entering loop...");
     for (const auto& cgroup: *cgroups) {
         auto cgroup_module = module::CgroupModule {};
         if (auto ret = cgroup_module.parse_config(cgroup.as_table()); !ret.has_value()) {
-            logger->trace("after parsing config");
-            logger->error(
-                "{}",
-                error::error_to_string(ret.error()) + " skipping loading this module"
-            );
+            logger->error("{}", ret.error().to_string() + " skipping loading this module");
             continue;
+        }
+        if (auto ret = cgroup_module.load(); !ret.has_value()) {
+            logger->error("{}", ret.error().to_string());
+            cgroup_module.unload();
         }
     }
     logger->trace("function main end");

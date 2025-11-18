@@ -20,7 +20,7 @@
 #include <utils.hpp>
 
 namespace module {
-using error::ModuleError;
+using error::ErrorCode;
 
 using ModuleResult = std::expected<void, ModuleError>;
 

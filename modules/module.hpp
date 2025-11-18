@@ -6,6 +6,7 @@
 #include <toml++/toml.hpp>
 namespace module {
 
+using error::ErrorCode;
 using error::ModuleError;
 using ModuleResult = std::expected<void, ModuleError>;
 class IModule {

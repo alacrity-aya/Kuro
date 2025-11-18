@@ -5,8 +5,8 @@
 
 typedef struct {
     bool gress; //true-egress false-ingress
-    uint32_t time_scale;
-    uint64_t rate_bps;
+    __u32 time_scale;
+    __u64 rate_bps;
 } Rule;
 
 struct {
