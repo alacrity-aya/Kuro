@@ -6,6 +6,8 @@
 #include <modules/cgroup.hpp>
 
 #include <logger/logger.hpp>
+#include <print>
+#include <utils.hpp>
 
 namespace {
 
@@ -18,6 +20,11 @@ volatile bool running = true;
 } // namespace
 
 int main() {
+    if (auto r = utils::Command::exec("fastfetch"); !r.has_value())
+        utils::panic("fastfecth failed");
+    else
+        std::println("{}", r.value());
+
     auto logger = logger::Logger::get_instance();
     logger::StdoutAppender::ptr stdout_appender = std::make_shared<logger::StdoutAppender>();
     logger->set_priority(logger::LogPriority::TRACE).add_appender(stdout_appender);

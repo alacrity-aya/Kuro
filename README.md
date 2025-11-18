@@ -12,7 +12,7 @@
 
 ### flow limitation for pid
 
-- Cgroup-skb: I will use cgroup + systemd to solve this
+> I will use cgroup + systemd to solve this
 
 ---
 
