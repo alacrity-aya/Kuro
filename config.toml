@@ -2,7 +2,8 @@
 
 [[rule.cgroups]]
 
-path = "/home/alacrity/work/kuro/test/build/client"
+# cmd = "/home/alacrity/work/kuro/test/build/client"
+cmd = "echo kuro-kawaii"
 gress = "egress"
 time_scale = "1s"
 rate_bps = "10M"

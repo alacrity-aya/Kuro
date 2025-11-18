@@ -3,8 +3,11 @@
 #include <arpa/inet.h>
 #include <array>
 #include <cpptrace/cpptrace.hpp>
+#include <error/error.hpp>
+#include <format>
 #include <iomanip>
 #include <iostream>
+#include <modules/cgroup.hpp>
 #include <netinet/in.h>
 #include <optional>
 #include <print>
@@ -121,6 +124,18 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
     oss << std::setfill('0') << std::setw(2) << hours << ':' << std::setw(2) << minutes << ':'
         << std::setw(2) << seconds << '.' << std::setw(3) << millis;
     return oss.str();
+}
+
+using module::ModuleResult;
+inline ModuleResult run_systemd(std::string cmd) {
+    const std::string cmd_prefix { "sudo systemd-run --unit=mytest --scope -p Slice=limit.slice " };
+    if (auto ret = system((cmd_prefix + cmd).c_str()); ret != 0) {
+        return std::unexpected {
+            error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                 std::format("cmd :{}", cmd) },
+        };
+    }
+    return {};
 }
 
 } // namespace utils

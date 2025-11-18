@@ -1,32 +1,37 @@
-#include "utils.hpp"
 #include <cassert>
 #include <expected>
-#include <filesystem>
 #include <modules/cgroup.hpp>
 #include <optional>
 #include <tc_process.skel.h>
+#include <utils.hpp>
 
 namespace module {
 
-using utils::todo;
-
 ModuleResult CgroupModule::load() {
-    if (this->skel = tc_process__open_and_load(); skel == nullptr) {
-        return std::unexpected { ModuleError { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
-    }
+    ModuleResult ret {};
 
-    if (auto* map = skel->maps.cgroup_rules; map == nullptr) {
-        return std::unexpected { ModuleError { ErrorCode::FAILED_TO_FIND_MAP } };
-    }
+    return ret
 
-    if (!this->rule.has_value()) {
-        return std::unexpected { ModuleError { ErrorCode::EMPTY_RULE } };
-    }
+        .and_then([this]() -> ModuleResult {
+            if (!this->rule.has_value())
+                return std::unexpected { ModuleError { ErrorCode::EMPTY_RULE } };
+            return {};
+        })
 
-    //using systemd to create service here.
-    todo();
+        .and_then([this]() -> ModuleResult {
+            if (this->skel = tc_process__open_and_load(); this->skel == nullptr)
+                return std::unexpected { ModuleError { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
+            return {};
+        })
 
-    return {};
+        .and_then([this]() -> ModuleResult {
+            if (auto* map = this->skel->maps.cgroup_rules; map == nullptr)
+                return std::unexpected { ModuleError { ErrorCode::FAILED_TO_FIND_MAP } };
+            return {};
+        })
+
+        // TODO(alacrity): use sd-bus.h, not use utils::run_command
+        .and_then([this]() -> ModuleResult { return utils::run_systemd(this->rule->cmd); });
 }
 
 void CgroupModule::unload() {
@@ -52,14 +57,11 @@ ModuleResult CgroupModule::parse_config(
         try {
             CgroupRule rule {};
 
-            const auto* path_opt = config->get("path");
-            if (path_opt == nullptr) {
+            const auto* cmd_opt = config->get("cmd");
+            if (cmd_opt == nullptr) {
                 break;
             }
-            rule.path = std::filesystem::path(path_opt->value<std::string>()->c_str());
-            if (!std::filesystem::exists(rule.path)) {
-                break;
-            }
+            rule.cmd = cmd_opt->value<std::string>().value();
 
             const auto* gress_opt = config->get("gress");
             if (gress_opt == nullptr) {
@@ -82,8 +84,8 @@ ModuleResult CgroupModule::parse_config(
                 utils::parse_time_scale(time_scale_opt->value<std::string>().value()).value();
 
             logger->info(
-                "path = {}, gress = {}, rate_bps = {}, time_scale = {}",
-                rule.path.c_str(),
+                "cmd = {}, gress = {}, rate_bps = {}, time_scale = {}",
+                rule.cmd,
                 rule.gress,
                 rule.rate_bps,
                 rule.time_scale

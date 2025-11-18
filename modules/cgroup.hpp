@@ -25,7 +25,7 @@ public:
         bool gress; //true-egress false-ingress
         uint32_t time_scale;
         uint64_t rate_bps;
-        std::filesystem::path path;
+        std::string cmd;
     };
 
 private:

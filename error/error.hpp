@@ -20,12 +20,15 @@ enum class ErrorCode : uint8_t {
     EMPTY_CONFIG_NODE,
     EMPTY_RULE,
     PARSING_CONFIG_FAILED,
+    RUN_SHELL_CMD_FAILED,
 };
 
 inline std::string error_to_string(ErrorCode err) {
     switch (err) {
         case ErrorCode::POLL_RINGBUF_FAILED:
             return "Poll ring buffer failed.";
+        case ErrorCode::RUN_SHELL_CMD_FAILED:
+            return "Shell command failed";
         case ErrorCode::EMPTY_RULE:
             return "Rule is empty, initialize it first";
         case ErrorCode::PARSING_CONFIG_FAILED:
