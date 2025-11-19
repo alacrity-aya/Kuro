@@ -1,3 +1,4 @@
+#include <bpf/libbpf.h>
 #include <cassert>
 #include <error/error.hpp>
 #include <expected>
@@ -28,8 +29,24 @@ ModuleResult CgroupModule::load() {
         })
 
         .and_then([this]() -> ModuleResult {
-            if (auto* map = this->skel->maps.cgroup_rules; map == nullptr)
+            auto* map = this->skel->maps.cgroup_rules;
+            if (map == nullptr)
                 return std::unexpected { ModuleError { ErrorCode::FAILED_TO_FIND_MAP } };
+
+            uint32_t map_key = 0;
+
+            if (bpf_map__update_elem(
+                    map,
+                    &map_key,
+                    sizeof(map_key),
+                    &this->rule.value().rule,
+                    sizeof(this->rule.value().rule),
+                    0
+                )
+                != 0)
+            {
+                return std::unexpected { ModuleError { ErrorCode::FAILED_TO_UPDATE_MAP } };
+            }
             return {};
         })
 
@@ -41,6 +58,10 @@ ModuleResult CgroupModule::load() {
         .and_then([this]() -> ModuleResult {
             utils::service_status(this->uuid);
             return this->attach_cgroup();
+        })
+        .or_else([this](const auto&& err) -> ModuleResult {
+            this->unload();
+            return std::unexpected { err };
         });
 }
 
@@ -80,40 +101,41 @@ ModuleResult CgroupModule::parse_config(
         loc = std::source_location::current(); \
         break; \
     }
-            CgroupRule rule {};
+            ConfigCgroupRule config_rule {};
 
             const auto* path_opt = config->get("path");
             CHECK_AND_BREAK(path_opt);
-            rule.path = path_opt->value<std::string>().value();
+            config_rule.path = path_opt->value<std::string>().value();
 
             const auto* args_opt = config->get("args");
             CHECK_AND_BREAK(args_opt); // TODO(alacrity): args can be nullable
-            rule.args = args_opt->value<std::string>().value();
+            config_rule.args = args_opt->value<std::string>().value();
 
             const auto* gress_opt = config->get("gress");
             CHECK_AND_BREAK(gress_opt);
-            rule.gress = utils::parse_gress(gress_opt->value<std::string>().value()).value();
+            config_rule.rule.gress =
+                utils::parse_gress(gress_opt->value<std::string>().value()).value();
 
             const auto* rate_bps_opt = config->get("rate_bps");
             CHECK_AND_BREAK(rate_bps_opt);
-            rule.rate_bps =
+            config_rule.rule.rate_bps =
                 utils::parse_rate_bps(rate_bps_opt->value<std::string>().value()).value();
 
             const auto* time_scale_opt = config->get("time_scale");
             CHECK_AND_BREAK(time_scale_opt);
-            rule.time_scale =
+            config_rule.rule.time_scale =
                 utils::parse_time_scale(time_scale_opt->value<std::string>().value()).value();
 
             logger->info(
                 "path = {}, args = {}, gress = {}, rate_bps = {}, time_scale = {}",
-                rule.path,
-                rule.args,
-                rule.gress,
-                rule.rate_bps,
-                rule.time_scale
+                config_rule.path,
+                config_rule.args,
+                config_rule.rule.gress,
+                config_rule.rule.rate_bps,
+                config_rule.rule.time_scale
             );
 
-            this->rule = rule;
+            this->rule = config_rule;
 
 #undef CHECK_AND_BREAK
 
@@ -130,6 +152,7 @@ ModuleResult CgroupModule::parse_config(
 }
 
 ModuleResult CgroupModule::attach_cgroup() {
+    // TODO(alacrity): remember to attach ingress
     if (this->cgroup_fd = utils::get_cgroup_fd(this->uuid); !this->cgroup_fd.has_value()) {
         return std::unexpected { ModuleError { ErrorCode::FAILED_TO_GET_CGROUP_FD } };
     }

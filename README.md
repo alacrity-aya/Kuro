@@ -9,7 +9,7 @@
 2. making the volume of token bucket configurable
 3. how to move socket in cgroup ?
 4. using std::source_location to upgrade logger
-5. the management of service is too bad, refactor it with libsystemd!
+5. the management of services is too bad, refactor it with libsystemd !
 
 ### flow limitation for pid
 

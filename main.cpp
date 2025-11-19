@@ -17,6 +17,7 @@ namespace {
 volatile bool running = true;
 
 void on_signal(int) {
+    std::println("\n====RECEIVE SIGNAL====");
     running = false;
 }
 
@@ -54,7 +55,6 @@ int main() {
         auto ret = cgroup_module.parse_config(cgroup.as_table())
                        .and_then([&]() -> module::ModuleResult { return cgroup_module.load(); })
                        .or_else([&](const auto& err) -> module::ModuleResult {
-                           cgroup_module.unload();
                            cgroup_modules.pop_back();
                            logger->error("{}", err.to_string());
                            return std::unexpected { err };
