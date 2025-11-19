@@ -1,4 +1,6 @@
+#include <chrono>
 #include <config.h>
+#include <csignal>
 #include <error/error.hpp>
 #include <expected>
 #include <filesystem>
@@ -7,13 +9,14 @@
 
 #include <logger/logger.hpp>
 #include <print>
+#include <thread>
 #include <utils.hpp>
 
 namespace {
 
 volatile bool running = true;
 
-[[maybe_unused]] void on_signal(int) {
+void on_signal(int) {
     running = false;
 }
 
@@ -24,6 +27,8 @@ int main() {
         utils::panic("fastfecth failed");
     else
         std::println("{}", r.value());
+
+    signal(SIGINT, on_signal);
 
     auto logger = logger::Logger::get_instance();
     logger::StdoutAppender::ptr stdout_appender = std::make_shared<logger::StdoutAppender>();
@@ -38,16 +43,19 @@ int main() {
         return 1;
     }
 
+    std::vector<module::CgroupModule> cgroup_modules {};
     const auto& config = result.table();
     const auto* cgroups = config["rule"]["cgroups"].as_array();
 
     for (const auto& cgroup: *cgroups) {
-        auto cgroup_module = module::CgroupModule {};
+        cgroup_modules.emplace_back();
+        auto& cgroup_module = cgroup_modules.back();
 
         auto ret = cgroup_module.parse_config(cgroup.as_table())
                        .and_then([&]() -> module::ModuleResult { return cgroup_module.load(); })
                        .or_else([&](const auto& err) -> module::ModuleResult {
                            cgroup_module.unload();
+                           cgroup_modules.pop_back();
                            logger->error("{}", err.to_string());
                            return std::unexpected { err };
                        });
@@ -55,6 +63,15 @@ int main() {
         if (!ret)
             continue;
     }
+
+    while (running) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    for (auto& it: cgroup_modules) {
+        it.unload();
+    }
+
     logger->trace("function main end");
 
     return 0;

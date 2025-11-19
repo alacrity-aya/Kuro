@@ -3,10 +3,12 @@
 #include "error/error.hpp"
 #include <arpa/inet.h>
 #include <cpptrace/cpptrace.hpp>
+#include <expected>
 #include <fcntl.h>
 #include <format>
 #include <iomanip>
 #include <iostream>
+#include <logger/logger.hpp>
 #include <netinet/in.h>
 #include <optional>
 #include <print>
@@ -128,6 +130,8 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
 }
 
 inline std::string uuid_v4() {
+    return "hello"; // TODO(alacrity): remove this
+
     static thread_local std::mt19937_64 rng(std::random_device {}());
     static thread_local std::uniform_int_distribution<uint64_t> dist;
 
@@ -145,31 +149,6 @@ inline std::string uuid_v4() {
        << (part2 & 0xFFFFFFFFFFFF);
 
     return ss.str();
-}
-
-// TODO(alacrity): the following two functions need to be refactored
-using error::ModuleResult;
-inline ModuleResult
-create_service(const std::string& path, const std::string& args, const std::string& uuid) {
-    auto cmd = std::format(
-        "sudo systemd-run --unit={} --property=Slice=limit.slice --property=Description=Kuro-Flow-Control {} {}",
-        uuid,
-        path,
-        args
-    );
-    if (auto ret = std::system(cmd.c_str()); ret != 0)
-        return std::unexpected {
-            error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED, cmd + " failed" },
-        };
-    return {};
-}
-
-inline std::optional<int> get_cgroup_fd(const std::string& uuid) {
-    auto ret = open(std::format("/sys/fs/cgroup/limit.slice/{}.service", uuid).c_str(), O_RDONLY);
-    if (ret == 0) {
-        return std::nullopt;
-    }
-    return ret;
 }
 
 struct CommandResult {
@@ -227,6 +206,65 @@ public:
         return CommandResult { .output = result, .exitstatus = exitcode };
     }
 };
+
+static bool
+log_exec_result(std::expected<CommandResult, std::string> result, std::string_view cmd) {
+    auto logger = logger::Logger::get_instance();
+
+    if (!result.has_value()) {
+        logger->warn("{} failed, {}, please run this cmd manually", cmd, result.error());
+        return false;
+    }
+    logger->trace("{}", result.value());
+    return true;
+}
+
+// TODO(alacrity): the following two functions need to be refactored
+using error::ModuleResult;
+inline ModuleResult
+service_start(const std::string& path, const std::string& args, const std::string& uuid) {
+    auto cmd = std::format(
+        "sudo systemd-run --unit={} --property=Slice=limit.slice --property=Description=Kuro-Flow-Control {} {}",
+        uuid,
+        path,
+        args
+    );
+    auto result = Command::exec(cmd);
+
+    if (!log_exec_result(result, cmd)) {
+        return std::unexpected {
+            error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED, cmd + " failed" },
+        };
+    }
+    return {};
+}
+
+inline std::optional<int> get_cgroup_fd(const std::string& uuid) {
+    auto ret = open(std::format("/sys/fs/cgroup/limit.slice/{}.service", uuid).c_str(), O_RDONLY);
+    if (ret == 0) {
+        return std::nullopt;
+    }
+    return ret;
+}
+
+inline void service_status(const std::string& uuid) {
+    auto cmd = std::format("sudo systemctl status {}", uuid);
+    auto result = Command::exec(cmd);
+    log_exec_result(result, cmd);
+}
+
+inline void service_stop(const std::string& uuid) {
+    // sudo systemctl reset-failed 56c0cb1e-8116-4e83-95e9-b37e5ffb2bd8
+    auto logger = logger::Logger::get_instance();
+    auto reset_failed = std::format("sudo systemctl reset-failed {}", uuid);
+    auto result1 = Command::exec(reset_failed);
+    log_exec_result(result1, reset_failed);
+
+    auto stop = std::format("sudo systemctl stop {}", uuid);
+    auto result2 = Command::exec(stop);
+    log_exec_result(result2, stop);
+}
+
 } // namespace utils
 
 namespace std {
@@ -241,4 +279,5 @@ struct formatter<utils::CommandResult, char> {
         return format_to(ctx.out(), "command exitstatus: {} output: {}", cr.exitstatus, cr.output);
     }
 };
+
 } // namespace std

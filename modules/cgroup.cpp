@@ -33,11 +33,14 @@ ModuleResult CgroupModule::load() {
             return {};
         })
 
-        .and_then([this]() -> ModuleResult { return this->attach_cgroup(); })
-
         // TODO(alacrity): use sd-bus.h, not use utils::run_command
         .and_then([this]() -> ModuleResult {
-            return utils::create_service(this->rule->path, this->rule->args, this->uuid);
+            return utils::service_start(this->rule->path, this->rule->args, this->uuid);
+        })
+
+        .and_then([this]() -> ModuleResult {
+            utils::service_status(this->uuid);
+            return this->attach_cgroup();
         });
 }
 
@@ -49,6 +52,8 @@ void CgroupModule::unload() {
     if (this->cgroup_fd != std::nullopt) {
         close(this->cgroup_fd.value());
     }
+    utils::service_stop(this->uuid);
+
     logger->info("{} is called", __PRETTY_FUNCTION__);
 }
 
@@ -82,7 +87,7 @@ ModuleResult CgroupModule::parse_config(
             rule.path = path_opt->value<std::string>().value();
 
             const auto* args_opt = config->get("args");
-            CHECK_AND_BREAK(args_opt);
+            CHECK_AND_BREAK(args_opt); // TODO(alacrity): args can be nullable
             rule.args = args_opt->value<std::string>().value();
 
             const auto* gress_opt = config->get("gress");

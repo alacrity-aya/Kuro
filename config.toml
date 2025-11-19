@@ -2,7 +2,7 @@
 
 [[rule.cgroups]]
 
-path = "/home/alacrity/work/kuro/test/build/client"
+path = "/opt/client"
 args = "kuro-kawaii"
 gress = "egress"
 time_scale = "1s"
