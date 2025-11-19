@@ -1,5 +1,6 @@
 #include <bpf/libbpf.h>
 #include <cassert>
+#include <chrono>
 #include <error/error.hpp>
 #include <expected>
 #include <fcntl.h>
@@ -8,11 +9,13 @@
 #include <tc_process.skel.h>
 #include <unistd.h>
 #include <utils.hpp>
+#include <vector>
 
 namespace module {
 
 ModuleResult CgroupModule::load() {
     ModuleResult ret {};
+    this->init();
 
     return ret
 
@@ -41,7 +44,7 @@ ModuleResult CgroupModule::load() {
                     sizeof(map_key),
                     &this->rule.value().rule,
                     sizeof(this->rule.value().rule),
-                    0
+                    0 //WARNING: should this to be zero?
                 )
                 != 0)
             {
@@ -78,6 +81,12 @@ void CgroupModule::unload() {
     logger->info("{} is called", __PRETTY_FUNCTION__);
 }
 
+void CgroupModule::init() {
+    constexpr uint64_t elem_sz = ((sizeof(FlowCounter) + 7) & ~7);
+    this->raw.resize(elem_sz * this->cpus);
+    this->uuid = utils::uuid_v4();
+}
+
 std::string CgroupModule::type() {
     return "CgroupModule";
 }
@@ -86,7 +95,6 @@ ModuleResult CgroupModule::parse_config(
     const toml::table* config
 ) { // TODO(alacrity): bad implemetation, refactor it one day
 
-    this->uuid = utils::uuid_v4();
     if (config == nullptr) {
         logger->error("config = nullptr");
         return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE } };
@@ -168,4 +176,66 @@ ModuleResult CgroupModule::attach_cgroup() {
     return {};
 }
 
+FlowRate CgroupModule::calc_rate() {
+    constexpr uint64_t elem_sz = ((sizeof(FlowCounter) + 7) & ~7);
+    const uint32_t key = 0;
+
+    if (bpf_map__lookup_elem(
+            this->skel->maps.flow_stats,
+            &key,
+            sizeof(key),
+            this->raw.data(),
+            this->raw.size(),
+            0
+        )
+        != 0)
+    {
+        logger->warn("{}: failed to lookup bpf map", std::source_location::current());
+        return FlowRate {};
+    }
+
+    FlowCounter total {};
+
+    for (int cpu = 0; cpu < this->cpus;
+         cpu++) { // TODO(alacrity): use memcpy to optimize performance
+        const auto* pcpu = reinterpret_cast<const FlowCounter*>(this->raw.data() + (cpu * elem_sz));
+        total.accepted_bytes += pcpu->accepted_bytes;
+        total.dropped_bytes += pcpu->dropped_bytes;
+        total.accepted_packets += pcpu->accepted_packets;
+        total.dropped_packets += pcpu->dropped_packets;
+
+        logger->info("{}", total);
+    }
+
+    static bool init = false;
+    static FlowCounter last {};
+    static std::chrono::steady_clock::time_point last_time;
+
+    auto now = std::chrono::steady_clock::now();
+    const double dt = std::chrono::duration<double>(now - last_time).count();
+    const double safe_dt = (dt > 1e-9) ? dt : 1e-9;
+    last_time = now;
+
+    // first call: no rate
+    if (!init) [[unlikely]] {
+        init = true;
+        last_time = now;
+        last = total;
+        return FlowRate {};
+    }
+
+    uint64_t delta_acc_bytes = total.accepted_bytes - last.accepted_bytes;
+    uint64_t delta_drop_bytes = total.dropped_bytes - last.dropped_bytes;
+    uint64_t delta_acc_pkts = total.accepted_packets - last.accepted_packets;
+    uint64_t delta_drop_pkts = total.dropped_packets - last.dropped_packets;
+
+    last = total;
+
+    return FlowRate {
+        .accepted_bytes_rate = static_cast<double>(delta_acc_bytes) / safe_dt,
+        .dropped_bytes_rate = static_cast<double>(delta_drop_bytes) / safe_dt,
+        .accepted_packets_rate = static_cast<double>(delta_acc_pkts) / safe_dt,
+        .dropped_packets_rate = static_cast<double>(delta_drop_pkts) / safe_dt,
+    };
+}
 } // namespace module

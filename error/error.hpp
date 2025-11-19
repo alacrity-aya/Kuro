@@ -7,6 +7,27 @@
 #include <string>
 #include <utility>
 
+namespace std {
+
+template<>
+struct formatter<std::source_location, char> {
+    static constexpr auto parse(format_parse_context& ctx) {
+        return ctx.begin();
+    }
+
+    static auto format(const std::source_location& loc, format_context& ctx) {
+        return format_to(
+            ctx.out(),
+            "at {}:{} in {}",
+            loc.file_name(),
+            loc.line(),
+            loc.function_name()
+        );
+    }
+};
+
+} // namespace std
+
 namespace error {
 
 enum class ErrorCode : uint8_t {
@@ -74,14 +95,7 @@ public:
 
     [[nodiscard]] std::string to_string() const {
         auto base_msg = error_to_string(code);
-        return std::format(
-            "at {}:{} in {}: {} {}",
-            loc.file_name(),
-            loc.line(),
-            loc.function_name(),
-            base_msg,
-            msg
-        );
+        return std::format("{}: {} {}", loc, base_msg, msg);
     }
 
 private:

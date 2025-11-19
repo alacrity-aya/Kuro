@@ -33,13 +33,17 @@ public:
     // config -> CgroupRule
     ModuleResult parse_config(const toml::table* config) final;
 
+    FlowRate calc_rate() final;
+
 private:
     std::optional<ConfigCgroupRule> rule { std::nullopt };
     tc_process* skel {};
     std::optional<int> cgroup_fd = { std::nullopt };
     std::string uuid;
+    std::vector<uint8_t> raw;
 
     ModuleResult attach_cgroup();
+    void init();
 };
 
 }; // namespace module

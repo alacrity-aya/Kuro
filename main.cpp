@@ -66,6 +66,7 @@ int main() {
 
     while (running) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::println("{}", cgroup_modules[0].calc_rate());
     }
 
     for (auto& it: cgroup_modules) {
