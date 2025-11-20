@@ -56,6 +56,7 @@ inline std::optional<uint64_t> parse_rate_bps(const std::string& rate_str) {
     return std::nullopt;
 }
 
+// TODO(alacrity): support float number
 inline std::optional<uint32_t> parse_time_scale(const std::string& time_str) {
     std::regex pattern(R"((\d+)(s|ms|m))");
     std::smatch match;

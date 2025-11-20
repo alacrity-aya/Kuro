@@ -130,9 +130,12 @@ ModuleResult CgroupModule::parse_config(
                 utils::parse_rate_bps(rate_bps_opt->value<std::string>().value()).value();
 
             const auto* time_scale_opt = config->get("time_scale");
-            CHECK_AND_BREAK(time_scale_opt);
-            config_rule.rule.time_scale =
-                utils::parse_time_scale(time_scale_opt->value<std::string>().value()).value();
+            if (time_scale_opt == nullptr) {
+                config_rule.rule.time_scale = 0;
+            } else {
+                config_rule.rule.time_scale =
+                    utils::parse_time_scale(time_scale_opt->value<std::string>().value()).value();
+            }
 
             logger->info(
                 "path = {}, args = {}, gress = {}, rate_bps = {}, time_scale = {}",
