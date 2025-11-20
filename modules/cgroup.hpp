@@ -4,7 +4,7 @@
 #include <error/error.hpp>
 #include <modules/module.hpp>
 #include <optional>
-#include <tc_process.skel.h>
+#include <tc_cgroup.skel.h>
 #include <toml++/toml.hpp>
 
 namespace module {
@@ -37,7 +37,7 @@ public:
 
 private:
     std::optional<ConfigCgroupRule> rule { std::nullopt };
-    tc_process* skel {};
+    tc_cgroup* skel {};
     std::optional<int> cgroup_fd = { std::nullopt };
     std::string uuid;
     std::vector<uint8_t> raw;

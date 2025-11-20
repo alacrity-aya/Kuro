@@ -8,7 +8,8 @@
 #include <optional>
 #include <tc_cgroup.skel.h>
 #include <unistd.h>
-#include <utils.hpp>
+#include <utils/parser.hpp>
+#include <utils/systemd.hpp>
 #include <vector>
 
 namespace module {
@@ -26,7 +27,7 @@ ModuleResult CgroupModule::load() {
         })
 
         .and_then([this]() -> ModuleResult {
-            if (this->skel = tc_process__open_and_load(); this->skel == nullptr)
+            if (this->skel = tc_cgroup__open_and_load(); this->skel == nullptr)
                 return std::unexpected { ModuleError { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
             return {};
         })
@@ -44,7 +45,7 @@ ModuleResult CgroupModule::load() {
                     sizeof(map_key),
                     &this->rule.value().rule,
                     sizeof(this->rule.value().rule),
-                    0 //WARNING: should this to be zero?
+                    0
                 )
                 != 0)
             {
@@ -55,7 +56,11 @@ ModuleResult CgroupModule::load() {
 
         // TODO(alacrity): use sd-bus.h, not use utils::run_command
         .and_then([this]() -> ModuleResult {
-            return utils::service_start(this->rule->path, this->rule->args, this->uuid);
+            return service_start(
+                utils::ServiceStartOptions { .executable_path = this->rule->path,
+                                             .args = this->rule->args,
+                                             .service_id = this->uuid }
+            );
         })
 
         .and_then([this]() -> ModuleResult {
@@ -71,7 +76,7 @@ ModuleResult CgroupModule::load() {
 // TODO(alacrity): using RAII to load and unload
 void CgroupModule::unload() {
     if (this->skel != nullptr) {
-        tc_process__destroy(this->skel);
+        tc_cgroup__destroy(this->skel);
     }
     if (this->cgroup_fd != std::nullopt) {
         close(this->cgroup_fd.value());

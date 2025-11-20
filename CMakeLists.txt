@@ -63,6 +63,7 @@ target_link_libraries(kuro PRIVATE
     ${ZLIB_LIB}
     tomlplusplus::tomlplusplus
     cpptrace::cpptrace
+    systemd
 )
 
 # BPF Build using Make

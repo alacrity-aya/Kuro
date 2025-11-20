@@ -5,12 +5,12 @@
 #include <expected>
 #include <filesystem>
 #include <iostream>
-#include <modules/cgroup.hpp>
-
 #include <logger/logger.hpp>
+#include <modules/cgroup.hpp>
 #include <print>
 #include <thread>
-#include <utils.hpp>
+#include <utils/parser.hpp>
+#include <utils/command.hpp>
 
 namespace {
 
