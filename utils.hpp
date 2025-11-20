@@ -1,6 +1,7 @@
 #pragma once
 
 #include "error/error.hpp"
+#include "logger/logger.hpp"
 #include <arpa/inet.h>
 #include <cpptrace/cpptrace.hpp>
 #include <expected>
@@ -8,7 +9,6 @@
 #include <format>
 #include <iomanip>
 #include <iostream>
-#include <logger/logger.hpp>
 #include <netinet/in.h>
 #include <optional>
 #include <print>
@@ -147,7 +147,7 @@ inline std::string format_elapsed_ns(uint64_t ns_since_boot) {
 }
 
 inline std::string uuid_v4() {
-    return "hello"; // TODO(alacrity): remove this
+    // return "hello"; // uncomment this for debugging
 
     static thread_local std::mt19937_64 rng(std::random_device {}());
     static thread_local std::uniform_int_distribution<uint64_t> dist;
@@ -226,13 +226,13 @@ public:
 
 static bool
 log_exec_result(std::expected<CommandResult, std::string> result, std::string_view cmd) {
-    auto logger = logger::Logger::get_instance();
+    auto& logger = logger::Logger::instance();
 
     if (!result.has_value()) {
-        logger->warn("{} failed, {}, please run this cmd manually", cmd, result.error());
+        logger.warn("{} failed, {}, please run this cmd manually", cmd, result.error());
         return false;
     }
-    logger->trace("{}", result.value());
+    logger.trace("{}", result.value());
     return true;
 }
 
@@ -272,7 +272,6 @@ inline void service_status(const std::string& uuid) {
 
 inline void service_stop(const std::string& uuid) {
     // sudo systemctl reset-failed 56c0cb1e-8116-4e83-95e9-b37e5ffb2bd8
-    auto logger = logger::Logger::get_instance();
     auto reset_failed = std::format("sudo systemctl reset-failed {}", uuid);
     auto result1 = Command::exec(reset_failed);
     log_exec_result(result1, reset_failed);

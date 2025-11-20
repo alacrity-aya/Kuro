@@ -33,15 +33,12 @@ public:
     virtual ModuleResult parse_config(const toml::table* table) = 0;
     virtual ~IModule() = default;
 
-    IModule() {
-        logger = logger::Logger::get_instance();
-        assert(logger.get());
-    }
+    IModule(): logger { logger::Logger::instance() } {}
 
     virtual FlowRate calc_rate() = 0;
 
 protected:
-    std::shared_ptr<logger::Logger> logger;
+    logger::Logger& logger;
     int cpus { libbpf_num_possible_cpus() };
 };
 

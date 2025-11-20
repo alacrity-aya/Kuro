@@ -1,132 +1,155 @@
-#include "common.h"
+// tc_drop.bpf.c
+#include "vmlinux.h"
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_helpers.h>
 
-char __license[] SEC("license") = "GPL";
+#define ENABLE_PRINT 0
 
-#define CG_ACT_OK 1
-#define CG_ACT_SHOT 0
+#if ENABLE_PRINT
+    #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
+#else
+    #define kuro_debug(fmt, ...)
+#endif /* ifdef DEBUG */
 
-struct message_get {
-    __u64 instance_rate_bps;
+#define KURO_TRAFFIC_ACCRPT 1
+#define KURO_TRAFFIC_DROP 0
+#define EGRESS 1
+#define INGRESS 0
+#define NANO_PER_SEC 1000000000ULL
+
+char LICENSE[] SEC("license") = "GPL";
+
+typedef struct {
+    __u8 gress; //1-egress 0-ingress
+    __u64 time_scale; //nanosecond
     __u64 rate_bps;
-    __u64 peak_rate_bps;
-    __u64 smoothed_rate_bps;
-    __u64 timestamp;
-};
-
-struct cgroup_rule {
-    __u64 rate_bps;
-    __u8 gress;
-    __u32 time_scale;
-};
+} rule;
 
 struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 256 * 1024);
-} ringbuf SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(key_size, sizeof(__u32));
-    __uint(value_size, sizeof(struct flow_rate_info));
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32); // always 0
+    __type(value, rule);
     __uint(max_entries, 1);
-} flow_rate_stats SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, __u32);
-    __type(value, struct cgroup_rule);
-    __uint(max_entries, 1024);
 } cgroup_rules SEC(".maps");
 
+typedef struct {
+    __u64 accepted_bytes;
+    __u64 dropped_bytes;
+    __u64 accepted_packets;
+    __u64 dropped_packets;
+} FlowCounter;
+
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, __u64);
-    __type(value, struct rate_bucket);
-    __uint(max_entries, 1024);
-} buckets SEC(".maps");
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32); // always 0
+    __type(value, FlowCounter);
+    __uint(max_entries, 1);
+} flow_stats SEC(".maps");
 
-static __inline void send_message(struct message_get* mes) {
-    struct message_get* e;
+struct BucketState {
+    __u64 tokens;
+    __u64 last_ns;
+    struct bpf_spin_lock lock;
+};
 
-    e = bpf_ringbuf_reserve(&ringbuf, sizeof(*e), 0);
-    if (!e) {
-        return;
-    }
-    *e = *mes;
-    e->timestamp = start_to_now_ns();
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, struct BucketState);
+    __uint(max_entries, 1);
+} traffic_bucket SEC(".maps");
 
-    bpf_ringbuf_submit(e, 0);
-}
+// Core rate limiting logic using Token Bucket algorithm
+static __u8 rate_limit(__u64 skb_len, rule* r) {
+    __u32 key = 0;
+    struct BucketState* bucket = bpf_map_lookup_elem(&traffic_bucket, &key);
 
-static __inline __u32 get_current_pid(void) {
-    struct task_struct* task = (struct task_struct*)bpf_get_current_task();
-    if (task) {
-        __u32 pid = 0;
-        bpf_probe_read_kernel(&pid, sizeof(pid), &task->pid);
-        return pid;
-    }
-    return 0;
-}
-
-static __inline __u64 get_cgroup_id(void) {
-    return bpf_get_current_cgroup_id();
-}
-
-static int cgroup_handle(struct __sk_buff* ctx, int gress) {
-    struct cgroup_rule* rule;
-    struct message_get mes = { 0 };
-    __u32 rule_key = 0;
-    __u32 pid = get_current_pid();
-    __u64 cgroup_id = get_cgroup_id();
-
-    rule = bpf_map_lookup_elem(&cgroup_rules, &rule_key);
-    if (!rule || (rule->gress != gress)) {
-        return CG_ACT_OK;
+    if (!bucket) {
+        return KURO_TRAFFIC_ACCRPT;
     }
 
     __u64 now = bpf_ktime_get_ns();
-    __u32 flow_key = 1;
-    struct flow_rate_info* info = bpf_map_lookup_elem(&flow_rate_stats, &flow_key);
-    if (!info) {
-        struct flow_rate_info new_flow = { .window_start_ns = now,
-                                           .total_bytes = ctx->len,
-                                           .packet_bytes = ctx->len,
-                                           .last_ns = now,
-                                           .instance_rate_bps = 0,
-                                           .rate_bps = 0,
-                                           .peak_rate_bps = 0,
-                                           .smooth_rate_bps = 0 };
-        bpf_map_update_elem(&flow_rate_stats, &flow_key, &new_flow, BPF_ANY);
-    }
-    info = bpf_map_lookup_elem(&flow_rate_stats, &flow_key);
-    if (info) {
-        update_flow_rate(info, ctx->len);
-        mes.rate_bps = info->rate_bps;
-        mes.instance_rate_bps = info->rate_bps;
-        mes.peak_rate_bps = info->peak_rate_bps;
-        mes.smoothed_rate_bps = info->smooth_rate_bps;
+    __u8 decision = KURO_TRAFFIC_DROP;
+
+    bpf_spin_lock(&bucket->lock);
+
+    __u64 delta = now - bucket->last_ns;
+
+    // calculate tokens to replenish
+    if (delta > 0) {
+        __u64 new_tokens = 0;
+
+        // Default to 0.1s (100ms) burst if time_scale is 0
+        __u64 capacity_ns = r->time_scale > 0 ? (__u64)r->time_scale : 100000000ULL;
+        __u64 capacity_bytes = (r->rate_bps * capacity_ns) / NANO_PER_SEC;
+
+        // Overflow protection: if delta is larger than the time to fill the bucket,
+        // just set tokens to capacity to avoid overflow in multiplication.
+        if (delta >= capacity_ns) {
+            bucket->tokens = capacity_bytes;
+        } else {
+            new_tokens = (delta * r->rate_bps) / NANO_PER_SEC;
+            bucket->tokens += new_tokens;
+            if (bucket->tokens > capacity_bytes) {
+                bucket->tokens = capacity_bytes;
+            }
+        }
+
+        bucket->last_ns = now;
     }
 
-    send_message(&mes);
-
-    __u64 bucket_key = cgroup_id;
-    struct rate_limit rate = { .bucket_key = &bucket_key,
-                               .buckets = &buckets,
-                               .packet_len = ctx->len,
-                               .rate_bps = rule->rate_bps,
-                               .time_scale = rule->time_scale };
-    if (rate_limit_check(&rate) == ACCEPT) {
-        return CG_ACT_OK;
+    // consume tokens
+    if (bucket->tokens >= skb_len) {
+        bucket->tokens -= skb_len;
+        decision = KURO_TRAFFIC_ACCRPT;
+    } else {
+        decision = KURO_TRAFFIC_DROP;
+        kuro_debug("Throttled: need %llu, has %llu\n", skb_len, bucket->tokens);
     }
-    return CG_ACT_SHOT;
+
+    bpf_spin_unlock(&bucket->lock);
+
+    return decision;
 }
 
-SEC("cgroup_skb/egress")
-int cgroup_skb_egress(struct __sk_buff* ctx) {
-    return cgroup_handle(ctx, EGRESS);
+static int cgroup_gress_impl(struct __sk_buff* skb, __u8 gress) {
+    __u32 key = 0;
+    rule* rule = bpf_map_lookup_elem(&cgroup_rules, (void*)&key);
+    if (rule == NULL || rule->gress != gress) {
+        kuro_debug("rule = %p", rule);
+        return KURO_TRAFFIC_ACCRPT;
+    }
+    if (rule->rate_bps == 0) {
+        FlowCounter* st = bpf_map_lookup_elem(&flow_stats, &key);
+        if (st) {
+            st->accepted_bytes += skb->len;
+            st->accepted_packets += 1;
+        }
+        return KURO_TRAFFIC_ACCRPT;
+    }
+
+    __u8 drop = rate_limit(skb->len, rule);
+
+    // Update statistics
+    FlowCounter* st = bpf_map_lookup_elem(&flow_stats, &key);
+    if (st != NULL) {
+        if (drop == KURO_TRAFFIC_DROP) {
+            st->dropped_bytes += skb->len;
+            st->dropped_packets += 1;
+        } else {
+            st->accepted_bytes += skb->len;
+            st->accepted_packets += 1;
+        }
+    }
+    return drop;
 }
 
 SEC("cgroup_skb/ingress")
-int cgroup_skb_ingress(struct __sk_buff* ctx) {
-    return cgroup_handle(ctx, INGRESS);
+int limit_ingress_traffic(struct __sk_buff* skb) {
+    return cgroup_gress_impl(skb, INGRESS);
+}
+
+SEC("cgroup_skb/egress")
+int limit_egress_traffic(struct __sk_buff* skb) {
+    return cgroup_gress_impl(skb, EGRESS);
 }

@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <modules/cgroup.hpp>
 #include <optional>
-#include <tc_process.skel.h>
+#include <tc_cgroup.skel.h>
 #include <unistd.h>
 #include <utils.hpp>
 #include <vector>
@@ -78,7 +78,7 @@ void CgroupModule::unload() {
     }
     utils::service_stop(this->uuid);
 
-    logger->info("{} is called", __PRETTY_FUNCTION__);
+    logger.info("{} is called", __PRETTY_FUNCTION__);
 }
 
 void CgroupModule::init() {
@@ -97,7 +97,7 @@ ModuleResult CgroupModule::parse_config(
 ) { // TODO(alacrity): bad implemetation, refactor it one day
 
     if (config == nullptr) {
-        logger->error("config = nullptr");
+        logger.error("config = nullptr");
         return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE } };
     }
 
@@ -139,7 +139,7 @@ ModuleResult CgroupModule::parse_config(
                     utils::parse_time_scale(time_scale_opt->value<std::string>().value()).value();
             }
 
-            logger->info(
+            logger.info(
                 "path = {}, args = {}, gress = {}, rate_bps = {}, time_scale = {}",
                 config_rule.path,
                 config_rule.args,
@@ -165,11 +165,10 @@ ModuleResult CgroupModule::parse_config(
 }
 
 ModuleResult CgroupModule::attach_cgroup() {
-    // TODO(alacrity): remember to attach ingress
     if (this->cgroup_fd = utils::get_cgroup_fd(this->uuid); !this->cgroup_fd.has_value()) {
         return std::unexpected { ModuleError { ErrorCode::FAILED_TO_GET_CGROUP_FD } };
     }
-    logger->trace("get cgroup fd {}", this->cgroup_fd.value());
+    logger.trace("get cgroup fd {}", this->cgroup_fd.value());
 
     if (auto* ret = this->skel->links.limit_egress_traffic =
             bpf_program__attach_cgroup(this->skel->progs.limit_egress_traffic, cgroup_fd.value());
@@ -202,7 +201,7 @@ FlowRate CgroupModule::calc_rate() {
         )
         != 0)
     {
-        logger->warn("{}: failed to lookup bpf map", std::source_location::current());
+        logger.warn("{}: failed to lookup bpf map", std::source_location::current());
         return FlowRate {};
     }
 
