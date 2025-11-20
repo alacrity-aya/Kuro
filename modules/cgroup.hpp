@@ -41,6 +41,10 @@ private:
     std::optional<int> cgroup_fd = { std::nullopt };
     std::string uuid;
     std::vector<uint8_t> raw;
+    bool rate_initialized { false };
+
+    std::chrono::steady_clock::time_point last_time;
+    FlowCounter last_flow {};
 
     ModuleResult attach_cgroup();
     void init();

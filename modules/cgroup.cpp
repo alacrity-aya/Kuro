@@ -196,40 +196,42 @@ FlowRate CgroupModule::calc_rate() {
 
     FlowCounter total {};
 
-    for (int cpu = 0; cpu < this->cpus;
-         cpu++) { // TODO(alacrity): use memcpy to optimize performance
+    for (int cpu = 0; cpu < this->cpus; cpu++) {
         const auto* pcpu = reinterpret_cast<const FlowCounter*>(this->raw.data() + (cpu * elem_sz));
         total.accepted_bytes += pcpu->accepted_bytes;
         total.dropped_bytes += pcpu->dropped_bytes;
         total.accepted_packets += pcpu->accepted_packets;
         total.dropped_packets += pcpu->dropped_packets;
-
-        logger->info("{}", total);
     }
-
-    static bool init = false;
-    static FlowCounter last {};
-    static std::chrono::steady_clock::time_point last_time;
-
     auto now = std::chrono::steady_clock::now();
-    const double dt = std::chrono::duration<double>(now - last_time).count();
-    const double safe_dt = (dt > 1e-9) ? dt : 1e-9;
-    last_time = now;
 
     // first call: no rate
-    if (!init) [[unlikely]] {
-        init = true;
-        last_time = now;
-        last = total;
+    if (!this->rate_initialized) [[unlikely]] {
+        this->rate_initialized = true;
+        this->last_time = now;
+        this->last_flow = total;
         return FlowRate {};
     }
 
-    uint64_t delta_acc_bytes = total.accepted_bytes - last.accepted_bytes;
-    uint64_t delta_drop_bytes = total.dropped_bytes - last.dropped_bytes;
-    uint64_t delta_acc_pkts = total.accepted_packets - last.accepted_packets;
-    uint64_t delta_drop_pkts = total.dropped_packets - last.dropped_packets;
+    const double dt = std::chrono::duration<double>(now - last_time).count();
+    const double safe_dt = (dt > 1e-9) ? dt : 1e-9;
 
-    last = total;
+    uint64_t delta_acc_bytes = total.accepted_bytes - last_flow.accepted_bytes;
+    uint64_t delta_drop_bytes = total.dropped_bytes - last_flow.dropped_bytes;
+    uint64_t delta_acc_pkts = total.accepted_packets - last_flow.accepted_packets;
+    uint64_t delta_drop_pkts = total.dropped_packets - last_flow.dropped_packets;
+
+    logger->info(
+        "{} {} {} {} {}",
+        delta_acc_bytes,
+        delta_drop_bytes,
+        delta_acc_pkts,
+        delta_drop_pkts,
+        safe_dt
+    );
+
+    this->last_flow = total;
+    this->last_time = now;
 
     return FlowRate {
         .accepted_bytes_rate = static_cast<double>(delta_acc_bytes) / safe_dt,
