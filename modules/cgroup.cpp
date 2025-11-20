@@ -116,9 +116,10 @@ ModuleResult CgroupModule::parse_config(
             CHECK_AND_BREAK(path_opt);
             config_rule.path = path_opt->value<std::string>().value();
 
-            const auto* args_opt = config->get("args");
-            CHECK_AND_BREAK(args_opt); // TODO(alacrity): args can be nullable
-            config_rule.args = args_opt->value<std::string>().value();
+            const auto* args_opt = config->get("args"); // args is nullable
+            if (args_opt != nullptr) {
+                config_rule.args = args_opt->value<std::string>().value();
+            }
 
             const auto* gress_opt = config->get("gress");
             CHECK_AND_BREAK(gress_opt);
@@ -130,7 +131,7 @@ ModuleResult CgroupModule::parse_config(
             config_rule.rule.rate_bps =
                 utils::parse_rate_bps(rate_bps_opt->value<std::string>().value()).value();
 
-            const auto* time_scale_opt = config->get("time_scale");
+            const auto* time_scale_opt = config->get("time_scale"); //time_scale is nullable
             if (time_scale_opt == nullptr) {
                 config_rule.rule.time_scale = 0;
             } else {

@@ -56,20 +56,36 @@ inline std::optional<uint64_t> parse_rate_bps(const std::string& rate_str) {
     return std::nullopt;
 }
 
-// TODO(alacrity): support float number
-inline std::optional<uint32_t> parse_time_scale(const std::string& time_str) {
-    std::regex pattern(R"((\d+)(s|ms|m))");
+inline std::optional<uint64_t> parse_time_scale(const std::string& time_str) {
+    static const std::regex pattern(R"(^([0-9]*\.?[0-9]+)(ns|us|ms|s|m)$)", std::regex::icase);
+
     std::smatch match;
-    if (std::regex_match(time_str, match, pattern)) {
-        uint32_t base = std::stoul(match[1].str());
-        std::string unit = match[2].str();
-        if (unit == "ms")
-            return base / 1000;
-        if (unit == "m")
-            return base * 60;
-        return base; // "s"
+    if (!std::regex_match(time_str, match, pattern))
+        return std::nullopt;
+
+    double value = std::stod(match[1].str());
+    std::string unit = match[2].str();
+
+    double ns = 0.0;
+
+    if (unit == "ns") {
+        ns = value;
+    } else if (unit == "us") {
+        ns = value * 1'000;
+    } else if (unit == "ms") {
+        ns = value * 1'000'000;
+    } else if (unit == "s") {
+        ns = value * 1'000'000'000;
+    } else if (unit == "m") {
+        ns = value * 60.0 * 1'000'000'000;
+    } else {
+        return std::nullopt;
     }
-    return std::nullopt;
+
+    if (ns < 0.0 || ns > static_cast<double>(std::numeric_limits<uint64_t>::max()))
+        return std::nullopt;
+
+    return static_cast<uint64_t>(std::llround(ns));
 }
 
 inline std::optional<uint8_t> parse_gress(const std::string& gress_str) {

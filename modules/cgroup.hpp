@@ -13,7 +13,7 @@ class CgroupModule final: public IModule {
 public:
     struct CgroupRule {
         uint8_t gress; // 1-egress 0-ingress
-        uint32_t time_scale;
+        uint64_t time_scale;
         uint64_t rate_bps;
     };
 

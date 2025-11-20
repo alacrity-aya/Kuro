@@ -21,7 +21,7 @@ char LICENSE[] SEC("license") = "GPL";
 
 typedef struct {
     __u8 gress; //1-egress 0-ingress
-    __u32 time_scale;
+    __u64 time_scale; //nanosecond
     __u64 rate_bps;
 } rule;
 
@@ -80,7 +80,7 @@ static __u8 rate_limit(__u64 skb_len, rule* r) {
         __u64 new_tokens = 0;
 
         // Default to 0.1s (100ms) burst if time_scale is 0
-        __u64 capacity_ns = r->time_scale > 0 ? (__u64)r->time_scale * NANO_PER_SEC : 100000000ULL;
+        __u64 capacity_ns = r->time_scale > 0 ? (__u64)r->time_scale : 100000000ULL;
         __u64 capacity_bytes = (r->rate_bps * capacity_ns) / NANO_PER_SEC;
 
         // Overflow protection: if delta is larger than the time to fill the bucket,
