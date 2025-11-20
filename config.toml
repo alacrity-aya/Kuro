@@ -2,9 +2,9 @@
 
 [[rule.cgroups]]
 
-path = "/opt/client"
+path = "/opt/server"
 args = "kuro-kawaii"
-gress = "egress"
+gress = "ingress"
 time_scale = "1s"
 rate_bps = "10M"
 

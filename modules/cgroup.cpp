@@ -91,6 +91,7 @@ std::string CgroupModule::type() {
     return "CgroupModule";
 }
 
+//WARNING: 1M in config.toml is MB/s, but 1M in FlowCounter is Mbps
 ModuleResult CgroupModule::parse_config(
     const toml::table* config
 ) { // TODO(alacrity): bad implemetation, refactor it one day
@@ -169,8 +170,15 @@ ModuleResult CgroupModule::attach_cgroup() {
     }
     logger->trace("get cgroup fd {}", this->cgroup_fd.value());
 
-    if (auto* ret = this->skel->links.drop_egress =
-            bpf_program__attach_cgroup(this->skel->progs.drop_egress, cgroup_fd.value());
+    if (auto* ret = this->skel->links.limit_egress_traffic =
+            bpf_program__attach_cgroup(this->skel->progs.limit_egress_traffic, cgroup_fd.value());
+        ret == nullptr)
+    {
+        return std::unexpected { ModuleError { ErrorCode::ATTACH_BPF_FAILED } };
+    }
+
+    if (auto* ret = this->skel->links.limit_ingress_traffic =
+            bpf_program__attach_cgroup(this->skel->progs.limit_ingress_traffic, cgroup_fd.value());
         ret == nullptr)
     {
         return std::unexpected { ModuleError { ErrorCode::ATTACH_BPF_FAILED } };
@@ -223,15 +231,6 @@ FlowRate CgroupModule::calc_rate() {
     uint64_t delta_drop_bytes = total.dropped_bytes - last_flow.dropped_bytes;
     uint64_t delta_acc_pkts = total.accepted_packets - last_flow.accepted_packets;
     uint64_t delta_drop_pkts = total.dropped_packets - last_flow.dropped_packets;
-
-    logger->info(
-        "{} {} {} {} {}",
-        delta_acc_bytes,
-        delta_drop_bytes,
-        delta_acc_pkts,
-        delta_drop_pkts,
-        safe_dt
-    );
 
     this->last_flow = total;
     this->last_time = now;

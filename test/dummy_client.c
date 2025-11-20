@@ -23,7 +23,7 @@ int main() {
     // 等待服务器启动 (重要: 脚本依赖于此睡眠时间来捕获 PID)
     // int a;
     // scanf("%d", &a);
-    int a = 20;
+    int a = 5;
     while (a--) {
         sleep(1);
         printf("sleep %d\n", a);

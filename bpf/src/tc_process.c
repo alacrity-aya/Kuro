@@ -145,11 +145,11 @@ static int cgroup_gress_impl(struct __sk_buff* skb, __u8 gress) {
 }
 
 SEC("cgroup_skb/ingress")
-int drop_ingress(struct __sk_buff* skb) {
+int limit_ingress_traffic(struct __sk_buff* skb) {
     return cgroup_gress_impl(skb, INGRESS);
 }
 
 SEC("cgroup_skb/egress")
-int drop_egress(struct __sk_buff* skb) {
+int limit_egress_traffic(struct __sk_buff* skb) {
     return cgroup_gress_impl(skb, EGRESS);
 }
