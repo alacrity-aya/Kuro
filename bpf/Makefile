@@ -9,7 +9,7 @@ INCLUDES    := \
 	-I$(KHEAD) \
 	-I/usr/include \
 	-I$(CURDIR)/include \
-	-I$(CURDIR)/build   # vmlinux.h 所在目录
+	-I$(CURDIR)/build   
 
 SRCS        := $(wildcard src/tc_*.c)
 BUILD_DIR   := build
@@ -34,7 +34,7 @@ $(VMLINUX):
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > $@
 
 # Compile .c -> .o into build/
-$(BUILD_DIR)/%.o: src/%.c $(BUILD_DIR)/vmlinux.h include/common.h
+$(BUILD_DIR)/%.o: src/%.c $(BUILD_DIR)/vmlinux.h
 	$(CC) $(BPF_CFLAGS) $(PKG_CFLAGS) $(INCLUDES) -c $< -o $@
 
 # Generate skeleton headers from .o files into skel/
