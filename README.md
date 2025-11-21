@@ -5,12 +5,12 @@
 
 ## TODO:
 
-- [] adding eth port module
-- [] making the volume of token bucket configurable
-- [] support BBR algorithm and smooth rate
-- [] make one module starts multi bpf objects
-- [] rpc + quic
-- [] move socket into another cgroup
+- adding eth port module
+- making the volume of token bucket configurable
+- support BBR algorithm and smooth rate
+- make one module starts multi bpf objects
+- rpc + quic
+- move socket into another cgroup
 
 
 ---
