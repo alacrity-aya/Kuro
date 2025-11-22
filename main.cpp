@@ -53,13 +53,9 @@ void load_specific_modules(
 std::vector<std::unique_ptr<module::IModule>> load_modules(const toml::table& table) {
     std::vector<std::unique_ptr<module::IModule>> modules {};
 
-    load_specific_modules<module::CgroupModule>(
-        table["rule"]["cgroups"].as_array(),
-        modules,
-        "Cgroup"
-    );
+    load_specific_modules<module::CgroupModule>(table["cgroups"].as_array(), modules, "Cgroup");
 
-    load_specific_modules<module::IpModule>(table["rule"]["ip"].as_array(), modules, "IP");
+    load_specific_modules<module::IpModule>(table["ip"].as_array(), modules, "IP");
 
     return modules;
 }
@@ -86,7 +82,7 @@ int main() {
     logger.trace("function main start");
 
     toml::parse_result result =
-        toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "config.toml").c_str());
+        toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "rule.toml").c_str());
     if (!result) {
         std::cerr << "Parsing failed:\n" << result.error() << "\n";
         return 1;
@@ -103,7 +99,6 @@ int main() {
 
     while (running) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
-
         for (const auto& module_ptr: modules) {
             logger.info("Module {}: {:Mbps}", module_ptr->type(), module_ptr->calc_rate());
         }

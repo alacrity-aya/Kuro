@@ -30,6 +30,37 @@ struct formatter<std::source_location, char> {
 
 namespace error {
 
+enum class ParseError : uint8_t {
+    MISSING_REQUIRED_FIELD,
+    INVALID_IP,
+    INVALID_PORT,
+    INVALID_PROTO,
+    INVALID_GRESS,
+    INVALID_RATE,
+    INVALID_TIME_SCALE,
+};
+
+inline std::string parse_error_to_string(ParseError err) {
+    switch (err) {
+        case ParseError::MISSING_REQUIRED_FIELD:
+            return "Missing required field";
+        case ParseError::INVALID_IP:
+            return "Invalid IP address format";
+        case ParseError::INVALID_PORT:
+            return "Invalid Port number";
+        case ParseError::INVALID_PROTO:
+            return "Invalid Protocol (only TCP/UDP supported)";
+        case ParseError::INVALID_GRESS:
+            return "Invalid Gress (must be 'ingress' or 'egress')";
+        case ParseError::INVALID_RATE:
+            return "Invalid Rate format (e.g., 100M, 1G)";
+        case ParseError::INVALID_TIME_SCALE:
+            return "Invalid Time Scale format (e.g., 100ms, 1s)";
+    }
+    return "Unknown Parse Error";
+}
+// ----------------------------------
+
 enum class ErrorCode : uint8_t {
     OPEN_AND_LOAD_BPF_FAILED,
     POLL_RINGBUF_FAILED,

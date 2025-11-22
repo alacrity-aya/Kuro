@@ -98,38 +98,30 @@ std::string CgroupModule::type() {
 }
 
 ModuleResult CgroupModule::parse_config(const toml::table* config) {
-    // 1. Basic check for null config table
     if (config == nullptr) {
         logger.error("config == nullptr");
-        return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE,
-                                               "Config table is null",
-                                               std::source_location::current() } };
+        return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE } };
     }
 
     logger.debug("config is not null");
 
     ConfigCgroupRule config_rule {};
 
-    // Helper lambda to report a configuration error with accurate source location
     auto config_error = [&](const std::string& msg,
                             std::source_location loc = std::source_location::current()) {
         logger.error("Configuration error: {}", msg);
         return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED, msg, loc } };
     };
 
-    // ------------------------------------------------------------------
-    // 2. Sequential Parsing of Configuration Items
-    // ------------------------------------------------------------------
-
     // 2.1 Path - Required
     const auto* path_node = config->get("path");
     if (path_node == nullptr) {
-        return config_error("Required key 'path' missing.");
+        return config_error(
+            error::parse_error_to_string(error::ParseError::MISSING_REQUIRED_FIELD) + ": path"
+        );
     }
-    // Safe extraction and assignment (assuming path must be a string)
     config_rule.path = path_node->value<std::string>().value_or("");
     if (config_rule.path.empty()) {
-        // value_or("") was used OR the TOML value was not a string
         return config_error("Key 'path' is missing, empty, or not a string.");
     }
 
@@ -137,41 +129,57 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
     if (const auto* args_node = config->get("args"); args_node != nullptr) {
         config_rule.args = args_node->value<std::string>().value_or("");
     }
-    // If missing or not a string, config_rule.args remains an empty string.
 
     // 2.3 Direction (gress) - Required
     const auto* gress_node = config->get("gress");
     if (gress_node == nullptr) {
-        return config_error("Required key 'gress' missing.");
+        return config_error(
+            error::parse_error_to_string(error::ParseError::MISSING_REQUIRED_FIELD) + ": gress"
+        );
     }
-    // The value might be a string (or optional string)
     auto gress_str_opt = gress_node->value<std::string>();
     if (!gress_str_opt) {
+        // Logic: key exists but isn't a string?
         return config_error("Key 'gress' exists but is not a string.");
     }
-    // Bridge from std::optional to std::expected error handling
-    auto gress_opt = utils::parse_gress(gress_str_opt.value());
-    if (!gress_opt) {
-        return config_error(std::format("Invalid value for 'gress': {}", gress_str_opt.value()));
+
+    // Updated: Handle std::expected
+    auto gress_res = utils::parse_gress(gress_str_opt.value());
+    if (!gress_res) {
+        return config_error(
+            std::format(
+                "{}: {}",
+                error::parse_error_to_string(gress_res.error()),
+                gress_str_opt.value()
+            )
+        );
     }
-    config_rule.rule.gress = gress_opt.value();
+    config_rule.rule.gress = gress_res.value();
 
     // 2.4 Rate (rate_bps) - Required
     const auto* rate_bps_node = config->get("rate_bps");
     if (rate_bps_node == nullptr) {
-        return config_error("Required key 'rate_bps' missing.");
+        return config_error(
+            error::parse_error_to_string(error::ParseError::MISSING_REQUIRED_FIELD) + ": rate_bps"
+        );
     }
     auto rate_bps_str_opt = rate_bps_node->value<std::string>();
     if (!rate_bps_str_opt) {
         return config_error("Key 'rate_bps' exists but is not a string.");
     }
-    auto rate_bps_opt = utils::parse_rate_bps(rate_bps_str_opt.value());
-    if (!rate_bps_opt) {
+
+    // Updated: Handle std::expected
+    auto rate_bps_res = utils::parse_rate_bps(rate_bps_str_opt.value());
+    if (!rate_bps_res) {
         return config_error(
-            std::format("Invalid value for 'rate_bps': {}", rate_bps_str_opt.value())
+            std::format(
+                "{}: {}",
+                error::parse_error_to_string(rate_bps_res.error()),
+                rate_bps_str_opt.value()
+            )
         );
     }
-    config_rule.rule.rate_bps = rate_bps_opt.value();
+    config_rule.rule.rate_bps = rate_bps_res.value();
 
     // 2.5 Time Scale (time_scale) - Optional
     const auto* time_scale_node = config->get("time_scale");
@@ -180,19 +188,23 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
         if (!time_scale_str_opt) {
             return config_error("Key 'time_scale' exists but is not a string.");
         }
-        auto time_scale_opt = utils::parse_time_scale(time_scale_str_opt.value());
-        if (!time_scale_opt) {
+
+        // Updated: Handle std::expected
+        auto time_scale_res = utils::parse_time_scale(time_scale_str_opt.value());
+        if (!time_scale_res) {
             return config_error(
-                std::format("Invalid value for 'time_scale': {}", time_scale_str_opt.value())
+                std::format(
+                    "{}: {}",
+                    error::parse_error_to_string(time_scale_res.error()),
+                    time_scale_str_opt.value()
+                )
             );
         }
-        config_rule.rule.time_scale = time_scale_opt.value();
+        config_rule.rule.time_scale = time_scale_res.value();
     } else {
-        // Time scale is optional, use default 0 if not present
         config_rule.rule.time_scale = 0;
     }
 
-    // 3. Final assignment and success return
     logger.info(
         "parsing configuration successfully: path = {}, args = {}, gress = {}, rate_bps = {}, time_scale = {}",
         config_rule.path,
@@ -204,7 +216,7 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
 
     this->rule = config_rule;
 
-    return {}; // Parsing succeeded
+    return {};
 }
 
 ModuleResult CgroupModule::attach_cgroup() {
