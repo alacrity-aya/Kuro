@@ -7,10 +7,10 @@
 
 - adding eth port module
 - making the volume of token bucket configurable
-- support BBR algorithm and smooth rate
-- make one module starts multi bpf objects
+- supporting BBR algorithm and smooth rate
+- making one module starts multi bpf objects
 - rpc + quic
-- move socket into another cgroup
+- moving socket into another cgroup
 
 
 ---
@@ -119,7 +119,7 @@ export VCPKG_ROOT=/path/to/your/vcpkg
 
 This project uses **CMake Presets**, providing a fully reproducible build environment.
 
-> ✔ A **custom vcpkg triplet** (`triplets/x64-linux-kuro.cmake`) is used
+> A **custom vcpkg triplet** (`triplets/x64-linux-kuro.cmake`) is used
 > to ensure all dependencies respect `TOML_EXCEPTIONS=0`.
 
 ---

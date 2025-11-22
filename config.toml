@@ -8,16 +8,30 @@ gress = "ingress"
 time_scale = "1s"
 rate_bps = "10M"
 
-[[rule.process]]
 
-target_pid = 19852
-rate_bps = "10M"
+[[rule.cgroups]]
+
+path = "/opt/client"
+args = "kuro-kawaii"
 gress = "egress"
 time_scale = "1s"
+rate_bps = "10M"
 
-# [[process]]
+# [[rule.ip]]
 #
-# target_pid = 12284
-# rate_bps = "1M"
-# gress = "egress"
+# ip = "127.0.0.1"
+# port = 12345
+# proto = "tcp"
+# gress = "ingress"
+# rate_bps = "10M"
+# time_scale = "1s"
+#
+#
+# [[rule.ip]]
+#
+# ip = "127.0.0.2"
+# port = 1234444
+# proto = "tcp"
+# gress = "ingress"
+# rate_bps = "10M"
 # time_scale = "1s"

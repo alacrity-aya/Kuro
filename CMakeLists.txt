@@ -28,7 +28,7 @@ pkg_check_modules(Systemd REQUIRED libsystemd)
 
 # --- Target Definition ---
 
-add_executable(kuro main.cpp modules/cgroup.cpp)
+add_executable(kuro main.cpp modules/cgroup.cpp modules/ip.cpp)
 
 # --- Custom BPF Target ---
 set(BPF_DIR ${CMAKE_SOURCE_DIR}/bpf)

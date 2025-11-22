@@ -3,7 +3,7 @@
 #include <chrono>
 #include <modules/module.hpp>
 #include <net/if.h>
-#include <tc_ip.skel.h> // 假设骨架文件已生成
+#include <tc_ip.skel.h>
 #include <vector>
 
 namespace module {
@@ -12,7 +12,7 @@ struct IpRuleConfig {
     uint32_t ip; // Network Byte Order
     uint16_t port; // Network Byte Order
     uint8_t proto; // IPPROTO_TCP / UDP
-    uint8_t dir; // 0=Ingress, 1=Egress
+    uint8_t gress; // 0=Ingress, 1=Egress
     uint64_t rate_bps;
     uint32_t time_scale;
 };
@@ -34,10 +34,10 @@ struct IpValue {
     uint32_t lock; // bpf_spin_lock placeholder
 };
 
-class IpModule: public IModule {
+class IpModule final: public IModule {
 public:
-    IpModule();
-    ~IpModule() override;
+    IpModule() = default;
+    ~IpModule() final = default;
 
     // IModule interface implementation
     ModuleResult load() final;
@@ -54,13 +54,11 @@ private:
     std::string interface_name = "lo";
     int if_index = 0;
 
-    // TC Hooks 控制块 (libbpf)
     struct bpf_tc_hook hook_ingress {};
     struct bpf_tc_hook hook_egress {};
     bool ingress_attached = false;
     bool egress_attached = false;
 
-    // 流量统计相关状态
     std::vector<char> raw_stats_buffer; // for reading percpu map
     bool rate_initialized = false;
     FlowCounter last_flow {};

@@ -18,7 +18,7 @@ struct IpKey {
     __u32 ip; // Network Byte Order
     __u16 port; // Network Byte Order
     __u8 proto; // IPPROTO_TCP (6) / UDP (17)
-    __u8 dir; // 0: Ingress, 1: Egress
+    __u8 gress; // 0: Ingress, 1: Egress
 };
 
 // Value: Configuration and runtime statue
@@ -71,7 +71,7 @@ static __always_inline int check_limit(struct __sk_buff* skb, __u8 dir) {
 
     struct IpKey key = { 0 };
     key.proto = ip->protocol;
-    key.dir = dir;
+    key.gress = dir;
 
     if (dir == DIR_INGRESS) {
         key.ip = ip->saddr; // INGRESS -> limit source ip

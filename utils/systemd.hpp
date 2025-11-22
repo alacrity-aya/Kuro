@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../error/error.hpp"
 #include "../logger/logger.hpp" // WTF: using angle brackets makes clangd clash
 #include <arpa/inet.h>
+#include <error/error.hpp>
 #include <fcntl.h>
 #include <memory>
 #include <sstream>
@@ -246,8 +246,8 @@ inline void service_stop(const std::string& uuid) {
     );
 
     if (r < 0) {
-        // Only log trace since it might not have failed
-        logger.trace("Reset failed unit {}: {}", service_name, systemd::get_bus_error(r, &error));
+        // Only log warn since it might not have failed
+        logger.warn("Reset failed unit {}: {}", service_name, systemd::get_bus_error(r, &error));
         sd_bus_error_free(&error);
     }
 }
