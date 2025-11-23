@@ -3,6 +3,13 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
+#define ENABLE_PRINT 1
+#if ENABLE_PRINT
+    #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
+#else
+    #define kuro_debug(fmt, ...)
+#endif /* ifdef DEBUG */
+
 #define NANO_PER_SEC 1000000000ULL
 #define ETH_P_IP 0x0800
 #define TC_ACT_OK 0
@@ -53,7 +60,75 @@ struct {
     __type(key, __u32);
     __type(value, FLowCounter);
     __uint(max_entries, 1);
-} ip_stats SEC(".maps");
+} ip_stats SEC(".maps"); // TODO(alacrity): only support overview flow stats now
+
+void print_ip_key(const struct IpKey* key) {
+    if (!key) {
+        kuro_debug("IpKey: (NULL)\n");
+        return;
+    }
+
+    // 将网络字节序的 IP 地址转换为宿主字节序
+    __u32 ip_hbo = bpf_ntohl(key->ip);
+    // 将网络字节序的端口转换为宿主字节序
+    __u16 port_hbo = bpf_ntohs(key->port);
+
+    // 格式化输出 IP 地址 (A.B.C.D)
+    kuro_debug(
+        "IpKey {\n"
+        "  .ip    = %u.%u.%u.%u (NBO: 0x%08x)\n"
+        "  .port  = %u (NBO: %u)\n"
+        "  .proto = %u (%s)\n"
+        "  .gress = %u (%s)\n"
+        "}\n",
+        (ip_hbo >> 24) & 0xFF,
+        (ip_hbo >> 16) & 0xFF,
+        (ip_hbo >> 8) & 0xFF,
+        (ip_hbo >> 0) & 0xFF,
+        key->ip, // 打印原始网络字节序值
+        port_hbo, // 打印宿主字节序端口值
+        key->port, // 打印原始网络字节序值
+        key->proto,
+        (key->proto == 6)        ? "TCP"
+            : (key->proto == 17) ? "UDP"
+                                 : "OTHER",
+        key->gress,
+        (key->gress == 0)       ? "Ingress"
+            : (key->gress == 1) ? "Egress"
+                                : "UNKNOWN"
+    );
+}
+
+// ====================================================================
+// 打印 IpValue 结构体
+// ====================================================================
+
+/**
+ * @brief 打印 IpValue 结构体的内容。
+ * * @param value 指向要打印的 IpValue 结构体的指针。
+ */
+void print_ip_value(const struct IpValue* value) {
+    if (!value) {
+        kuro_debug("IpValue: (NULL)\n");
+        return;
+    }
+
+    kuro_debug(
+        "IpValue {\n"
+        "  // Configuration\n"
+        "  .rate_bps   = %llu bps\n"
+        "  .time_scale = %llu ns\n"
+        "  // Token Bucket State\n"
+        "  .tokens     = %llu\n"
+        "  .last_ns    = %llu\n"
+        "  .lock       = { ... (opaque) }\n" // bpf_spin_lock 是不透明类型，通常不直接打印其内部状态
+        "}\n",
+        value->rate_bps,
+        value->time_scale,
+        value->tokens,
+        value->last_ns
+    );
+}
 
 static __always_inline int check_limit(struct __sk_buff* skb, __u8 dir) {
     void* data_end = (void*)(long)skb->data_end; // NOLINT(performance-no-int-to-ptr)
@@ -96,6 +171,9 @@ static __always_inline int check_limit(struct __sk_buff* skb, __u8 dir) {
     struct IpValue* rule = bpf_map_lookup_elem(&ip_rules, &key);
     if (!rule)
         return TC_ACT_OK;
+
+    print_ip_key(&key);
+    print_ip_value(rule);
 
     int action = TC_ACT_SHOT;
     __u64 now = bpf_ktime_get_ns();
@@ -144,12 +222,12 @@ static __always_inline int check_limit(struct __sk_buff* skb, __u8 dir) {
 }
 
 // TC Classifier Hooks
-SEC("classifier/ingress")
+SEC("tc")
 int ip_ingress(struct __sk_buff* skb) {
     return check_limit(skb, DIR_INGRESS);
 }
 
-SEC("classifier/egress")
+SEC("tc")
 int ip_egress(struct __sk_buff* skb) {
     return check_limit(skb, DIR_EGRESS);
 }

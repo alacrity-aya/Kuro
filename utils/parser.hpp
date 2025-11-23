@@ -34,6 +34,10 @@ panic(std::string_view msg, const std::source_location& loc = std::source_locati
     std::abort();
 }
 
+[[noreturn]] inline void todo(const std::source_location& loc = std::source_location::current()) {
+    panic("Not implemented", loc);
+}
+
 inline std::expected<uint64_t, error::ErrorCode> parse_rate_bps(const std::string& rate_str) {
     std::regex pattern(R"((\d+)([KMG]?))");
     std::smatch match;

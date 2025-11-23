@@ -20,15 +20,12 @@ proto = "tcp"
 gress = "ingress"
 rate_bps = "10M"
 time_scale = "1s"
+interface = "lo"
 
 # targets are used to define multiple IP/Port tuple
 [[ip.rules]]
 ip = "127.0.0.1"
-port = 12345
-
-[[ip.rules]]
-ip = "127.0.0.1"
-port = 12346
+port = 8080
 
 
 # [[ip]]

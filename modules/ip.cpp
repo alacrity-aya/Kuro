@@ -1,4 +1,9 @@
+#include <bpf/libbpf.h>
+#include <bpf/libbpf_legacy.h>
+#include <cerrno>
+#include <cstring>
 #include <modules/ip.hpp>
+#include <net/if.h>
 #include <tc_ip.skel.h>
 #include <utils/parser.hpp>
 
@@ -32,9 +37,141 @@ std::expected<T, error::Error> get_field(FieldPair<T> pair) {
 
 namespace module {
 
+void IpModule::init() {
+    this->cpus = libbpf_num_possible_cpus();
+    constexpr size_t value_size = sizeof(FlowCounter);
+    constexpr size_t rounded_value_size = (value_size + 7) & ~7;
+    this->map_buffer.resize(rounded_value_size * this->cpus);
+}
+
 Result IpModule::load() {
-    logger.trace("{} is called ", __PRETTY_FUNCTION__);
-    return {};
+    this->init();
+
+    Result ret {};
+
+    return ret
+
+        .and_then([this]() -> Result {
+            this->ifindex = if_nametoindex(this->iface_name.c_str());
+            if (this->ifindex == 0) {
+                return std::unexpected { Error {
+                    ErrorCode::ATTACH_BPF_FAILED,
+                    std::format(
+                        "Interface '{}' not found or invalid. errno: {}",
+                        this->iface_name,
+                        strerror(errno)
+                    ) } };
+            }
+            return {};
+        })
+
+        .and_then([this]() -> Result {
+            if (this->configs.empty())
+                return std::unexpected { Error { ErrorCode::EMPTY_RULE } };
+            return {};
+        })
+
+        .and_then([this]() -> Result {
+            if (this->skel = tc_ip__open_and_load(); this->skel == nullptr) {
+                return std::unexpected { Error { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
+            }
+            return {};
+        })
+
+        // update rules
+        .and_then([this]() -> Result {
+            if (this->skel->maps.ip_rules == nullptr) {
+                return std::unexpected { Error { ErrorCode::FAILED_TO_FIND_MAP } };
+            }
+
+            for (const auto& cfg: this->configs) {
+                IpKey key = to_bpf_key(cfg);
+                IpValue value = to_bpf_value(cfg);
+
+                if (bpf_map__update_elem(
+                        this->skel->maps.ip_rules,
+                        &key,
+                        sizeof(key),
+                        &value,
+                        sizeof(value),
+                        0
+                    )
+                    < 0)
+                {
+                    logger.error(
+                        "Failed to update rule for IP: {}, Port: {}",
+                        utils::ip_to_string(cfg.ip),
+                        cfg.port
+                    );
+                    return std::unexpected { Error { ErrorCode::FAILED_TO_UPDATE_MAP } };
+                }
+            }
+            logger.info("Loaded {} IP rules into BPF map", this->configs.size());
+            return {};
+        })
+
+        //create hook
+        .and_then([this]() -> Result {
+            /* The hook (i.e. qdisc) may already exists because:
+	        *   1. it is created by other processes or users
+	        *   2. or since we are attaching to the TC ingress ONLY,
+	        *      bpf_tc_hook_destroy does NOT really remove the qdisc,
+	        *      there may be an egress filter on the qdisc
+	        */
+
+            // Ingress
+            memset(&this->hook_ingress, 0, sizeof(this->hook_ingress));
+            this->hook_ingress.sz = sizeof(this->hook_ingress);
+            this->hook_ingress.ifindex = this->ifindex;
+            this->hook_ingress.attach_point = BPF_TC_INGRESS;
+
+            if (auto err = bpf_tc_hook_create(&this->hook_ingress); err && err != -EEXIST) {
+                return std::unexpected { Error { ErrorCode::FAILED_TO_CREATE_TC_HOOK } };
+            }
+
+            struct bpf_tc_opts opts_ing = {};
+            memset(&opts_ing, 0, sizeof(opts_ing));
+            opts_ing.sz = sizeof(opts_ing);
+            opts_ing.prog_fd = bpf_program__fd(this->skel->progs.ip_ingress);
+
+            if (bpf_tc_attach(&this->hook_ingress, &opts_ing) != 0) {
+                this->unload();
+                return std::unexpected { Error { ErrorCode::ATTACH_BPF_FAILED,
+                                                 "Failed to attach TC Ingress" } };
+            }
+
+            // Egress
+            memset(&this->hook_egress, 0, sizeof(this->hook_egress));
+            this->hook_egress.sz = sizeof(this->hook_egress);
+            this->hook_egress.ifindex = this->ifindex;
+            this->hook_egress.attach_point = BPF_TC_EGRESS;
+
+            if (auto err = bpf_tc_hook_create(&this->hook_egress); err && err != -EEXIST) {
+                return std::unexpected { Error { ErrorCode::FAILED_TO_CREATE_TC_HOOK } };
+            }
+
+            struct bpf_tc_opts opts_eg = {};
+            memset(&opts_eg, 0, sizeof(opts_eg));
+            opts_eg.sz = sizeof(opts_eg);
+            opts_eg.prog_fd = bpf_program__fd(this->skel->progs.ip_egress);
+
+            if (bpf_tc_attach(&this->hook_egress, &opts_eg) != 0) {
+                this->unload();
+                return std::unexpected { Error { ErrorCode::ATTACH_BPF_FAILED,
+                                                 "Failed to attach TC Egress" } };
+            }
+
+            logger.info("IpModule attached to interface index {}", this->ifindex);
+            return {};
+        })
+
+        //handle error
+        .or_else([this](const auto&& err) -> Result {
+            this->unload();
+            return std::unexpected { err };
+        });
+
+    return ret;
 }
 
 // ---------------------------------------------------------
@@ -52,6 +189,14 @@ Result IpModule::parse_config(const toml::table* table) {
         logger.error("Configuration error: {}", msg);
         return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED, msg, loc } };
     };
+
+    if (const auto* iface_node = table->get("interface"); iface_node) {
+        if (auto val = iface_node->value<std::string>()) {
+            this->iface_name = *val;
+        } else {
+            return config_error("'interface' must be a string (e.g., \"eth0\")");
+        }
+    }
 
     // 1. Extract Base Configs (Strategy)
     // These are optional at this stage; they are only required if the specific rule doesn't provide them.
@@ -196,6 +341,33 @@ Result IpModule::parse_config(const toml::table* table) {
 
 void IpModule::unload() {
     logger.trace("{} is called ", __PRETTY_FUNCTION__);
+
+    // uninstall TC Hook
+    if (this->skel != nullptr) {
+        struct bpf_tc_opts opts = {
+            .sz = sizeof(opts),
+            .prog_fd = 0,
+            .flags = 0,
+            .prog_id = 0,
+            .handle = 0,
+            .priority = 0,
+        };
+
+        // Detach Ingress
+        opts.prog_fd = bpf_program__fd(this->skel->progs.ip_ingress);
+        bpf_tc_detach(&this->hook_ingress, &opts);
+
+        // Detach Egress
+        opts.prog_fd = bpf_program__fd(this->skel->progs.ip_egress);
+        bpf_tc_detach(&this->hook_egress, &opts);
+    }
+
+    if (this->skel != nullptr) {
+        tc_ip__destroy(this->skel);
+        this->skel = nullptr;
+    }
+
+    this->configs.clear();
 }
 
 std::string IpModule::type() {
@@ -203,8 +375,63 @@ std::string IpModule::type() {
 }
 
 FlowRate IpModule::calc_rate() {
-    logger.trace("{} is called ", __PRETTY_FUNCTION__);
-    return {};
+    if (this->skel == nullptr)
+        return {};
+
+    uint32_t key = 0;
+
+    if (bpf_map__lookup_elem(
+            this->skel->maps.ip_stats,
+            &key,
+            sizeof(key),
+            this->map_buffer.data(),
+            this->map_buffer.size(),
+            0
+        )
+        != 0)
+    {
+        logger.warn("Failed to lookup ip_stats map");
+        return {};
+    }
+
+    FlowCounter current_total {};
+    constexpr size_t value_size = sizeof(FlowCounter);
+    constexpr size_t step = (value_size + 7) & ~7;
+
+    for (int i = 0; i < this->cpus; i++) {
+        auto* cpu_stats = reinterpret_cast<FlowCounter*>(this->map_buffer.data() + (i * step));
+        current_total.accepted_bytes += cpu_stats->accepted_bytes;
+        current_total.dropped_bytes += cpu_stats->dropped_bytes;
+        current_total.accepted_packets += cpu_stats->accepted_packets;
+        current_total.dropped_packets += cpu_stats->dropped_packets;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+
+    if (!this->rate_initialized) [[unlikely]] {
+        this->rate_initialized = true;
+        this->last_time = now;
+        this->last_flow = current_total;
+        return FlowRate {};
+    }
+
+    const double dt = std::chrono::duration<double>(now - this->last_time).count();
+    const double safe_dt = (dt > 1e-9) ? dt : 1e-9; // avoid being divided by zero
+
+    uint64_t d_acc_bytes = current_total.accepted_bytes - this->last_flow.accepted_bytes;
+    uint64_t d_drop_bytes = current_total.dropped_bytes - this->last_flow.dropped_bytes;
+    uint64_t d_acc_pkts = current_total.accepted_packets - this->last_flow.accepted_packets;
+    uint64_t d_drop_pkts = current_total.dropped_packets - this->last_flow.dropped_packets;
+
+    this->last_flow = current_total;
+    this->last_time = now;
+
+    return FlowRate {
+        .accepted_bytes_rate = static_cast<double>(d_acc_bytes) / safe_dt,
+        .dropped_bytes_rate = static_cast<double>(d_drop_bytes) / safe_dt,
+        .accepted_packets_rate = static_cast<double>(d_acc_pkts) / safe_dt,
+        .dropped_packets_rate = static_cast<double>(d_drop_pkts) / safe_dt,
+    };
 }
 
 } // namespace module

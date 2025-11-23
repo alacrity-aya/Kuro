@@ -47,6 +47,7 @@ enum class ErrorCode : uint8_t {
     PARSING_CONFIG_FAILED,
     RUN_SHELL_CMD_FAILED,
     FAILED_TO_GET_CGROUP_FD,
+    FAILED_TO_CREATE_TC_HOOK,
 
     // PARSE ERROR
     PARSE_MISSING_REQUIRED_FIELD,
@@ -82,6 +83,7 @@ inline std::string error_to_string(ErrorCode err) {
         { ErrorCode::RUN_SHELL_CMD_FAILED, "Execution of an external shell command failed." },
         { ErrorCode::FAILED_TO_GET_CGROUP_FD,
           "Failed to obtain the file descriptor for the cgroup path." },
+        { ErrorCode::FAILED_TO_CREATE_TC_HOOK, "Failed to create TC hook." },
 
         // --- ParseError ---
         { ErrorCode::PARSE_MISSING_REQUIRED_FIELD,

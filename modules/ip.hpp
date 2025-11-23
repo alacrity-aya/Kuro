@@ -26,7 +26,7 @@ struct IpKey {
     uint8_t dir;
 };
 
-static IpKey to_bpf_key(const IpRuleConfig& cfg) {
+[[maybe_unused]] static IpKey to_bpf_key(const IpRuleConfig& cfg) {
     IpKey key {};
     key.ip = ::htonl(cfg.ip);
     key.port = ::htons(cfg.port);
@@ -44,7 +44,7 @@ struct IpValue {
     uint32_t lock; // bpf_spin_lock placeholder
 };
 
-static IpValue to_bpf_value(const IpRuleConfig& cfg) {
+[[maybe_unused]] static IpValue to_bpf_value(const IpRuleConfig& cfg) {
     IpValue val {};
     val.rate_bps = cfg.rate_bps;
     val.time_scale = cfg.time_scale;
@@ -54,7 +54,6 @@ static IpValue to_bpf_value(const IpRuleConfig& cfg) {
     return val;
 }
 
-// TODO(alacrity): using template<size_t CPUS> to improve calc_rate
 class IpModule final: public IModule {
 public:
     IpModule() = default;
@@ -66,22 +65,22 @@ public:
     std::string type() final;
     Result parse_config(const toml::table* table) final;
     FlowRate calc_rate() final;
+    void init();
 
 private:
     void init_buffers();
 
     std::vector<IpRuleConfig> configs;
-    struct tc_ip_bpf* skel = nullptr;
-    std::vector<uint8_t> map_buffer;
-    int cpus = 0;
-    int ifindex = 0;
-    bool rate_initialized = false;
+    tc_ip* skel {};
+    std::string iface_name = "lo";
+    uint32_t ifindex = 0;
+    bpf_tc_hook hook_ingress {};
+    bpf_tc_hook hook_egress {};
+
     std::chrono::steady_clock::time_point last_time;
     FlowCounter last_flow {};
-
-    // for uninstalling
-    struct bpf_tc_hook hook_ingress {};
-    struct bpf_tc_hook hook_egress {};
+    std::vector<uint8_t> map_buffer;
+    bool rate_initialized { false };
 };
 
 } // namespace module
