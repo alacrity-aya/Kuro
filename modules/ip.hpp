@@ -3,6 +3,7 @@
 #include <chrono>
 #include <modules/module.hpp>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <tc_ip.skel.h>
 #include <vector>
 
@@ -25,6 +26,15 @@ struct IpKey {
     uint8_t dir;
 };
 
+static IpKey to_bpf_key(const IpRuleConfig& cfg) {
+    IpKey key {};
+    key.ip = ::htonl(cfg.ip);
+    key.port = ::htons(cfg.port);
+    key.proto = cfg.proto;
+    key.dir = cfg.gress;
+    return key;
+}
+
 // BPF MAP Value
 struct IpValue {
     uint64_t rate_bps;
@@ -34,35 +44,44 @@ struct IpValue {
     uint32_t lock; // bpf_spin_lock placeholder
 };
 
+static IpValue to_bpf_value(const IpRuleConfig& cfg) {
+    IpValue val {};
+    val.rate_bps = cfg.rate_bps;
+    val.time_scale = cfg.time_scale;
+    val.tokens = cfg.rate_bps;
+    val.last_ns = 0;
+    val.lock = 0;
+    return val;
+}
+
+// TODO(alacrity): using template<size_t CPUS> to improve calc_rate
 class IpModule final: public IModule {
 public:
     IpModule() = default;
     ~IpModule() final = default;
 
     // IModule interface implementation
-    ModuleResult load() final;
+    Result load() final;
     void unload() final;
     std::string type() final;
-    ModuleResult parse_config(const toml::table* table) final;
+    Result parse_config(const toml::table* table) final;
     FlowRate calc_rate() final;
 
 private:
     void init_buffers();
 
-    struct tc_ip* skel = nullptr;
     std::vector<IpRuleConfig> configs;
-    std::string interface_name = "lo";
-    int if_index = 0;
+    struct tc_ip_bpf* skel = nullptr;
+    std::vector<uint8_t> map_buffer;
+    int cpus = 0;
+    int ifindex = 0;
+    bool rate_initialized = false;
+    std::chrono::steady_clock::time_point last_time;
+    FlowCounter last_flow {};
 
+    // for uninstalling
     struct bpf_tc_hook hook_ingress {};
     struct bpf_tc_hook hook_egress {};
-    bool ingress_attached = false;
-    bool egress_attached = false;
-
-    std::vector<char> raw_stats_buffer; // for reading percpu map
-    bool rate_initialized = false;
-    FlowCounter last_flow {};
-    std::chrono::steady_clock::time_point last_time;
 };
 
 } // namespace module

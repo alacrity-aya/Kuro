@@ -26,12 +26,12 @@ public:
     ~CgroupModule() final = default;
 
     explicit CgroupModule() = default;
-    ModuleResult load() final;
+    Result load() final;
     void unload() final;
     std::string type() final;
 
     // config -> CgroupRule
-    ModuleResult parse_config(const toml::table* config) final;
+    Result parse_config(const toml::table* config) final;
 
     FlowRate calc_rate() final;
 
@@ -46,7 +46,7 @@ private:
     std::chrono::steady_clock::time_point last_time;
     FlowCounter last_flow {};
 
-    ModuleResult attach_cgroup();
+    Result attach_cgroup();
     void init();
 };
 

@@ -24,13 +24,13 @@ struct FlowRate {
 
 using error::Error;
 using error::ErrorCode;
-using error::ModuleResult;
+using error::Result;
 class IModule {
 public:
-    virtual ModuleResult load() = 0;
+    virtual Result load() = 0;
     virtual void unload() = 0;
     virtual std::string type() = 0;
-    virtual ModuleResult parse_config(const toml::table* table) = 0;
+    virtual Result parse_config(const toml::table* table) = 0;
     virtual ~IModule() = default;
 
     IModule(): logger { logger::Logger::instance() } {}

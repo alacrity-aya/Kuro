@@ -16,25 +16,24 @@
 
 namespace module {
 
-ModuleResult CgroupModule::load() {
-    ModuleResult ret {};
+Result CgroupModule::load() {
+    Result ret {};
     this->init();
 
     return ret
-
-        .and_then([this]() -> ModuleResult {
+        .and_then([this]() -> Result {
             if (!this->rule.has_value())
                 return std::unexpected { Error { ErrorCode::EMPTY_RULE } };
             return {};
         })
 
-        .and_then([this]() -> ModuleResult {
+        .and_then([this]() -> Result {
             if (this->skel = tc_cgroup__open_and_load(); this->skel == nullptr)
                 return std::unexpected { Error { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
             return {};
         })
 
-        .and_then([this]() -> ModuleResult {
+        .and_then([this]() -> Result {
             auto* map = this->skel->maps.cgroup_rules;
             if (map == nullptr)
                 return std::unexpected { Error { ErrorCode::FAILED_TO_FIND_MAP } };
@@ -57,7 +56,7 @@ ModuleResult CgroupModule::load() {
         })
 
         // TODO(alacrity): use sd-bus.h, not use utils::run_command
-        .and_then([this]() -> ModuleResult {
+        .and_then([this]() -> Result {
             return service_start(
                 utils::ServiceStartOptions { .executable_path = this->rule->path,
                                              .args = this->rule->args,
@@ -65,11 +64,11 @@ ModuleResult CgroupModule::load() {
             );
         })
 
-        .and_then([this]() -> ModuleResult {
+        .and_then([this]() -> Result {
             utils::service_status(this->uuid);
             return this->attach_cgroup();
         })
-        .or_else([this](const auto&& err) -> ModuleResult {
+        .or_else([this](const auto&& err) -> Result {
             this->unload();
             return std::unexpected { err };
         });
@@ -98,7 +97,7 @@ std::string CgroupModule::type() {
     return "CgroupModule";
 }
 
-ModuleResult CgroupModule::parse_config(const toml::table* config) {
+Result CgroupModule::parse_config(const toml::table* config) {
     if (config == nullptr) {
         logger.error("config == nullptr");
         return std::unexpected { Error { ErrorCode::EMPTY_CONFIG_NODE } };
@@ -213,7 +212,7 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
     return {};
 }
 
-ModuleResult CgroupModule::attach_cgroup() {
+Result CgroupModule::attach_cgroup() {
     if (this->cgroup_fd = utils::get_cgroup_fd(this->uuid); !this->cgroup_fd.has_value()) {
         return std::unexpected { Error { ErrorCode::FAILED_TO_GET_CGROUP_FD } };
     }

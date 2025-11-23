@@ -131,5 +131,5 @@ private:
     std::string msg;
 };
 
-using ModuleResult = std::expected<void, Error>;
+using Result = std::expected<void, Error>;
 } // namespace error

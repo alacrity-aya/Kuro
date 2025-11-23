@@ -1,4 +1,3 @@
-#include "modules/module.hpp"
 #include <config.h>
 #include <csignal>
 #include <error/error.hpp>
@@ -9,6 +8,7 @@
 #include <memory>
 #include <modules/cgroup.hpp>
 #include <modules/ip.hpp>
+#include <modules/module.hpp>
 #include <print>
 #include <utils/command.hpp>
 #include <utils/parser.hpp>
@@ -37,8 +37,8 @@ void load_specific_modules(
 
             auto ret =
                 current_module.parse_config(config.as_table())
-                    .and_then([&]() -> module::ModuleResult { return current_module.load(); })
-                    .or_else([&](const auto& err) -> module::ModuleResult {
+                    .and_then([&]() -> module::Result { return current_module.load(); })
+                    .or_else([&](const auto& err) -> module::Result {
                         logger.error("Failed to load {} module: {}", type_name, err.to_string());
                         return std::unexpected { err };
                     });

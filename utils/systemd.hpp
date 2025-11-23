@@ -53,7 +53,7 @@ namespace systemd {
 } // namespace systemd
 
 // Expose logic as inline functions in utils namespace
-using error::ModuleResult;
+using error::Result;
 
 struct ServiceStartOptions { // make clang-tidy happy
     std::string executable_path;
@@ -61,7 +61,7 @@ struct ServiceStartOptions { // make clang-tidy happy
     std::string service_id;
 };
 
-inline ModuleResult service_start(const ServiceStartOptions& option) {
+inline Result service_start(const ServiceStartOptions& option) {
     const auto& [executable_path, args, service_id] = option;
 
     sd_bus_error error = SD_BUS_ERROR_NULL;
