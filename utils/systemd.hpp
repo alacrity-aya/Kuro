@@ -72,8 +72,8 @@ inline ModuleResult service_start(const ServiceStartOptions& option) {
     // 1. Connect to system bus
     r = sd_bus_default_system(&bus_raw);
     if (r < 0)
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      "Failed to connect to system bus" } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                "Failed to connect to system bus" } };
     systemd::BusPtr bus(bus_raw);
 
     // 2. Prepare method call: StartTransientUnit
@@ -86,56 +86,56 @@ inline ModuleResult service_start(const ServiceStartOptions& option) {
         "StartTransientUnit"
     );
     if (r < 0)
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      "Failed to create dbus message" } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                "Failed to create dbus message" } };
     systemd::MessagePtr m(m_raw);
 
     // 3. Append arguments: name and mode
     std::string service_name = service_id + ".service";
     r = sd_bus_message_append(m.get(), "ss", service_name.c_str(), "replace");
     if (r < 0)
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      "Failed to append name/mode" } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                "Failed to append name/mode" } };
 
     // 4. Append Properties: a(sv)
     r = sd_bus_message_open_container(m.get(), 'a', "(sv)");
     if (r < 0)
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      "Failed to open props container" } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                "Failed to open props container" } };
 
     // 4.1 Property: Description
     r = sd_bus_message_append(m.get(), "(sv)", "Description", "s", "Kuro-Flow-Control Service");
     if (r < 0)
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      "Failed to append description" } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                "Failed to append description" } };
 
     // 4.2 Property: Slice
     r = sd_bus_message_append(m.get(), "(sv)", "Slice", "s", "limit.slice");
     if (r < 0)
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      "Failed to append slice" } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                "Failed to append slice" } };
 
     // 4.3 Property: ExecStart -> a(sasb)
     {
         r = sd_bus_message_open_container(m.get(), 'r', "sv"); // Struct for Property (Key, Value)
         if (r < 0)
-            return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                          "Failed to open ExecStart prop" } };
+            return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                    "Failed to open ExecStart prop" } };
 
         r = sd_bus_message_append(m.get(), "s", "ExecStart");
         if (r < 0)
-            return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                          "Failed to append ExecStart key" } };
+            return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                    "Failed to append ExecStart key" } };
 
         r = sd_bus_message_open_container(m.get(), 'v', "a(sasb)"); // Variant
         if (r < 0)
-            return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                          "Failed to open ExecStart variant" } };
+            return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                    "Failed to open ExecStart variant" } };
 
         r = sd_bus_message_open_container(m.get(), 'a', "(sasb)"); // Array of ExecStart structs
         if (r < 0)
-            return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                          "Failed to open ExecStart array" } };
+            return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                    "Failed to open ExecStart array" } };
 
         r = sd_bus_message_open_container(
             m.get(),
@@ -143,8 +143,8 @@ inline ModuleResult service_start(const ServiceStartOptions& option) {
             "sasb"
         ); // Struct: path, argv[], ignore_fail
         if (r < 0)
-            return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                          "Failed to open ExecStart struct" } };
+            return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                    "Failed to open ExecStart struct" } };
 
         // Path
         r = sd_bus_message_append(m.get(), "s", executable_path.c_str());
@@ -178,8 +178,8 @@ inline ModuleResult service_start(const ServiceStartOptions& option) {
     // 5. Append Aux: a(sa(sv)) - empty
     r = sd_bus_message_append(m.get(), "a(sa(sv))", 0);
     if (r < 0)
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      "Failed to append aux" } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED,
+                                                "Failed to append aux" } };
 
     // 6. Send
     r = sd_bus_call(bus.get(), m.get(), 0, &error, nullptr);
@@ -188,8 +188,7 @@ inline ModuleResult service_start(const ServiceStartOptions& option) {
         sd_bus_error_free(&error);
         auto& logger = logger::Logger::instance();
         logger.error("Systemd start failed: {}", err_msg);
-        return std::unexpected { error::ModuleError { error::ErrorCode::RUN_SHELL_CMD_FAILED,
-                                                      err_msg } };
+        return std::unexpected { error::Error { error::ErrorCode::RUN_SHELL_CMD_FAILED, err_msg } };
     }
 
     auto& logger = logger::Logger::instance();

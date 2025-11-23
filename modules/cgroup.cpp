@@ -4,7 +4,8 @@
 #include <error/error.hpp>
 #include <expected>
 #include <fcntl.h>
-#include <iostream>
+#include <filesystem>
+#include <format>
 #include <modules/cgroup.hpp>
 #include <optional>
 #include <tc_cgroup.skel.h>
@@ -23,20 +24,20 @@ ModuleResult CgroupModule::load() {
 
         .and_then([this]() -> ModuleResult {
             if (!this->rule.has_value())
-                return std::unexpected { ModuleError { ErrorCode::EMPTY_RULE } };
+                return std::unexpected { Error { ErrorCode::EMPTY_RULE } };
             return {};
         })
 
         .and_then([this]() -> ModuleResult {
             if (this->skel = tc_cgroup__open_and_load(); this->skel == nullptr)
-                return std::unexpected { ModuleError { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
+                return std::unexpected { Error { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
             return {};
         })
 
         .and_then([this]() -> ModuleResult {
             auto* map = this->skel->maps.cgroup_rules;
             if (map == nullptr)
-                return std::unexpected { ModuleError { ErrorCode::FAILED_TO_FIND_MAP } };
+                return std::unexpected { Error { ErrorCode::FAILED_TO_FIND_MAP } };
 
             uint32_t map_key = 0;
 
@@ -50,7 +51,7 @@ ModuleResult CgroupModule::load() {
                 )
                 != 0)
             {
-                return std::unexpected { ModuleError { ErrorCode::FAILED_TO_UPDATE_MAP } };
+                return std::unexpected { Error { ErrorCode::FAILED_TO_UPDATE_MAP } };
             }
             return {};
         })
@@ -100,7 +101,7 @@ std::string CgroupModule::type() {
 ModuleResult CgroupModule::parse_config(const toml::table* config) {
     if (config == nullptr) {
         logger.error("config == nullptr");
-        return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE } };
+        return std::unexpected { Error { ErrorCode::EMPTY_CONFIG_NODE } };
     }
 
     logger.debug("config is not null");
@@ -110,19 +111,25 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
     auto config_error = [&](const std::string& msg,
                             std::source_location loc = std::source_location::current()) {
         logger.error("Configuration error: {}", msg);
-        return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED, msg, loc } };
+        return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED, msg, loc } };
     };
 
     // 2.1 Path - Required
     const auto* path_node = config->get("path");
     if (path_node == nullptr) {
-        return config_error(
-            error::parse_error_to_string(error::ParseError::MISSING_REQUIRED_FIELD) + ": path"
-        );
+        return std::unexpected { Error { ErrorCode::PARSE_MISSING_REQUIRED_FIELD, ": path" } };
     }
     config_rule.path = path_node->value<std::string>().value_or("");
     if (config_rule.path.empty()) {
         return config_error("Key 'path' is missing, empty, or not a string.");
+    }
+    if (!std::filesystem::exists(config_rule.path)) {
+        return std::unexpected {
+            Error {
+                ErrorCode::PARSING_CONFIG_FAILED,
+                std::format("path: {} not exists", config_rule.path),
+            },
+        };
     }
 
     // 2.2 Arguments (args) - Optional
@@ -133,9 +140,7 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
     // 2.3 Direction (gress) - Required
     const auto* gress_node = config->get("gress");
     if (gress_node == nullptr) {
-        return config_error(
-            error::parse_error_to_string(error::ParseError::MISSING_REQUIRED_FIELD) + ": gress"
-        );
+        return std::unexpected { Error { ErrorCode::PARSE_MISSING_REQUIRED_FIELD, ": gress" } };
     }
     auto gress_str_opt = gress_node->value<std::string>();
     if (!gress_str_opt) {
@@ -146,22 +151,17 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
     // Updated: Handle std::expected
     auto gress_res = utils::parse_gress(gress_str_opt.value());
     if (!gress_res) {
-        return config_error(
-            std::format(
-                "{}: {}",
-                error::parse_error_to_string(gress_res.error()),
-                gress_str_opt.value()
-            )
-        );
+        return std::unexpected { Error {
+            gress_res.error(),
+            std::format("'gress_str = {}'", gress_str_opt.value()),
+        } };
     }
     config_rule.rule.gress = gress_res.value();
 
     // 2.4 Rate (rate_bps) - Required
     const auto* rate_bps_node = config->get("rate_bps");
     if (rate_bps_node == nullptr) {
-        return config_error(
-            error::parse_error_to_string(error::ParseError::MISSING_REQUIRED_FIELD) + ": rate_bps"
-        );
+        return std::unexpected { Error { ErrorCode::PARSE_MISSING_REQUIRED_FIELD, ": rate_bps" } };
     }
     auto rate_bps_str_opt = rate_bps_node->value<std::string>();
     if (!rate_bps_str_opt) {
@@ -171,13 +171,10 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
     // Updated: Handle std::expected
     auto rate_bps_res = utils::parse_rate_bps(rate_bps_str_opt.value());
     if (!rate_bps_res) {
-        return config_error(
-            std::format(
-                "{}: {}",
-                error::parse_error_to_string(rate_bps_res.error()),
-                rate_bps_str_opt.value()
-            )
-        );
+        return std::unexpected { Error {
+            rate_bps_res.error(),
+            std::format("'rate_bps_str = {}'", rate_bps_str_opt.value()),
+        } };
     }
     config_rule.rule.rate_bps = rate_bps_res.value();
 
@@ -192,13 +189,10 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
         // Updated: Handle std::expected
         auto time_scale_res = utils::parse_time_scale(time_scale_str_opt.value());
         if (!time_scale_res) {
-            return config_error(
-                std::format(
-                    "{}: {}",
-                    error::parse_error_to_string(time_scale_res.error()),
-                    time_scale_str_opt.value()
-                )
-            );
+            return std::unexpected { Error {
+                time_scale_res.error(),
+                std::format("'time_scale_str = {}'", time_scale_str_opt.value()),
+            } };
         }
         config_rule.rule.time_scale = time_scale_res.value();
     } else {
@@ -221,7 +215,7 @@ ModuleResult CgroupModule::parse_config(const toml::table* config) {
 
 ModuleResult CgroupModule::attach_cgroup() {
     if (this->cgroup_fd = utils::get_cgroup_fd(this->uuid); !this->cgroup_fd.has_value()) {
-        return std::unexpected { ModuleError { ErrorCode::FAILED_TO_GET_CGROUP_FD } };
+        return std::unexpected { Error { ErrorCode::FAILED_TO_GET_CGROUP_FD } };
     }
     logger.info("get cgroup fd {}", this->cgroup_fd.value());
 
@@ -229,14 +223,14 @@ ModuleResult CgroupModule::attach_cgroup() {
             bpf_program__attach_cgroup(this->skel->progs.limit_egress_traffic, cgroup_fd.value());
         ret == nullptr)
     {
-        return std::unexpected { ModuleError { ErrorCode::ATTACH_BPF_FAILED } };
+        return std::unexpected { Error { ErrorCode::ATTACH_BPF_FAILED } };
     }
 
     if (auto* ret = this->skel->links.limit_ingress_traffic =
             bpf_program__attach_cgroup(this->skel->progs.limit_ingress_traffic, cgroup_fd.value());
         ret == nullptr)
     {
-        return std::unexpected { ModuleError { ErrorCode::ATTACH_BPF_FAILED } };
+        return std::unexpected { Error { ErrorCode::ATTACH_BPF_FAILED } };
     }
 
     return {};

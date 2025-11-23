@@ -1,34 +1,34 @@
 # --- Cgroup configuration ---
-# [[cgroups]]
-# path = "/opt/server"
-# gress = "ingress"
-# time_scale = "1s"
-# rate_bps = "10M"
-#
-# [[cgroups]]
-# path = "/opt/client"
-# args = "kuro"
-# gress = "egress"
-# time_scale = "1s"
-# rate_bps = "10M"
+[[cgroups]]
+path = "/opt/////server"
+gress = "ingress"
+time_scale = "1s"
+rate_bps = "10M"
+
+[[cgroups]]
+path = "/opt/client"
+args = "kuro"
+gress = "egress"
+time_scale = "1s"
+rate_bps = "10M"
 
 
 # --- IP configuration ---
 # each [[ip]]  defines IP/Port targets sharing same Strategy
-[[ip]]
-proto = "kuro!!!!"
-gress = "ingress"
-rate_bps = "10M"
-time_scale = "1s"
-
-# targets are used to define multiple IP/Port tuple
-[[ip.rules]]
-ip = "127.0.0.1"
-port = 12345
-
-[[ip.rules]]
-ip = "127.0.0.1"
-port = 12346
+# [[ip]]
+# proto = "kuro!!!!"
+# gress = "ingress"
+# rate_bps = "10M"
+# time_scale = "1s"
+#
+# # targets are used to define multiple IP/Port tuple
+# [[ip.rules]]
+# ip = "127.0.0.1"
+# port = 12345
+#
+# [[ip.rules]]
+# ip = "127.0.0.1"
+# port = 12346
 
 
 # [[ip]]

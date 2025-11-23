@@ -34,7 +34,7 @@ panic(std::string_view msg, const std::source_location& loc = std::source_locati
     std::abort();
 }
 
-inline std::expected<uint64_t, error::ParseError> parse_rate_bps(const std::string& rate_str) {
+inline std::expected<uint64_t, error::ErrorCode> parse_rate_bps(const std::string& rate_str) {
     std::regex pattern(R"((\d+)([KMG]?))");
     std::smatch match;
     if (std::regex_match(rate_str, match, pattern)) {
@@ -48,16 +48,16 @@ inline std::expected<uint64_t, error::ParseError> parse_rate_bps(const std::stri
             return base * 1024ULL * 1024 * 1024;
         return base;
     }
-    return std::unexpected { error::ParseError::INVALID_RATE };
+    return std::unexpected { error::ErrorCode::PARSE_INVALID_RATE };
 }
 
-// Returns uint64_t or ParseError::InvalidTimeScale
-inline std::expected<uint64_t, error::ParseError> parse_time_scale(const std::string& time_str) {
+// Returns uint64_t or ErrorCode::InvalidTimeScale
+inline std::expected<uint64_t, error::ErrorCode> parse_time_scale(const std::string& time_str) {
     static const std::regex pattern(R"(^([0-9]*\.?[0-9]+)(ns|us|ms|s|m)$)", std::regex::icase);
 
     std::smatch match;
     if (!std::regex_match(time_str, match, pattern))
-        return std::unexpected { error::ParseError::INVALID_TIME_SCALE };
+        return std::unexpected { error::ErrorCode::PARSE_INVALID_TIME_SCALE };
 
     double value = std::stod(match[1].str());
     std::string unit = match[2].str();
@@ -75,22 +75,22 @@ inline std::expected<uint64_t, error::ParseError> parse_time_scale(const std::st
     } else if (unit == "m") {
         ns = value * 60.0 * 1'000'000'000;
     } else {
-        return std::unexpected { error::ParseError::INVALID_TIME_SCALE };
+        return std::unexpected { error::ErrorCode::PARSE_INVALID_TIME_SCALE };
     }
 
     if (ns < 0.0 || ns > static_cast<double>(std::numeric_limits<uint64_t>::max()))
-        return std::unexpected { error::ParseError::INVALID_TIME_SCALE };
+        return std::unexpected { error::ErrorCode::PARSE_INVALID_TIME_SCALE };
 
     return static_cast<uint64_t>(std::llround(ns));
 }
 
-// Returns uint8_t or ParseError::InvalidGress
-inline std::expected<uint8_t, error::ParseError> parse_gress(const std::string& gress_str) {
+// Returns uint8_t or ErrorCode::InvalidGress
+inline std::expected<uint8_t, error::ErrorCode> parse_gress(const std::string& gress_str) {
     if (gress_str == "ingress")
         return 0;
     if (gress_str == "egress")
         return 1;
-    return std::unexpected { error::ParseError::INVALID_GRESS };
+    return std::unexpected { error::ErrorCode::PARSE_INVALID_GRESS };
 }
 
 inline std::string ip_to_string(uint32_t ip_hbo) {
@@ -101,15 +101,15 @@ inline std::string ip_to_string(uint32_t ip_hbo) {
     return std::string { buf.data() };
 }
 
-// Returns uint32_t or ParseError::InvalidIP
-inline std::expected<uint32_t, error::ParseError> parse_ip(const std::string& ip_str) {
+// Returns uint32_t or ErrorCode::InvalidIP
+inline std::expected<uint32_t, error::ErrorCode> parse_ip(const std::string& ip_str) {
     if (ip_str.empty()) {
-        return std::unexpected { error::ParseError::INVALID_IP };
+        return std::unexpected { error::ErrorCode::PARSE_INVALID_IP };
     }
 
     in_addr addr {};
     if (inet_pton(AF_INET, ip_str.c_str(), &addr) != 1) {
-        return std::unexpected { error::ParseError::INVALID_IP };
+        return std::unexpected { error::ErrorCode::PARSE_INVALID_IP };
     }
 
     return ntohl(addr.s_addr); // host byte order
@@ -126,14 +126,14 @@ inline std::optional<std::string> protocol_to_string(uint8_t proto) {
     }
 }
 
-// only support tcp and udp. Returns uint8_t or ParseError::InvalidProto
-inline std::expected<uint8_t, error::ParseError> parse_protocol(const std::string& proto_str) {
+// only support tcp and udp. Returns uint8_t or ErrorCode::InvalidProto
+inline std::expected<uint8_t, error::ErrorCode> parse_protocol(const std::string& proto_str) {
     if (proto_str == "TCP" || proto_str == "tcp")
         return IPPROTO_TCP;
     if (proto_str == "UDP" || proto_str == "udp")
         return IPPROTO_UDP;
 
-    return std::unexpected { error::ParseError::INVALID_PROTO };
+    return std::unexpected { error::ErrorCode::PARSE_INVALID_PROTO };
 }
 
 inline std::string format_elapsed_ns(uint64_t ns_since_boot) {

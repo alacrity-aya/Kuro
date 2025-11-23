@@ -22,8 +22,8 @@ struct FlowRate {
     double dropped_packets_rate;
 };
 
+using error::Error;
 using error::ErrorCode;
-using error::ModuleError;
 using error::ModuleResult;
 class IModule {
 public:

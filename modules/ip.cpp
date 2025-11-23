@@ -1,4 +1,3 @@
-#include "utils/parser.hpp"
 #include <modules/ip.hpp>
 
 namespace {
@@ -17,14 +16,14 @@ struct FieldPair {
 };
 
 template<typename T>
-std::expected<T, error::ModuleError> get_field(FieldPair<T> pair) {
+std::expected<T, error::Error> get_field(FieldPair<T> pair) {
     const auto& [rule_v, base_v] = pair;
     if (rule_v)
         return *rule_v;
     if (base_v)
         return *base_v;
 
-    return std::unexpected { error::ModuleError { error::ErrorCode::PARSING_CONFIG_FAILED } };
+    return std::unexpected { error::Error { error::ErrorCode::PARSING_CONFIG_FAILED } };
 }
 
 }; // namespace
@@ -41,7 +40,7 @@ ModuleResult IpModule::load() {
 // ---------------------------------------------------------
 ModuleResult IpModule::parse_config(const toml::table* table) {
     if (table == nullptr) {
-        return std::unexpected { ModuleError { ErrorCode::EMPTY_CONFIG_NODE } };
+        return std::unexpected { Error { ErrorCode::EMPTY_CONFIG_NODE } };
     }
 
     auto& configs = this->configs;
@@ -55,7 +54,7 @@ ModuleResult IpModule::parse_config(const toml::table* table) {
 
     const auto* node = table->get("rules");
     if (node == nullptr || !node->is_array()) {
-        return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
+        return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED } };
     }
 
     const auto* rules = node->as_array();
@@ -72,27 +71,27 @@ ModuleResult IpModule::parse_config(const toml::table* table) {
 
         auto proto_e = get_field<std::string>({ .rule = r_proto, .base = base_proto });
         if (!proto_e)
-            return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
+            return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED } };
 
         auto gress_e = get_field<std::string>({ .rule = r_gress, .base = base_gress });
         if (!gress_e)
-            return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
+            return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED } };
 
         auto rate_e = get_field<std::string>({ .rule = r_rate, .base = base_rate });
         if (!rate_e)
-            return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
+            return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED } };
 
         auto ts_e = get_field<std::string>({ .rule = r_ts, .base = base_ts });
         if (!ts_e)
-            return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
+            return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED } };
 
         auto ip_s_e = get_field<std::string>({ .rule = r_ip, .base = base_ip });
         if (!ip_s_e)
-            return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
+            return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED } };
 
         auto port_i_e = get_field<uint16_t>({ .rule = r_port, .base = base_port });
         if (!port_i_e)
-            return std::unexpected { ModuleError { ErrorCode::PARSING_CONFIG_FAILED } };
+            return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED } };
 
         IpRuleConfig cfg;
     }
