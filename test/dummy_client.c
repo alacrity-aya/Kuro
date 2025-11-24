@@ -7,7 +7,7 @@
 
 #define SERVER_IP "127.0.0.1"
 #define PORT 8080
-#define BUFFER_SIZE 65536 // 64KB per send
+#define BUFFER_SIZE 16 // 64KB per send
 
 // 客户端程序，持续发送数据
 int main() {

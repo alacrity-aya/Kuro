@@ -5,6 +5,7 @@
 
 ## TODO:
 
+- bps <---> Bps is chaotic
 - adding eth port module
 - making the volume of token bucket configurable
 - supporting BBR algorithm and smooth rate

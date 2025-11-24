@@ -68,12 +68,9 @@ void print_ip_key(const struct IpKey* key) {
         return;
     }
 
-    // 将网络字节序的 IP 地址转换为宿主字节序
     __u32 ip_hbo = bpf_ntohl(key->ip);
-    // 将网络字节序的端口转换为宿主字节序
     __u16 port_hbo = bpf_ntohs(key->port);
 
-    // 格式化输出 IP 地址 (A.B.C.D)
     kuro_debug(
         "IpKey {\n"
         "  .ip    = %u.%u.%u.%u (NBO: 0x%08x)\n"
@@ -85,9 +82,9 @@ void print_ip_key(const struct IpKey* key) {
         (ip_hbo >> 16) & 0xFF,
         (ip_hbo >> 8) & 0xFF,
         (ip_hbo >> 0) & 0xFF,
-        key->ip, // 打印原始网络字节序值
-        port_hbo, // 打印宿主字节序端口值
-        key->port, // 打印原始网络字节序值
+        key->ip,
+        port_hbo,
+        key->port,
         key->proto,
         (key->proto == 6)        ? "TCP"
             : (key->proto == 17) ? "UDP"
@@ -99,14 +96,6 @@ void print_ip_key(const struct IpKey* key) {
     );
 }
 
-// ====================================================================
-// 打印 IpValue 结构体
-// ====================================================================
-
-/**
- * @brief 打印 IpValue 结构体的内容。
- * * @param value 指向要打印的 IpValue 结构体的指针。
- */
 void print_ip_value(const struct IpValue* value) {
     if (!value) {
         kuro_debug("IpValue: (NULL)\n");
@@ -121,7 +110,7 @@ void print_ip_value(const struct IpValue* value) {
         "  // Token Bucket State\n"
         "  .tokens     = %llu\n"
         "  .last_ns    = %llu\n"
-        "  .lock       = { ... (opaque) }\n" // bpf_spin_lock 是不透明类型，通常不直接打印其内部状态
+        "  .lock       = { ... (opaque) }\n"
         "}\n",
         value->rate_bps,
         value->time_scale,
@@ -149,21 +138,21 @@ static __always_inline int check_limit(struct __sk_buff* skb, __u8 dir) {
     key.gress = dir;
 
     if (dir == DIR_INGRESS) {
-        key.ip = ip->saddr; // INGRESS -> limit source ip
+        key.ip = ip->daddr;
     } else {
-        key.ip = ip->daddr; // EGRESS -> limit destination ip
+        key.ip = ip->saddr;
     }
 
     if (ip->protocol == 6) { // TCP
         struct tcphdr* tcp = (void*)(ip + 1);
         if ((void*)(tcp + 1) > data_end)
             return TC_ACT_OK;
-        key.port = (dir == DIR_INGRESS) ? tcp->source : tcp->dest;
+        key.port = (dir == DIR_INGRESS) ? tcp->dest : tcp->source;
     } else if (ip->protocol == 17) { // UDP
         struct udphdr* udp = (void*)(ip + 1);
         if ((void*)(udp + 1) > data_end)
             return TC_ACT_OK;
-        key.port = (dir == DIR_INGRESS) ? udp->source : udp->dest;
+        key.port = (dir == DIR_INGRESS) ? udp->dest : udp->source;
     } else {
         key.port = 0;
     }
@@ -172,8 +161,8 @@ static __always_inline int check_limit(struct __sk_buff* skb, __u8 dir) {
     if (!rule)
         return TC_ACT_OK;
 
-    print_ip_key(&key);
     print_ip_value(rule);
+    print_ip_key(&key);
 
     int action = TC_ACT_SHOT;
     __u64 now = bpf_ktime_get_ns();

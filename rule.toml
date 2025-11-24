@@ -18,7 +18,7 @@
 [[ip]]
 proto = "tcp"
 gress = "ingress"
-rate_bps = "10M"
+rate_bps = "1M"   # <------ NOTE: Bps here
 time_scale = "1s"
 interface = "lo"
 

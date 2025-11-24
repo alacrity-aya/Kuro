@@ -50,7 +50,7 @@ template<>
 struct formatter<module::FlowRate> {
     // Units supported for formatted output
     enum class Unit : uint8_t {
-        RAW, // Default: Bytes/s (no suffix)
+        RAW, // Default: No suffix
 
         // Bits-based units (value * 8)
         BPS, // bits/s
@@ -59,15 +59,13 @@ struct formatter<module::FlowRate> {
         GBPS, // gigabits/s
 
         // Bytes-based units (value * 1)
-        BPS_BYTE, // Bytes/s (explicit)
+        BPS_BYTE, // Bytes/s
         KBPS_BYTE, // Kilobytes/s
         MBPS_BYTE, // Megabytes/s
         GBPS_BYTE // Gigabytes/s
     };
 
     Unit selected_unit = Unit::RAW;
-
-    // Parse format specifier (e.g., "{:Mbps}" -> "Mbps")
 
     constexpr auto parse(std::format_parse_context& ctx) {
         const auto* it = ctx.begin();
@@ -76,27 +74,33 @@ struct formatter<module::FlowRate> {
         if (it == end || *it == '}')
             return it;
 
-        // Try to match each known token
         struct Entry {
             std::string_view token;
             Unit unit;
         };
 
-        static constexpr std::array<Entry, 8> table = { {
-            Entry { .token = "Bps", .unit = Unit::BPS },
+        static constexpr std::array<Entry, 12> table = { {
+            // Bits
+            Entry { .token = "bps", .unit = Unit::BPS },
             Entry { .token = "Kbps", .unit = Unit::KBPS },
             Entry { .token = "Mbps", .unit = Unit::MBPS },
             Entry { .token = "Gbps", .unit = Unit::GBPS },
+            // Bytes (Explicit)
             Entry { .token = "Bps_Byte", .unit = Unit::BPS_BYTE },
             Entry { .token = "KBps_Byte", .unit = Unit::KBPS_BYTE },
             Entry { .token = "MBps_Byte", .unit = Unit::MBPS_BYTE },
             Entry { .token = "GBps_Byte", .unit = Unit::GBPS_BYTE },
+            // Bytes (Common Slash Notation)
+            Entry { .token = "B/s", .unit = Unit::BPS_BYTE },
+            Entry { .token = "KB/s", .unit = Unit::KBPS_BYTE },
+            Entry { .token = "MB/s", .unit = Unit::MBPS_BYTE },
+            Entry { .token = "GB/s", .unit = Unit::GBPS_BYTE },
         } };
 
         for (const auto& [token, unit]: table) {
             const auto* temp = it;
-
             bool matched = true;
+
             for (char c: token) {
                 if (temp == end || *temp != c) {
                     matched = false;
@@ -105,7 +109,6 @@ struct formatter<module::FlowRate> {
                 ++temp;
             }
 
-            // Must end before '}' or end
             if (matched && (temp == end || *temp == '}')) {
                 it = temp;
                 selected_unit = unit;
@@ -113,12 +116,14 @@ struct formatter<module::FlowRate> {
             }
         }
 
-        // Unknown specifier → ignore
+        while (it != end && *it != '}') {
+            ++it;
+        }
+
         return it;
     }
 
     auto format(const module::FlowRate& fr, std::format_context& ctx) const {
-        // Determine scaling factor
         double scale = 1.0;
         std::string_view unit_suffix;
 
@@ -133,15 +138,15 @@ struct formatter<module::FlowRate> {
                 unit_suffix = "bps";
                 break;
             case Unit::KBPS:
-                scale = 8.0 / 1024.0;
+                scale = 8.0 / 1000.0;
                 unit_suffix = "Kbps";
                 break;
             case Unit::MBPS:
-                scale = 8.0 / (1024.0 * 1024.0);
+                scale = 8.0 / 1e6;
                 unit_suffix = "Mbps";
                 break;
             case Unit::GBPS:
-                scale = 8.0 / (1024.0 * 1024.0 * 1024.0);
+                scale = 8.0 / 1e9;
                 unit_suffix = "Gbps";
                 break;
 
@@ -164,15 +169,13 @@ struct formatter<module::FlowRate> {
                 break;
         }
 
-        // Apply unit scaling (only for byte-based rates)
-        double acc_bytes = fr.accepted_bytes_rate * scale;
-        double drop_bytes = fr.dropped_bytes_rate * scale;
+        double acc_val = fr.accepted_bytes_rate * scale;
+        double drop_val = fr.dropped_bytes_rate * scale;
 
-        // Raw output (no unit transformation)
         if (selected_unit == Unit::RAW) {
             return std::format_to(
                 ctx.out(),
-                "FlowRate {{ .accepted_bytes_rate = {} .accepted_packets_rate = {} .dropped_bytes_rate = {} .dropped_packets_rate = {} }}",
+                "FlowRate {{ .accepted_bytes_rate = {:.2f} .accepted_packets_rate = {:.0f} .dropped_bytes_rate = {:.2f} .dropped_packets_rate = {:.0f} }}",
                 fr.accepted_bytes_rate,
                 fr.accepted_packets_rate,
                 fr.dropped_bytes_rate,
@@ -180,14 +183,13 @@ struct formatter<module::FlowRate> {
             );
         }
 
-        // Formatted output with unit suffix
         return std::format_to(
             ctx.out(),
             "FlowRate {{ .accepted_bytes_rate = {:.2f} {} .accepted_packets_rate = {:.0f} pps .dropped_bytes_rate = {:.2f} {} .dropped_packets_rate = {:.0f} pps }}",
-            acc_bytes,
+            acc_val,
             unit_suffix,
             fr.accepted_packets_rate,
-            drop_bytes,
+            drop_val,
             unit_suffix,
             fr.dropped_packets_rate
         );

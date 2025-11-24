@@ -296,7 +296,7 @@ Result IpModule::parse_config(const toml::table* table) {
         if (!rate_res)
             return std::unexpected { rate_res.error() };
 
-        auto parsed_rate = utils::parse_rate_bps(*rate_res);
+        auto parsed_rate = utils::parse_rate_bytes_ps(*rate_res);
         if (!parsed_rate)
             return std::unexpected { Error { parsed_rate.error(),
                                              std::format("rate_bps={}", *rate_res) } };
@@ -340,26 +340,18 @@ Result IpModule::parse_config(const toml::table* table) {
 }
 
 void IpModule::unload() {
-    logger.trace("{} is called ", __PRETTY_FUNCTION__);
+    if (this->hook_ingress.ifindex > 0) {
+        int err = bpf_tc_hook_destroy(&this->hook_ingress);
+        if (err < 0 && err != -ENOENT) {
+            logger.warn("Failed to destroy ingress hook: {}", strerror(-err));
+        }
+    }
 
-    // uninstall TC Hook
-    if (this->skel != nullptr) {
-        struct bpf_tc_opts opts = {
-            .sz = sizeof(opts),
-            .prog_fd = 0,
-            .flags = 0,
-            .prog_id = 0,
-            .handle = 0,
-            .priority = 0,
-        };
-
-        // Detach Ingress
-        opts.prog_fd = bpf_program__fd(this->skel->progs.ip_ingress);
-        bpf_tc_detach(&this->hook_ingress, &opts);
-
-        // Detach Egress
-        opts.prog_fd = bpf_program__fd(this->skel->progs.ip_egress);
-        bpf_tc_detach(&this->hook_egress, &opts);
+    if (this->hook_egress.ifindex > 0) {
+        int err = bpf_tc_hook_destroy(&this->hook_egress);
+        if (err < 0 && err != -ENOENT) {
+            logger.warn("Failed to destroy egress hook: {}", strerror(-err));
+        }
     }
 
     if (this->skel != nullptr) {

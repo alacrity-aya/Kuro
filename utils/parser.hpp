@@ -38,7 +38,7 @@ panic(std::string_view msg, const std::source_location& loc = std::source_locati
     panic("Not implemented", loc);
 }
 
-inline std::expected<uint64_t, error::ErrorCode> parse_rate_bps(const std::string& rate_str) {
+inline std::expected<uint64_t, error::ErrorCode> parse_rate_bytes_ps(const std::string& rate_str) {
     std::regex pattern(R"((\d+)([KMG]?))");
     std::smatch match;
     if (std::regex_match(rate_str, match, pattern)) {

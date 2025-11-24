@@ -100,7 +100,7 @@ int main() {
     while (running) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         for (const auto& module_ptr: modules) {
-            logger.info("Module {}: {:Mbps}", module_ptr->type(), module_ptr->calc_rate());
+            logger.info("Module {}: {:MB/s}", module_ptr->type(), module_ptr->calc_rate());
         }
     }
 

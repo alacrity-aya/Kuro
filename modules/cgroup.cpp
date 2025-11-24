@@ -168,7 +168,7 @@ Result CgroupModule::parse_config(const toml::table* config) {
     }
 
     // Updated: Handle std::expected
-    auto rate_bps_res = utils::parse_rate_bps(rate_bps_str_opt.value());
+    auto rate_bps_res = utils::parse_rate_bytes_ps(rate_bps_str_opt.value());
     if (!rate_bps_res) {
         return std::unexpected { Error {
             rate_bps_res.error(),

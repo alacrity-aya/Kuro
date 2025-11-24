@@ -33,7 +33,7 @@ add_executable(kuro main.cpp modules/cgroup.cpp modules/ip.cpp)
 # --- Custom BPF Target ---
 set(BPF_DIR ${CMAKE_SOURCE_DIR}/bpf)
 add_custom_target(bpf_skel ALL
-    COMMAND bear --append --output ${CMAKE_BINARY_DIR}/compile_commands.json -- make -B
+    COMMAND make clean && bear --append --output ${CMAKE_BINARY_DIR}/compile_commands.json -- make -B
     WORKING_DIRECTORY ${BPF_DIR}
     COMMENT "Building BPF programs via bpf/Makefile"
     VERBATIM
