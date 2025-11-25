@@ -310,4 +310,19 @@ private:
     std::atomic<int> _queue_counter { 0 }; // for notification
 };
 
+#define XX(func) \
+    template<class... Args> \
+    void func(std ::string_view fmt, Args&&... args) { \
+        Logger::Logger::instance().func(fmt, args...); \
+    }
+
+XX(trace)
+XX(debug)
+XX(info)
+XX(warn)
+XX(error)
+XX(fatal)
+
+#undef XX
+
 } // namespace logger

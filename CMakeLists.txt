@@ -13,6 +13,8 @@ configure_file(
 find_package(tomlplusplus CONFIG REQUIRED)
 find_package(cpptrace CONFIG REQUIRED)
 find_package(ZLIB REQUIRED) # Vcpkg provides ZLIB compatible wrapper
+find_package(Protobuf REQUIRED) 
+find_package(gRPC CONFIG REQUIRED)
 
 # --- 2. System Dependencies (Original Method) ---
 
@@ -26,9 +28,39 @@ find_library(ELF_LIB names elf REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Systemd REQUIRED libsystemd)
 
-# --- Target Definition ---
 
-add_executable(kuro main.cpp modules/cgroup.cpp modules/ip.cpp)
+# ---------------------------------------------------------
+# --- RPC Generation (C++ + Python)
+# ---------------------------------------------------------
+
+set(PROTO_FILE ${CMAKE_SOURCE_DIR}/kuro.proto)
+set(GENERATED_DIR ${CMAKE_SOURCE_DIR}/generated)
+set(GRPC_GEN_SH ${CMAKE_SOURCE_DIR}/scripts/generate_cc_grpc.sh)
+set(PY_GEN_SH   ${CMAKE_SOURCE_DIR}/scripts/generate_python_rpc.sh)
+
+add_custom_target(rpc_gen ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${GENERATED_DIR}
+    COMMAND ${GRPC_GEN_SH} ${PROTO_FILE} ${GENERATED_DIR}
+    COMMAND ${PY_GEN_SH}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Generating RPC code (C++ + Python)"
+)
+
+# ---------------------------------------------------------
+# --- Collect generated C++ RPC .cc files
+# ---------------------------------------------------------
+
+file(GLOB RPC_GENERATED_SOURCES
+    ${GENERATED_DIR}/*.cc
+)
+
+# --- Target Definition ---
+add_executable(kuro
+    main.cpp
+    modules/cgroup.cpp
+    modules/ip.cpp
+    ${RPC_GENERATED_SOURCES}   
+)
 
 # --- Custom BPF Target ---
 set(BPF_DIR ${CMAKE_SOURCE_DIR}/bpf)
@@ -41,16 +73,15 @@ add_custom_target(bpf_skel ALL
 
 add_dependencies(kuro bpf_skel)
 
-# --- Compile Definitions & Includes ---
 
 # --- Compile Definitions ---
 target_compile_definitions(kuro PRIVATE TOML_EXCEPTIONS=0)
 
 target_include_directories(kuro PRIVATE
-    ${BPF_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}
-    ${BPF_DIR}/skel
+    ${CMAKE_CURRENT_BINARY_DIR} # For config.h
+    ${CMAKE_SOURCE_DIR}         # Source file
+    ${BPF_DIR}/skel             # BPF skel
+    ${GENERATED_DIR}            # Rpc
 )
 
 # --- Link Libraries ---
@@ -62,4 +93,6 @@ target_link_libraries(kuro PRIVATE
     tomlplusplus::tomlplusplus  # Vcpkg tomlplusplus
     cpptrace::cpptrace          # Vcpkg cpptrace
     ${Systemd_LIBRARIES}        # System systemd
+    gRPC::grpc++                # Vcpkg rpc
+    protobuf::libprotobuf       # Vcpkg protobuf
 )
