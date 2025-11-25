@@ -84,7 +84,7 @@ void CgroupModule::unload() {
     }
     utils::service_stop(this->uuid);
 
-    logger.info("{} is called", __PRETTY_FUNCTION__);
+    logger::info("{} is called", __PRETTY_FUNCTION__);
 }
 
 void CgroupModule::init() {
@@ -99,17 +99,17 @@ std::string CgroupModule::type() {
 
 Result CgroupModule::parse_config(const toml::table* config) {
     if (config == nullptr) {
-        logger.error("config == nullptr");
+        logger::error("config == nullptr");
         return std::unexpected { Error { ErrorCode::EMPTY_CONFIG_NODE } };
     }
 
-    logger.debug("config is not null");
+    logger::debug("config is not null");
 
     ConfigCgroupRule config_rule {};
 
     auto config_error = [&](const std::string& msg,
                             std::source_location loc = std::source_location::current()) {
-        logger.error("Configuration error: {}", msg);
+        logger::error("Configuration error: {}", msg);
         return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED, msg, loc } };
     };
 
@@ -198,7 +198,7 @@ Result CgroupModule::parse_config(const toml::table* config) {
         config_rule.rule.time_scale = 0;
     }
 
-    logger.info(
+    logger::info(
         "parsing configuration successfully: path = {}, args = {}, gress = {}, rate_bps = {}, time_scale = {}",
         config_rule.path,
         config_rule.args,
@@ -216,7 +216,7 @@ Result CgroupModule::attach_cgroup() {
     if (this->cgroup_fd = utils::get_cgroup_fd(this->uuid); !this->cgroup_fd.has_value()) {
         return std::unexpected { Error { ErrorCode::FAILED_TO_GET_CGROUP_FD } };
     }
-    logger.info("get cgroup fd {}", this->cgroup_fd.value());
+    logger::info("get cgroup fd {}", this->cgroup_fd.value());
 
     if (auto* ret = this->skel->links.limit_egress_traffic =
             bpf_program__attach_cgroup(this->skel->progs.limit_egress_traffic, cgroup_fd.value());
@@ -249,7 +249,7 @@ FlowRate CgroupModule::calc_rate() {
         )
         != 0)
     {
-        logger.warn("{}: failed to lookup bpf map", std::source_location::current());
+        logger::warn("{}: failed to lookup bpf map", std::source_location::current());
         return FlowRate {};
     }
 

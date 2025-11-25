@@ -3,8 +3,8 @@ from concurrent import futures
 
 import grpc
 
-import helloworld_pb2
-import helloworld_pb2_grpc
+import kuro_pb2
+import kuro_pb2_grpc
 
 
 class GreeterServicer(helloworld_pb2_grpc.GreeterServicer):

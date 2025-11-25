@@ -1,10 +1,10 @@
 #pragma once
-#include "logger/logger.hpp"
 #include <array>
 #include <bpf/libbpf.h>
 #include <cassert>
 #include <error/error.hpp>
 #include <format>
+#include <logger/logger.hpp>
 #include <toml++/toml.hpp>
 namespace module {
 
@@ -33,12 +33,11 @@ public:
     virtual Result parse_config(const toml::table* table) = 0;
     virtual ~IModule() = default;
 
-    IModule(): logger { logger::Logger::instance() } {}
+    IModule() = default;
 
     virtual FlowRate calc_rate() = 0;
 
 protected:
-    logger::Logger& logger;
     int cpus { libbpf_num_possible_cpus() };
 };
 

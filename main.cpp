@@ -72,14 +72,13 @@ int main() {
 
     signal(SIGINT, on_signal);
 
-    logger::Logger& logger = logger::Logger::instance();
-
     logger::StdoutAppender::ptr stdout_appender = std::make_shared<logger::StdoutAppender>();
-    logger.set_priority(logger::LogPriority::TRACE)
+    logger::Logger::instance()
+        .set_priority(logger::LogPriority::TRACE)
         .add_appender(stdout_appender)
         .enable_time_recording()
         .set_mode(logger::LogMode::ASYNC);
-    logger.trace("function main start");
+    logger::trace("main starts ...");
 
     toml::parse_result result =
         toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "rule.toml").c_str());
@@ -93,14 +92,14 @@ int main() {
 
     auto modules = load_modules(table);
     if (modules.empty()) {
-        logger.warn("No modules were loaded successfully. Exiting.");
+        logger::warn("No modules were loaded successfully. Exiting.");
         return -1;
     }
 
     while (running) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         for (const auto& module_ptr: modules) {
-            logger.info("Module {}: {:MB/s}", module_ptr->type(), module_ptr->calc_rate());
+            logger::info("Module {}: {:MB/s}", module_ptr->type(), module_ptr->calc_rate());
         }
     }
 
@@ -108,7 +107,7 @@ int main() {
         module->unload();
     }
 
-    logger.trace("function main end");
+    logger::trace("function main end");
 
     return 0;
 }

@@ -117,7 +117,7 @@ Result IpModule::load() {
                     )
                     < 0)
                 {
-                    logger.error(
+                    logger::error(
                         "Failed to update rule for IP: {}, Port: {}",
                         utils::ip_to_string(cfg.ip),
                         cfg.port
@@ -125,7 +125,7 @@ Result IpModule::load() {
                     return std::unexpected { Error { ErrorCode::FAILED_TO_UPDATE_MAP } };
                 }
             }
-            logger.info("Loaded {} IP rules into BPF map", this->configs.size());
+            logger::info("Loaded {} IP rules into BPF map", this->configs.size());
             return {};
         })
 
@@ -180,7 +180,7 @@ Result IpModule::load() {
                                                  "Failed to attach TC Egress" } };
             }
 
-            logger.info("IpModule attached to interface index {}", this->ifindex);
+            logger::info("IpModule attached to interface index {}", this->ifindex);
             return {};
         })
 
@@ -198,14 +198,14 @@ Result IpModule::load() {
 // ---------------------------------------------------------
 Result IpModule::parse_config(const toml::table* table) {
     if (table == nullptr) {
-        logger.error("config == nullptr");
+        logger::error("config == nullptr");
         return std::unexpected { Error { ErrorCode::EMPTY_CONFIG_NODE } };
     }
 
     // Helper for generating consistent configuration errors
     auto config_error = [&](const std::string& msg,
                             std::source_location loc = std::source_location::current()) {
-        logger.error("Configuration error: {}", msg);
+        logger::error("Configuration error: {}", msg);
         return std::unexpected { Error { ErrorCode::PARSING_CONFIG_FAILED, msg, loc } };
     };
 
@@ -342,7 +342,7 @@ Result IpModule::parse_config(const toml::table* table) {
         // Add to configs
         this->configs.push_back(cfg);
 
-        logger.debug(
+        logger::debug(
             "Parsed rule #{}: ip={}, port={}, proto={}, gress={}, rate={}, ts={}",
             i,
             *ip_res,
@@ -354,7 +354,7 @@ Result IpModule::parse_config(const toml::table* table) {
         );
     }
 
-    logger.info("Successfully parsed {} IP rules", this->configs.size());
+    logger::info("Successfully parsed {} IP rules", this->configs.size());
     return {};
 }
 
@@ -362,14 +362,14 @@ void IpModule::unload() {
     if (this->hook_ingress.ifindex > 0) {
         int err = bpf_tc_hook_destroy(&this->hook_ingress);
         if (err < 0 && err != -ENOENT) {
-            logger.warn("Failed to destroy ingress hook: {}", strerror(-err));
+            logger::warn("Failed to destroy ingress hook: {}", strerror(-err));
         }
     }
 
     if (this->hook_egress.ifindex > 0) {
         int err = bpf_tc_hook_destroy(&this->hook_egress);
         if (err < 0 && err != -ENOENT) {
-            logger.warn("Failed to destroy egress hook: {}", strerror(-err));
+            logger::warn("Failed to destroy egress hook: {}", strerror(-err));
         }
     }
 
@@ -401,7 +401,7 @@ FlowRate IpModule::calc_rate() {
         )
         != 0)
     {
-        logger.warn("Failed to lookup ip_stats map");
+        logger::warn("Failed to lookup ip_stats map");
         return {};
     }
 
