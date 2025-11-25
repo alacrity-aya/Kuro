@@ -9,6 +9,25 @@
 
 namespace {
 
+module::IpModule::IpKey to_bpf_key(const module::IpModule::IpRuleConfig& cfg) {
+    module::IpModule::IpKey key {};
+    key.ip = ::htonl(cfg.ip);
+    key.port = ::htons(cfg.port);
+    key.proto = cfg.proto;
+    key.dir = cfg.gress;
+    return key;
+}
+
+module::IpModule::IpValue to_bpf_value(const module::IpModule::IpRuleConfig& cfg) {
+    module::IpModule::IpValue val {};
+    val.rate_bps = cfg.rate_bps;
+    val.time_scale = cfg.time_scale;
+    val.tokens = cfg.rate_bps;
+    val.last_ns = 0;
+    val.lock = 0;
+    return val;
+}
+
 template<typename T>
 std::optional<T> opt(const toml::table& t, const std::string& k) {
     if (auto v = t[k].value<T>())
@@ -52,7 +71,7 @@ Result IpModule::load() {
     return ret
 
         .and_then([this]() -> Result {
-            this->ifindex = if_nametoindex(this->iface_name.c_str());
+            this->ifindex = static_cast<int32_t>(if_nametoindex(this->iface_name.c_str()));
             if (this->ifindex == 0) {
                 return std::unexpected { Error {
                     ErrorCode::ATTACH_BPF_FAILED,

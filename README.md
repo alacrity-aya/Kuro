@@ -6,6 +6,7 @@
 ## TODO:
 
 - bps <---> Bps is chaotic
+- using smoothrate to improve flow limit
 - adding eth port module
 - making the volume of token bucket configurable
 - supporting BBR algorithm and smooth rate

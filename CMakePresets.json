@@ -26,8 +26,12 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_FLAGS_DEBUG": "-g -O0 -Wall -Wextra -fdiagnostics-color=always",
-        "CMAKE_C_FLAGS_DEBUG": "-g -O0 -Wall -Wextra -fdiagnostics-color=always"
+
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O0 -Wall -Wextra -fdiagnostics-color=always -fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_C_FLAGS_DEBUG":   "-g -O0 -Wall -Wextra -fdiagnostics-color=always -fsanitize=address,undefined -fno-omit-frame-pointer",
+
+        "CMAKE_EXE_LINKER_FLAGS_DEBUG":    "-fsanitize=address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS_DEBUG": "-fsanitize=address,undefined"
       }
     },
     {
@@ -37,7 +41,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CXX_FLAGS_DEBUG": "-Wall -Wextra -fdiagnostics-color=always",
-        "CMAKE_C_FLAGS_DEBUG": "-Wall -Wextra -fdiagnostics-color=always"
+        "CMAKE_C_FLAGS_DEBUG":   "-Wall -Wextra -fdiagnostics-color=always"
       }
     }
   ],
