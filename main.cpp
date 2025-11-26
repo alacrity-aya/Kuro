@@ -1,5 +1,4 @@
 #include <config.h>
-#include <csignal>
 #include <error/error.hpp>
 #include <expected>
 #include <filesystem>
@@ -10,18 +9,12 @@
 #include <modules/ip.hpp>
 #include <modules/module.hpp>
 #include <print>
+#include <server/server.hpp>
 #include <utils/command.hpp>
 #include <utils/parser.hpp>
 #include <vector>
 
 namespace {
-
-volatile bool running = true;
-
-void on_signal(int) {
-    std::println("\n====RECEIVE SIGNAL====");
-    running = false;
-}
 
 template<typename T>
 void load_specific_modules(
@@ -64,13 +57,10 @@ std::vector<std::unique_ptr<module::IModule>> load_modules(const toml::table& ta
 
 int main() {
     // init
-
     if (auto r = utils::Command::exec("fastfetch"); !r.has_value())
         utils::panic("fastfecth failed");
     else
         std::println("{}", r.value());
-
-    signal(SIGINT, on_signal);
 
     logger::StdoutAppender::ptr stdout_appender = std::make_shared<logger::StdoutAppender>();
     logger::Logger::instance()
@@ -80,8 +70,6 @@ int main() {
         .enable_thread_id(false)
         .set_mode(logger::LogMode::ASYNC);
     logger::trace("main starts ...");
-
-    return 0;
 
     toml::parse_result result =
         toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "rule.toml").c_str());
@@ -99,17 +87,8 @@ int main() {
         return -1;
     }
 
-    while (running) {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        for (const auto& module_ptr: modules) {
-            logger::info("Module {}: {:MB/s}", module_ptr->type(), module_ptr->calc_rate());
-        }
-    }
-
-    for (auto& module: modules) {
-        module->unload();
-    }
-
+    std::string server_address { "0.0.0.0:50051" };
+    server::run_server(server_address, std::move(modules));
     logger::trace("function main end");
 
     return 0;

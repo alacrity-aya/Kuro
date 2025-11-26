@@ -4,7 +4,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define PORT 8080
+#define PORT 12345
 #define BUFFER_SIZE 65536
 
 static double now_sec() {

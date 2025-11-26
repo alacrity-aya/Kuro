@@ -1,20 +1,20 @@
-[log]
-
-log_level = "trace"
+# [log]
+#
+# log_level = "trace"
 
 # --- Cgroup configuration ---
-[[cgroups]]
-path = "/opt/server"
-gress = "ingress"
-time_scale = "1s"
-rate_bps = "10M"
+# [[cgroups]]
+# path = "/home/alacrity/work/kuro/test/server"
+# gress = "ingress"
+# time_scale = "1s"
+# rate_bps = "10M"
 
-[[cgroups]]
-path = "/opt/client"
-args = "kuro"
-gress = "egress"
-time_scale = "1s"
-rate_bps = "10M"
+# [[cgroups]]
+# path = "/opt/client"
+# args = "kuro"
+# gress = "egress"
+# time_scale = "1s"
+# rate_bps = "10M"
 
 
 # --- IP configuration ---
@@ -29,12 +29,12 @@ interface = "lo"
 # targets are used to define multiple IP/Port tuple
 [[ip.rules]]
 ip = "127.0.0.1"
-port = 8080
-
-
-[[ip.rules]]
-ip = "127.0.0.1"
-port = 9090
+port = 12345
+#
+#
+# [[ip.rules]]
+# ip = "127.0.0.1"
+# port = 9090
 
 
 # [[ip]]

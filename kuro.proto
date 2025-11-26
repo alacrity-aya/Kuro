@@ -1,19 +1,24 @@
-// helloworld.proto
-
 syntax = "proto3";
 
 package kuro;
 
-option cc_enable_arenas = true;
-
-service Greeter {
-    rpc SayHello(HelloRequest) returns (HelloReply) {}
+// 1. 定义 FlowRate 消息 (对应 C++ 的 struct FlowRate)
+message FlowRate {
+    // 字段类型和名称与 struct 对应，但使用 Protobuf 约定
+    double accepted_bytes_rate = 1;
+    double dropped_bytes_rate = 2;
+    double accepted_packets_rate = 3;
+    double dropped_packets_rate = 4;
 }
 
-message HelloRequest {
-    string name = 1;
+// 2. 定义 calc_rate() 方法所属的服务
+service RateCalculator {
+    // calc_rate 方法：
+    // - 接收一个空的请求 (你可以定义一个空的 message Request {})，
+    //   或者使用 Protobuf 内建的 google.protobuf.Empty。
+    // - 返回 FlowRate 消息。
+    rpc CalcRate(google.protobuf.Empty) returns (FlowRate);
 }
 
-message HelloReply {
-    string message = 1;
-}
+// 引入 google/protobuf/empty.proto，用于表示无参数的请求
+import "google/protobuf/empty.proto";

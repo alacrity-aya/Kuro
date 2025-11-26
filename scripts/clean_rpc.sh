@@ -2,8 +2,8 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CPP_GEN_DIR="${PROJECT_ROOT}/generated"
-PY_GEN_DIR="${PROJECT_ROOT}/server"
+CPP_GEN_DIR="${PROJECT_ROOT}/build/release
+PY_GEN_DIR="${PROJECT_ROOT}/client"
 
 echo "Cleaning C++ generated files in ${CPP_GEN_DIR}..."
 if [ -d "$CPP_GEN_DIR" ]; then

@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 #define SERVER_IP "127.0.0.1"
-#define PORT 8080
+#define PORT 12345
 #define BUFFER_SIZE 16 // 64KB per send
 
 // 客户端程序，持续发送数据

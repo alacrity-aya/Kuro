@@ -35,6 +35,10 @@ public:
 
     IModule() = default;
 
+    IModule(const IModule&) = default;
+    IModule(IModule&&) = delete;
+    IModule& operator=(const IModule&) = default;
+    IModule& operator=(IModule&&) = delete;
     virtual FlowRate calc_rate() = 0;
 
 protected:

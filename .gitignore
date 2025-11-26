@@ -8,9 +8,6 @@
 /test/build
 iwyu_tool.py
 
-/server/.venv
-/server/__pycache__
-/server/kuro*.py
-
-/generated
-
+/client/.venv
+/client/__pycache__
+/client/kuro*.py

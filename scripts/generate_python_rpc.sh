@@ -2,9 +2,9 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SERVER_DIR="${PROJECT_ROOT}/server"
+CLIENT_DIR="${PROJECT_ROOT}/client"
 
-cd "$SERVER_DIR"
+cd "$CLIENT_DIR"
 
 uv sync
 
