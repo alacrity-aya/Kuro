@@ -76,9 +76,12 @@ int main() {
     logger::Logger::instance()
         .set_priority(logger::LogPriority::TRACE)
         .add_appender(stdout_appender)
-        .enable_time_recording()
+        .enable_time_recording(false)
+        .enable_thread_id(false)
         .set_mode(logger::LogMode::ASYNC);
     logger::trace("main starts ...");
+
+    return 0;
 
     toml::parse_result result =
         toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "rule.toml").c_str());

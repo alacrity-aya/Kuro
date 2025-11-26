@@ -4,12 +4,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <expected>
 #include <format>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <print>
+#include <regex>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -29,6 +30,18 @@ enum class LogPriority : uint8_t {
 
 enum class LogMode : uint8_t { SYNC, ASYNC };
 
+// --- ANSI Color Codes ---
+namespace colors {
+    constexpr std::string_view RESET = "\033[0m";
+    constexpr std::string_view GREY = "\033[90m"; // Time
+    constexpr std::string_view CYAN = "\033[36m"; // Thread
+    constexpr std::string_view RED = "\033[31m";
+    constexpr std::string_view GREEN = "\033[32m";
+    constexpr std::string_view YELLOW = "\033[33m";
+    constexpr std::string_view BLUE = "\033[34m";
+    constexpr std::string_view MAGENTA = "\033[35m";
+} // namespace colors
+
 // --- MPSC Lock-Free Queue Implementation ---
 template<typename T>
 class MpscQueue {
@@ -42,24 +55,18 @@ public:
         delete _head.load(std::memory_order_relaxed);
     }
 
-    // Thread-safe enqueue (Wait-free)
     void enqueue(T&& data) {
         Node* new_node = new Node(std::move(data));
         Node* prev_head = _tail.exchange(new_node, std::memory_order_acq_rel);
         prev_head->_next.store(new_node, std::memory_order_release);
     }
 
-    // Single-consumer dequeue
     bool dequeue(T& output) {
         Node* head = _head.load(std::memory_order_relaxed);
         Node* next = head->_next.load(std::memory_order_acquire);
-
-        if (next == nullptr) {
-            return false; // Queue is empty
-        }
-
+        if (next == nullptr)
+            return false;
         output = std::move(next->_data);
-
         _head.store(next, std::memory_order_relaxed);
         delete head;
         return true;
@@ -74,21 +81,20 @@ private:
     struct Node {
         T _data;
         std::atomic<Node*> _next { nullptr };
-
         Node() = default;
         explicit Node(T&& data): _data(std::move(data)) {}
     };
-
     std::atomic<Node*> _head;
     std::atomic<Node*> _tail;
 };
 
-// --- Log Event Structure for Async Queue ---
+// --- Log Event ---
 struct LogEvent {
-    std::string priority_str;
     LogPriority priority;
+    std::string priority_str; // e.g., "INFO"
     std::string message;
-    std::string time_str; // capture time
+    std::string time_str; // Raw time string
+    std::string thread_id; // Raw thread id string
 };
 
 // --- Appenders ---
@@ -98,11 +104,8 @@ public:
     using ptr = std::shared_ptr<LogAppender>;
     virtual ~LogAppender() = default;
 
-    virtual void
-    log(std::string_view time_str,
-        std::string_view message_priority_str,
-        LogPriority priority,
-        std::string_view message) = 0;
+    // Interface changed slightly: receive the full pre-formatted string
+    virtual void log(std::string_view formatted_message) = 0;
 };
 
 class FileAppender: public LogAppender {
@@ -113,51 +116,38 @@ public:
     }
 
     ~FileAppender() override {
-        if (_filestream.is_open()) {
+        if (_filestream.is_open())
             _filestream.close();
-        }
     }
 
-    std::expected<void, std::string> reopen_file() {
+    void log(std::string_view formatted_message) override {
         std::lock_guard<std::mutex> lock(_fs_mutex);
         if (_filestream.is_open()) {
-            _filestream.close();
-        }
-        _filestream.open(_filename, std::ios::app | std::ios::out);
-        if (!_filestream.is_open()) {
-            return std::unexpected(std::format("{}: Fail to open file", __func__));
-        }
-        return {};
-    }
-
-    void
-    log(std::string_view time_str,
-        std::string_view message_priority_str,
-        LogPriority /*priority*/,
-        std::string_view message) override {
-        std::lock_guard<std::mutex> lock(_fs_mutex);
-        if (_filestream.is_open()) {
-            _filestream << time_str << message_priority_str << message << '\n';
-            _filestream.flush(); // Can remove flush for better performance
+            // Remove ANSI color codes for file output to keep it clean
+            std::string clean_msg = strip_ansi(formatted_message);
+            _filestream << clean_msg << '\n';
+            _filestream.flush();
         }
     }
 
 private:
     std::string _filename;
     std::ofstream _filestream;
-    std::mutex _fs_mutex; // for fstream
+    std::mutex _fs_mutex;
+
+    // Helper to remove ANSI codes for file readability
+    std::string strip_ansi(std::string_view input) {
+        static const std::regex ansi_regex(R"(\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]))");
+        std::string s(input);
+        return std::regex_replace(s, ansi_regex, "");
+    }
 };
 
 class StdoutAppender: public LogAppender {
 public:
     using ptr = std::shared_ptr<StdoutAppender>;
-
-    void
-    log(std::string_view time_str,
-        std::string_view message_priority_str,
-        LogPriority /*priority*/,
-        std::string_view message) override {
-        std::println("{}{}{}", time_str, message_priority_str, message);
+    void log(std::string_view formatted_message) override {
+        std::println("{}", formatted_message);
     }
 };
 
@@ -182,6 +172,12 @@ public:
         return *this;
     }
 
+    // New: Toggle Thread ID
+    Logger& enable_thread_id(bool enable = true) {
+        _enable_thread_id = enable;
+        return *this;
+    }
+
     Logger& set_mode(LogMode mode) {
         _mode = mode;
         return *this;
@@ -198,6 +194,7 @@ public:
         return *this;
     }
 
+    // Standardized simplified macros with padding for alignment
 #define XX(func, arg, priority) \
     template<class... Args> \
     void func(std::string_view fmt, Args&&... args) { \
@@ -207,74 +204,101 @@ public:
         } \
     }
 
-    XX(trace, [Trace]\t, TRACE)
-    XX(debug, [Debug]\t, DEBUG)
-    XX(info, [Info]\t, INFO)
-    XX(warn, [Warn]\t, WARN)
-    XX(error, [Error]\t, ERROR)
-    XX(fatal, [Fatal]\t, FATAL)
+    XX(trace, TRACE, TRACE)
+    XX(debug, DEBUG, DEBUG)
+    XX(info, INFO, INFO)
+    XX(warn, WARN, WARN)
+    XX(error, ERROR, ERROR)
+    XX(fatal, FATAL, FATAL)
 
 #undef XX
 
 private:
     static std::string get_current_time_string() {
         auto now = std::chrono::system_clock::now();
+        // Use standard format, seconds precision
         return std::format("{:%Y-%m-%d %H:%M:%S}", now);
     }
 
-    static std::string apply_color(LogPriority pri, const std::string& text) {
+    static std::string_view get_color(LogPriority pri) {
         switch (pri) {
-            case LogPriority::ERROR:
             case LogPriority::FATAL:
-                return "\033[31m" + text + "\033[0m";
+                return colors::MAGENTA;
+            case LogPriority::ERROR:
+                return colors::RED;
             case LogPriority::WARN:
-                return "\033[33m" + text + "\033[0m";
+                return colors::YELLOW;
             case LogPriority::INFO:
-                return "\033[32m" + text + "\033[0m";
+                return colors::GREEN;
             case LogPriority::DEBUG:
-                return "\033[36m" + text + "\033[0m";
+                return colors::BLUE;
             case LogPriority::TRACE:
-                return "\033[90m" + text + "\033[0m";
+                return colors::GREY;
             default:
-                return text;
+                return colors::RESET;
         }
     }
 
     void log(std::string pri_str, LogPriority msg_pri, std::string msg) {
         std::string time_str;
         if (_enable_time_recording) {
-            time_str = get_current_time_string() + "\t";
+            time_str = get_current_time_string();
         }
 
+        std::string tid_str;
+        if (_enable_thread_id) {
+            std::stringstream ss;
+            ss << std::this_thread::get_id();
+            tid_str = ss.str();
+        }
+
+        LogEvent event { .priority = msg_pri,
+                         .priority_str = std::move(pri_str),
+                         .message = std::move(msg),
+                         .time_str = std::move(time_str),
+                         .thread_id = std::move(tid_str) };
+
         if (_mode == LogMode::ASYNC) {
-            _queue.enqueue(
-                LogEvent { .priority_str = std::move(pri_str),
-                           .priority = msg_pri,
-                           .message = std::move(msg),
-                           .time_str = std::move(time_str) }
-            );
+            _queue.enqueue(std::move(event));
             _queue_counter.fetch_add(1, std::memory_order_release);
             _queue_counter.notify_one();
         } else {
-            // write_to_appenders(time_str, pri_str, msg_pri, msg);
-            write_to_appenders(
-                LogEvent { .priority_str = pri_str,
-                           .priority = msg_pri,
-                           .message = msg,
-                           .time_str = time_str }
-            );
+            write_to_appenders(event);
         }
     }
 
     void write_to_appenders(const LogEvent& event) {
-        const auto& [pri_str, pri, msg, time_str] = event;
+        // Assemble the full formatted string here with colors
+        // Format: [TIME] [TID] [LEVEL] Message
+        std::string buffer;
 
-        auto colored_msg = apply_color(pri, msg);
-        auto colored_pri = apply_color(pri, pri_str);
+        // 1. Time (Grey)
+        if (!event.time_str.empty()) {
+            buffer += std::format("{}[{}]{} ", colors::GREY, event.time_str, colors::RESET);
+        }
+
+        // 2. Thread ID (Cyan)
+        if (!event.thread_id.empty()) {
+            buffer += std::format("{}[{}]{} ", colors::CYAN, event.thread_id, colors::RESET);
+        }
+
+        // 3. Priority (Color based on level)
+        // Pad priority string to align messages (e.g., "INFO " vs "WARN ")
+        auto color = get_color(event.priority);
+        buffer += std::format("{}[{:<5}]{} ", color, event.priority_str, colors::RESET);
+
+        // 4. Message (White/Default)
+        buffer += event.message;
+
+        // Apply distinct color to message text for Errors/Fatal only for visibility
+        if (event.priority >= LogPriority::ERROR) {
+            // Optional: Wrap the message itself in color for errors
+            // buffer += std::format("{}{}{}", color, event.message, colors::RESET);
+        }
 
         std::lock_guard<std::mutex> lock(_appender_mtx);
         for (const auto& appender: _appenders) {
-            appender->log(time_str, colored_pri, pri, colored_msg);
+            appender->log(buffer);
         }
     }
 
@@ -283,14 +307,12 @@ private:
             LogEvent event;
             if (_queue.dequeue(event)) {
                 write_to_appenders(event);
-                // reduce count not notify, since only customers are waiting
                 _queue_counter.fetch_sub(1, std::memory_order_relaxed);
             } else {
                 int curr = 0;
                 _queue_counter.wait(curr, std::memory_order_acquire);
             }
         }
-
         LogEvent event;
         while (_queue.dequeue(event)) {
             write_to_appenders(event);
@@ -300,20 +322,20 @@ private:
     std::atomic<LogPriority> _priority { LogPriority::TRACE };
     LogMode _mode { LogMode::SYNC };
     bool _enable_time_recording { false };
+    bool _enable_thread_id { false }; // Default false
 
     std::mutex _appender_mtx;
     std::vector<LogAppender::ptr> _appenders;
-
-    // Async components
     MpscQueue<LogEvent> _queue;
     std::jthread _worker_thread;
-    std::atomic<int> _queue_counter { 0 }; // for notification
+    std::atomic<int> _queue_counter { 0 };
 };
 
+// Global Macros
 #define XX(func) \
     template<class... Args> \
-    void func(std ::string_view fmt, Args&&... args) { \
-        Logger::Logger::instance().func(fmt, args...); \
+    void func(std::string_view fmt, Args&&... args) { \
+        Logger::instance().func(fmt, args...); \
     }
 
 XX(trace)
