@@ -75,6 +75,7 @@ add_executable(kuro
     modules/cgroup.cpp
     modules/ip.cpp
     server/server.cpp
+    config/config.cpp
     ${RPC_GENERATED_SOURCES}   
 )
 

@@ -1,4 +1,5 @@
 #include <config.h>
+#include <config/config.hpp>
 #include <error/error.hpp>
 #include <expected>
 #include <filesystem>
@@ -53,23 +54,35 @@ std::vector<std::unique_ptr<module::IModule>> load_modules(const toml::table& ta
     return modules;
 }
 
-} // namespace
-
-int main() {
-    // init
+void init() {
     if (auto r = utils::Command::exec("fastfetch"); !r.has_value())
         utils::panic("fastfecth failed");
     else
         std::println("{}", r.value());
 
+    auto ret = config::Config::instance().load(
+        (std::filesystem::path(PROJECT_ROOT_DIR) / "config.toml").c_str()
+    );
+
+    if (!ret) {
+        utils::panic("failed to load config");
+    }
+
     logger::StdoutAppender::ptr stdout_appender = std::make_shared<logger::StdoutAppender>();
     logger::Logger::instance()
-        .set_priority(logger::LogPriority::TRACE)
+        .set_priority(config::log_level())
         .add_appender(stdout_appender)
         .enable_time_recording(false)
         .enable_thread_id(false)
         .set_mode(logger::LogMode::ASYNC);
-    logger::trace("main starts ...");
+
+    logger::trace("logger initialized");
+}
+
+} // namespace
+
+int main() {
+    init();
 
     toml::parse_result result =
         toml::parse_file((std::filesystem::path(PROJECT_ROOT_DIR) / "rule.toml").c_str());
@@ -87,8 +100,7 @@ int main() {
         return -1;
     }
 
-    std::string server_address { "0.0.0.0:50051" };
-    server::run_server(server_address, std::move(modules));
+    server::run_server(config::rpc_server_addr(), std::move(modules));
     logger::trace("function main end");
 
     return 0;

@@ -1,0 +1,5 @@
+[log]
+level = "trace"
+
+[rpc]
+address = "0.0.0.0:50051"

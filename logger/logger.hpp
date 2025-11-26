@@ -1,6 +1,5 @@
 #pragma once
 
-#include "singleton.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -15,6 +14,7 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <utils/singleton.hpp>
 #include <vector>
 
 namespace logger {
@@ -136,7 +136,7 @@ private:
     std::mutex _fs_mutex;
 
     // Helper to remove ANSI codes for file readability
-    std::string strip_ansi(std::string_view input) {
+    static std::string strip_ansi(std::string_view input) {
         static const std::regex ansi_regex(R"(\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]))");
         std::string s(input);
         return std::regex_replace(s, ansi_regex, "");

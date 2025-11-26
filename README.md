@@ -9,10 +9,7 @@
 - using smoothrate to improve flow limit
 - adding eth port module
 - making the volume of token bucket configurable
-- supporting BBR algorithm and smooth rate
-- making one module starts multi bpf objects
-- rpc + quic
-- moving socket into another cgroup
+- `libbpf: Kernel error message: Exclusivity flag on, cannot modify`
 
 
 ---
