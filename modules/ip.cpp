@@ -1,3 +1,4 @@
+#include "logger/logger.hpp"
 #include <bpf/libbpf.h>
 #include <bpf/libbpf_legacy.h>
 #include <cerrno>
@@ -91,9 +92,11 @@ Result IpModule::load() {
         })
 
         .and_then([this]() -> Result {
+            logger::trace("{}", std::source_location::current());
             if (this->skel = tc_ip__open_and_load(); this->skel == nullptr) {
                 return std::unexpected { Error { ErrorCode::OPEN_AND_LOAD_BPF_FAILED } };
             }
+            logger::trace("{}", std::source_location::current());
             return {};
         })
 
@@ -359,6 +362,7 @@ Result IpModule::parse_config(const toml::table* table) {
 }
 
 void IpModule::unload() {
+    logger::trace("{}", std::source_location::current());
     if (this->hook_ingress.ifindex > 0) {
         int err = bpf_tc_hook_destroy(&this->hook_ingress);
         if (err < 0 && err != -ENOENT) {

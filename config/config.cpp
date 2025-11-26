@@ -1,11 +1,16 @@
+#include "utils/parser.hpp"
 #include <config/config.hpp>
 #include <iostream>
 
 namespace {
 
-logger::LogPriority parse_log_level(const std::string& s) {
+logger::LogPriority parse_log_level(const std::optional<std::string>& s) {
     using L = logger::LogPriority;
-    std::string lv = s;
+    if (!s.has_value()) {
+        return L::INFO;
+    }
+
+    std::string lv = s.value();
     std::ranges::transform(lv, lv.begin(), ::tolower);
 
     if (lv == "trace")
@@ -21,8 +26,25 @@ logger::LogPriority parse_log_level(const std::string& s) {
     if (lv == "fatal")
         return L::FATAL;
 
-    logger::warn("failed to parse_log_level: s = {}, fallback to LogPriority::INFO", s);
-    return L::INFO;
+    utils::panic("should be unreachable");
+}
+
+logger::LogMode parse_log_mode(const std::optional<std::string>& s) {
+    using L = logger::LogMode;
+
+    if (!s.has_value()) {
+        return L::SYNC;
+    }
+
+    std::string lv = s.value();
+    std::ranges::transform(lv, lv.begin(), ::tolower);
+
+    if (lv == "async")
+        return L::ASYNC;
+    if (lv == "sync")
+        return L::SYNC;
+
+    return L::SYNC;
 }
 
 bool is_valid_ip_port(const std::string& input) {
@@ -50,12 +72,18 @@ bool Config::load(std::string_view path) {
         }
         const auto& tbl = result.table();
 
-        // --- log.level ---
-        if (auto v = tbl["log"]["level"].value<std::string>()) {
-            this->log_level = parse_log_level(*v);
-        }
+        // --- log ---
 
-        // -- rpc.address --
+        this->log_level = parse_log_level(tbl["log"]["level"].value<std::string>());
+
+        this->enable_time_recording =
+            tbl["log"]["enable_time_recording"].value<bool>().value_or(true);
+
+        this->enable_thread_id = tbl["log"]["enable_thread_id"].value<bool>().value_or(true);
+
+        this->log_mode = parse_log_mode(tbl["log"]["mode"].value<std::string>());
+
+        // -- rpc --
         if (auto addr = tbl["rpc"]["address"].value<std::string>()) {
             if (!is_valid_ip_port(*addr)) {
                 return false;

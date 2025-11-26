@@ -7,9 +7,6 @@
 
 namespace server {
 
-void run_server(
-    const std::string& server_address,
-    std::vector<std::unique_ptr<module::IModule>> modules
-);
+void run_server(const std::string& server_address);
 
 } // namespace server

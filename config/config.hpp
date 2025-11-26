@@ -24,6 +24,18 @@ public:
         return this->rpc_server_addr;
     }
 
+    [[nodiscard]] bool is_enable_thread_id() const noexcept {
+        return this->enable_thread_id;
+    }
+
+    [[nodiscard]] bool is_enable_time_recording() const noexcept {
+        return this->enable_time_recording;
+    }
+
+    [[nodiscard]] logger::LogMode get_log_mode() const noexcept {
+        return this->log_mode;
+    }
+
 private:
     friend class Singleton<Config>;
 
@@ -32,6 +44,10 @@ private:
     bool loaded = false;
     logger::LogPriority log_level = logger::LogPriority::INFO;
     std::string rpc_server_addr;
+    bool enable_time_recording { true };
+    bool enable_thread_id { true };
+
+    logger::LogMode log_mode { logger::LogMode::SYNC };
 };
 
 inline logger::LogPriority log_level() {
@@ -40,6 +56,18 @@ inline logger::LogPriority log_level() {
 
 inline std::string rpc_server_addr() {
     return Config::instance().get_rpc_server_address();
+}
+
+inline bool is_enable_thread_id() {
+    return Config::instance().is_enable_thread_id();
+}
+
+inline bool is_enable_time_recording() {
+    return Config::instance().is_enable_time_recording();
+}
+
+inline logger::LogMode log_mode() {
+    return Config::instance().get_log_mode();
 }
 
 } // namespace config

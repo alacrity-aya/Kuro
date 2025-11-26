@@ -48,18 +48,12 @@ std::vector<std::unique_ptr<module::IModule>> load_modules(const toml::table& ta
     std::vector<std::unique_ptr<module::IModule>> modules {};
 
     load_specific_modules<module::CgroupModule>(table["cgroups"].as_array(), modules, "Cgroup");
-
     load_specific_modules<module::IpModule>(table["ip"].as_array(), modules, "IP");
 
     return modules;
 }
 
 void init() {
-    if (auto r = utils::Command::exec("fastfetch"); !r.has_value())
-        utils::panic("fastfecth failed");
-    else
-        std::println("{}", r.value());
-
     auto ret = config::Config::instance().load(
         (std::filesystem::path(PROJECT_ROOT_DIR) / "config.toml").c_str()
     );
@@ -72,9 +66,9 @@ void init() {
     logger::Logger::instance()
         .set_priority(config::log_level())
         .add_appender(stdout_appender)
-        .enable_time_recording(false)
-        .enable_thread_id(false)
-        .set_mode(logger::LogMode::ASYNC);
+        .enable_time_recording(config::is_enable_time_recording())
+        .enable_thread_id(config::is_enable_thread_id())
+        .set_mode(config::log_mode());
 
     logger::trace("logger initialized");
 }
@@ -100,7 +94,13 @@ int main() {
         return -1;
     }
 
-    server::run_server(config::rpc_server_addr(), std::move(modules));
+    for (const auto& module: modules) {
+        module->unload();
+    }
+
+    logger::trace("before run_server");
+
+    server::run_server(config::rpc_server_addr());
     logger::trace("function main end");
 
     return 0;

@@ -1,5 +1,8 @@
 [log]
 level = "trace"
+enable_time_recording = "false"
+enable_thread_id = "true"
+mode = "async"
 
 [rpc]
 address = "0.0.0.0:50051"

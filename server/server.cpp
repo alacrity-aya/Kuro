@@ -1,12 +1,13 @@
-#include <server/server.hpp>
-
-#include <atomic>
 #include <csignal>
 #include <google/protobuf/empty.pb.h>
 #include <grpcpp/grpcpp.h>
+#include <grpcpp/health_check_service_interface.h>
 #include <kuro.grpc.pb.h>
 #include <kuro.pb.h>
 #include <logger/logger.hpp>
+#include <memory>
+#include <server/server.hpp>
+#include <utils/parser.hpp>
 
 namespace server {
 
@@ -16,12 +17,13 @@ using grpc::ServerContext;
 using grpc::Status;
 
 namespace {
-    std::atomic<grpc::Server*> g_server_ptr { nullptr };
+    grpc::Server* g_server_ptr { nullptr };
 
-    void handle_signal(int signal) {
-        if (auto* server = g_server_ptr.load()) {
-            logger::warn("Received signal {}, shutting down server...", signal);
-            server->Shutdown();
+    void handle_signal([[maybe_unused]] int sig) {
+        if (g_server_ptr != nullptr) [[likely]] {
+            std::jthread shutdown_thread([] { g_server_ptr->Shutdown(); });
+        } else {
+            utils::panic("when receiving a signal, g_server_ptr == nullptr");
         }
     }
 } // namespace
@@ -29,14 +31,14 @@ namespace {
 // --- Service ---
 class RateCalculatorImpl final: public kuro::RateCalculator::Service {
 public:
-    explicit RateCalculatorImpl(std::vector<std::unique_ptr<module::IModule>> modules):
-        modules_(std::move(modules)) {}
+    explicit RateCalculatorImpl() = default;
 
     ~RateCalculatorImpl() override {
+        logger::warn("skip unloading...");
         logger::info("Unloading modules...");
-        for (auto& module: modules_) {
-            module->unload();
-        }
+        // for (auto& module: modules_) {
+        //     module->unload();
+        // }
     }
 
     Status CalcRate(
@@ -58,23 +60,23 @@ private:
     std::vector<std::unique_ptr<module::IModule>> modules_;
 
     module::FlowRate calculate_aggregated_rate() {
-        module::FlowRate total_rate = {};
-        for (const auto& module_ptr: modules_) {
-            module::FlowRate rate = module_ptr->calc_rate();
-            total_rate.accepted_bytes_rate += rate.accepted_bytes_rate;
-            total_rate.dropped_bytes_rate += rate.dropped_bytes_rate;
-            total_rate.accepted_packets_rate += rate.accepted_packets_rate;
-            total_rate.dropped_packets_rate += rate.dropped_packets_rate;
-        }
-        return total_rate;
+        // module::FlowRate total_rate = {};
+        // for (const auto& module_ptr: modules_) {
+        //     module::FlowRate rate = module_ptr->calc_rate();
+        //     total_rate.accepted_bytes_rate += rate.accepted_bytes_rate;
+        //     total_rate.dropped_bytes_rate += rate.dropped_bytes_rate;
+        //     total_rate.accepted_packets_rate += rate.accepted_packets_rate;
+        //     total_rate.dropped_packets_rate += rate.dropped_packets_rate;
+        // }
+        // return total_rate;
+        return {};
     }
 };
 
-void run_server(
-    const std::string& server_address,
-    std::vector<std::unique_ptr<module::IModule>> modules
-) {
-    RateCalculatorImpl service(std::move(modules));
+void run_server(const std::string& server_address) {
+    // auto service = std::make_unique<RateCalculatorImpl>(std::move(modules));
+    RateCalculatorImpl service {};
+    grpc::EnableDefaultHealthCheckService(true);
 
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -87,13 +89,12 @@ void run_server(
     }
     logger::info("Server listening on {}", server_address);
 
-    g_server_ptr.store(server.get());
+    g_server_ptr = server.get();
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 
     server->Wait();
 
-    g_server_ptr.store(nullptr);
     logger::info("Server stopped.");
 }
 
