@@ -1,3 +1,4 @@
-bpfgen/*bpf*.go
-bpfgen/*.o
+gen/*bpf*.go
+gen/*.o
 bpf/vmlinux.h
+/kuro
