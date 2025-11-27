@@ -1,0 +1,3 @@
+bpfgen/*bpf*.go
+bpfgen/*.o
+bpf/vmlinux.h
