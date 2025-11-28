@@ -3,7 +3,7 @@
 </div>
 
 
-## TODO:
+## TODO: I'll rewrite this prject in go
 
 - bps <---> Bps is chaotic
 - using smoothrate to improve flow limit
