@@ -100,8 +100,7 @@ func updateMap(objs *gen.TcObjects) {
 
 	for _, p := range config.C.Rule.Target.Ports {
 		key := gen.TcPortKey{
-			Port:  uint16(p),
-			Gress: config.C.TargetGress,
+			Port: uint16(p),
 		}
 		value := uint8(1) // 1 = target
 		if err := objs.Ports.Update(&key, &value, ebpf.UpdateAny); err != nil {
@@ -165,25 +164,34 @@ func AttachProg() {
 	}
 	Logger.Debug("Network interface looked up", zap.String("iface", iface.Name), zap.Int("index", iface.Index))
 
-	egressLink, err := link.AttachTCX(link.TCXOptions{
-		Interface: iface.Index,
-		Program:   objs.Egress,
-		Attach:    ebpf.AttachTCXEgress,
-	})
-	if err != nil {
-		Logger.Fatal("Could not attach TCX egress program", zap.String("iface", iface.Name), zap.Error(err))
-	}
-	defer egressLink.Close()
+	var progLink link.Link
+	var attachErr error
+	var direction string
 
-	ingressLink, err := link.AttachTCX(link.TCXOptions{
-		Interface: iface.Index,
-		Program:   objs.Ingress,
-		Attach:    ebpf.AttachTCXIngress,
-	})
-	if err != nil {
-		Logger.Fatal("Could not attach TCX ingress program", zap.String("iface", iface.Name), zap.Error(err))
+	switch config.C.TargetGress {
+	case 1: // EGRESS
+		direction = "Egress"
+		progLink, attachErr = link.AttachTCX(link.TCXOptions{
+			Interface: iface.Index,
+			Program:   objs.Gress,
+			Attach:    ebpf.AttachTCXEgress,
+		})
+	case 0: // INGRESS
+		direction = "Ingress"
+		progLink, attachErr = link.AttachTCX(link.TCXOptions{
+			Interface: iface.Index,
+			Program:   objs.Gress,
+			Attach:    ebpf.AttachTCXIngress,
+		})
+	default:
+		Logger.Fatal("Invalid gress configuration", zap.String("gress", config.C.Rule.Gress))
 	}
-	defer ingressLink.Close()
+
+	if attachErr != nil {
+		Logger.Fatal("Could not attach TCX program", zap.String("direction", direction), zap.String("iface", iface.Name), zap.Error(attachErr))
+	}
+
+	defer progLink.Close()
 
 	Logger.Info("Successfully attached eBPF programs",
 		zap.String("iface_name", iface.Name),

@@ -1,13 +1,13 @@
 [log]
 level = "debug"
 
-# [rule]
-# iface = "vethf2be3e8" # f6e0f798de7c sim-node-2
-# gress = "egress"
-
 [rule]
-iface = "vethfaee9b2"
+iface = "vethf2be3e8" # f6e0f798de7c sim-node-2 perf3 client
 gress = "egress"
+
+# [rule]
+# iface = "vethfaee9b2" # sim-node-1 perf3 server
+# gress = "ingress"
 
 [rule.target]
 ports = [8888]
@@ -15,5 +15,5 @@ rate = "10MB"
 time_scale = "1s" # optional
 
 [rule.other]
-rate = "1000MB"
+rate = "100MB"
 time_scale = "1s" # optional

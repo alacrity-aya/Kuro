@@ -29,7 +29,6 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 struct port_key {
   __u16 port; // host byte order port
-  __u8 gress; // INGRESS / EGRESS
 };
 
 typedef __u8 port_value; // 1 = target; 0 = other
@@ -196,41 +195,42 @@ static __always_inline int check_limit(struct __sk_buff *skb, __u8 gress) {
 
   __u16 port = 0;
 
+  __u16 src_port = 0;
+  __u16 dst_port = 0;
+
   if (ip->protocol == IPPROTO_TCP) {
     struct tcphdr *tcp = (void *)ip + ihl;
     if ((void *)tcp + sizeof(*tcp) > data_end)
       goto APPLY;
-
-    port = (gress == EGRESS) ? bpf_ntohs(tcp->dest) : bpf_ntohs(tcp->source);
-    kuro_debug("tcp: src_port = %u, dst_port = %u, port = %u",
-               bpf_ntohs(tcp->source), bpf_ntohs(tcp->dest), port);
+    src_port = bpf_ntohs(tcp->source);
+    dst_port = bpf_ntohs(tcp->dest);
   } else if (ip->protocol == IPPROTO_UDP) {
     struct udphdr *udp = (void *)ip + ihl;
     if ((void *)udp + sizeof(*udp) > data_end)
       goto APPLY;
-
-    port = (gress == EGRESS) ? bpf_ntohs(udp->dest) : bpf_ntohs(udp->source);
-    kuro_debug("udp: src_port = %u, dst_port = %u, port = %u",
-               bpf_ntohs(udp->source), bpf_ntohs(udp->dest), port);
+    src_port = bpf_ntohs(udp->source);
+    dst_port = bpf_ntohs(udp->dest);
   } else {
     goto APPLY;
   }
 
-  // Check if port is in target list
-  struct port_key k = {
-      .port = port,
-      .gress = gress,
+  struct port_key k_src = {
+      .port = src_port,
   };
+  port_value *v_src = bpf_map_lookup_elem(&ports, &k_src);
 
-  port_value *v = bpf_map_lookup_elem(&ports, &k);
-  if (v && *v == 1) {
-    class_id = 0; // target
+  struct port_key k_dst = {
+      .port = dst_port,
+  };
+  port_value *v_dst = bpf_map_lookup_elem(&ports, &k_dst);
+
+  if ((v_src && *v_src == 1) || (v_dst && *v_dst == 1)) {
+    class_id = 0;
+
+    kuro_debug("Target HIT! src=%u dst=%u gress=%d", src_port, dst_port, gress);
   } else {
     class_id = 1; // other
   }
-
-  kuro_debug("k = port_key { .port = %u, .gress = %s }, class_id = %d", k.port,
-             k.gress == INGRESS ? "INGRESS" : "EGRESS", class_id);
 
   int act;
 
@@ -242,8 +242,4 @@ APPLY:
 }
 
 // main entry
-SEC("tc") int egress(struct __sk_buff *skb) { return check_limit(skb, EGRESS); }
-
-SEC("tc") int ingress(struct __sk_buff *skb) {
-  return check_limit(skb, INGRESS);
-}
+SEC("tc") int gress(struct __sk_buff *skb) { return check_limit(skb, 0); }
