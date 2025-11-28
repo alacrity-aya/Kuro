@@ -2,8 +2,14 @@
 level = "debug"
 
 [rule]
-gress = "egress"
-rate = "1MB"
-time_scale = "1s"
-iface_name = "vethe5f555c"
-port = [1, 2, 3]
+iface = "vetha85ef27" # sim-node-1
+gress = "ingress"
+
+[rule.target]
+ports = [8888]
+rate = "104857600"
+time_scale = "1s"  # optional
+
+[rule.other]
+rate = "1048576000"
+time_scale = "1s"   # optional

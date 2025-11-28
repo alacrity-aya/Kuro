@@ -4,26 +4,52 @@
 #include <bpf/bpf_helpers.h>
 
 #define ETH_P_IP 0x0800
+#define IPPROTO_TCP 6
+#define IPPROTO_UDP 17
+
 #define TC_ACT_OK 0
 #define TC_ACT_SHOT 2
-#define NANO_PER_SEC 1000000000ULL
 
 #define INGRESS 0
 #define EGRESS 1
+#define NANO_PER_SEC 1000000000ULL
+
+#define ENABLE_PRINT 1
+#if ENABLE_PRINT
+#define kuro_debug(fmt, ...)                                                   \
+  bpf_printk("%d %s: " fmt, __LINE__, __func__, ##__VA_ARGS__)
+
+#else
+#define kuro_debug(fmt, ...)
+#endif /* ENABLE_PRINT */
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-// --- Configuration Structs ---
+/// ---------- Port Classification Key ----------
 
-struct rule {
-  __u64 rate_limit_bps; // Rate limit in Bits per second
-  __u64 time_scale;
-  __u32 burst_bytes; // Burst size in Bytes
-  __u8 gress;        // 0 INGRESS; 1 EGRESS; 2 UNKNOWN
+struct port_key {
+  __u16 port; // host byte order port
+  __u8 gress; // INGRESS / EGRESS
 };
 
-// Map: Configuration (Input from User Space)
-// Key 0: Simulation Traffic, Key 1: Other Traffic
+typedef __u8 port_value; // 1 = target; 0 = other
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 256);
+  __type(key, struct port_key);
+  __type(value, port_value);
+} ports SEC(".maps");
+
+/// ---------- Rate Limit Config (from userspace) ------------
+
+struct rule {
+  __u64 rate_limit_bps; // bits per sec
+  __u64 time_scale_ms;  // millisecond, default = 100ms
+  __u32 burst_bytes;
+};
+
+/// key = 0 target, key = 1 other
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
   __uint(max_entries, 2);
@@ -31,24 +57,23 @@ struct {
   __type(value, struct rule);
 } rate_config_map SEC(".maps");
 
-// --- Runtime State Structs ---
+/// ---------- Bucket State -----------
 
-// Token Bucket State with Spinlock for concurrency safety
-struct BucketState {
-  __u64 tokens;              // Current tokens in Bytes
-  __u64 last_ns;             // Last update timestamp
-  struct bpf_spin_lock lock; // Mandatory for atomic updates
+struct bucket_state {
+  __u64 tokens;
+  __u64 last_ns;
+  struct bpf_spin_lock lock;
 };
 
-// Map: Token Bucket State (Internal)
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
   __uint(max_entries, 2);
   __type(key, __u32);
-  __type(value, struct BucketState);
+  __type(value, struct bucket_state);
 } traffic_bucket SEC(".maps");
 
-// Statistics Counter
+/// ---------- Statistics -----------
+
 struct FlowCounter {
   __u64 accepted_bytes;
   __u64 dropped_bytes;
@@ -56,8 +81,6 @@ struct FlowCounter {
   __u64 dropped_packets;
 };
 
-// Map: Statistics (Output to User Space)
-// Use PERCPU_ARRAY for high performance statistics
 struct {
   __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
   __uint(max_entries, 2);
@@ -65,132 +88,160 @@ struct {
   __type(value, struct FlowCounter);
 } flow_stats SEC(".maps");
 
-// --- Helper Functions ---
+/// ---------- Token Bucket Logic ----------
 
-static __always_inline int token_bucket_rate_limit(__u32 key, __u32 skb_len) {
-  // 1. Lookup Configuration
-  struct rule *cfg = bpf_map_lookup_elem(&rate_config_map, &key);
-  if (!cfg || cfg->rate_limit_bps == 0) {
-    return TC_ACT_OK; // No limit set, pass
+static __always_inline int token_bucket_rate_limit(__u32 class_id,
+                                                   __u32 skb_len) {
+  struct rule *cfg = bpf_map_lookup_elem(&rate_config_map, &class_id);
+  if (!cfg) {
+    kuro_debug("failed to find config, class_id = %u", class_id);
+    return TC_ACT_OK;
   }
-
-  // 2. Lookup Bucket State
-  struct BucketState *bucket = bpf_map_lookup_elem(&traffic_bucket, &key);
+  struct bucket_state *bucket = bpf_map_lookup_elem(&traffic_bucket, &class_id);
   if (!bucket) {
-    return TC_ACT_OK; // Should not happen if map is init correctly
+    kuro_debug("failed to find bucket, class_id = %u", class_id);
+    return TC_ACT_OK;
   }
 
   __u64 now = bpf_ktime_get_ns();
-  int decision = TC_ACT_SHOT; // Default to drop
+  __u64 delta_ns = now - bucket->last_ns;
 
-  // 3. Critical Section: Update Tokens
+  const __u64 DEFAULT_TS_MS = 100;
+  __u64 ts_ms = cfg->time_scale_ms ? cfg->time_scale_ms : DEFAULT_TS_MS;
+
+  /* Convert delta to ms */
+  __u64 delta_ms = delta_ns / 1000000ULL;
+
+  /* Bytes per ms = (bps / 8) / 1000 */
+  __u64 rate_bytes_per_ms = cfg->rate_limit_bps / 8 / 1000;
+
+  /* Compute bucket capacity (bytes) */
+  __u64 capacity_bytes = cfg->burst_bytes;
+  if (capacity_bytes == 0) {
+    capacity_bytes = rate_bytes_per_ms * ts_ms;
+    if (capacity_bytes == 0 && rate_bytes_per_ms > 0) {
+      capacity_bytes = 1; // ensure non-zero burst
+    }
+  }
+
   bpf_spin_lock(&bucket->lock);
 
-  __u64 delta = now - bucket->last_ns;
-  __u64 capacity_bytes = cfg->burst_bytes;
-  __u64 rate_bytes_per_sec = cfg->rate_limit_bps / 8;
-
-  // Replenish tokens
-  if (delta > 0) {
-    // Avoid overflow for very large delta
-    if (delta >= NANO_PER_SEC) {
-      bucket->tokens = capacity_bytes;
+  /* Refill tokens */
+  if (delta_ms > 0) {
+    if (delta_ms >= ts_ms) {
+      bucket->tokens = capacity_bytes; // full
     } else {
-      // tokens = (delta_ns * rate_bytes/sec) / 10^9
-      __u64 new_tokens = (delta * rate_bytes_per_sec) / NANO_PER_SEC;
-      bucket->tokens += new_tokens;
-      if (bucket->tokens > capacity_bytes) {
+      __u64 add = rate_bytes_per_ms * delta_ms;
+      bucket->tokens += add;
+      if (bucket->tokens > capacity_bytes)
         bucket->tokens = capacity_bytes;
-      }
     }
     bucket->last_ns = now;
   }
 
-  // Consume tokens
+  int action;
   if (bucket->tokens >= skb_len) {
     bucket->tokens -= skb_len;
-    decision = TC_ACT_OK;
+    action = TC_ACT_OK;
   } else {
-    // Not enough tokens
-    decision = TC_ACT_SHOT;
+    action = TC_ACT_SHOT;
   }
 
   bpf_spin_unlock(&bucket->lock);
-  return decision;
+
+  kuro_debug("token_bucket_rate_limit return %s",
+             action == TC_ACT_OK ? "TC_ACT_OK" : "TC_ACT_SHOT");
+  return action;
 }
 
-static __always_inline void update_stats(__u32 key, __u32 len, int action) {
-  struct FlowCounter *stats = bpf_map_lookup_elem(&flow_stats, &key);
-  if (stats) {
-    if (action == TC_ACT_OK) {
-      stats->accepted_bytes += len;
-      stats->accepted_packets += 1;
-    } else {
-      stats->dropped_bytes += len;
-      stats->dropped_packets += 1;
-    }
+static __always_inline void update_stats(__u32 class_id, __u32 len, int act) {
+  struct FlowCounter *st = bpf_map_lookup_elem(&flow_stats, &class_id);
+  if (!st)
+    return;
+
+  kuro_debug("update_stats: act = %d", act);
+
+  if (act == TC_ACT_OK) {
+    st->accepted_bytes += len;
+    st->accepted_packets++;
+  } else {
+    st->dropped_bytes += len;
+    st->dropped_packets++;
   }
 }
 
+/// ---------- Packet Classification ----------
+
 static __always_inline int check_limit(struct __sk_buff *skb, __u8 gress) {
-
-  void *data_end = (void *)(long)skb->data_end;
   void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
+
   __u32 len = skb->len;
-  __u32 key = 1; // Default to "Other Traffic" (Key 1)
+  __u32 class_id = 1; // default other flow
 
-  // Basic sanity check
-  if (data == NULL)
-    return TC_ACT_OK;
-
-  // 1. Packet Parsing to determine Traffic Class
   struct ethhdr *eth = data;
   if ((void *)eth + sizeof(*eth) > data_end)
     return TC_ACT_OK;
 
-  if (bpf_ntohs(eth->h_proto) == ETH_P_IP) {
-    struct iphdr *ip = (void *)eth + sizeof(*eth);
-    if ((void *)ip + sizeof(*ip) > data_end)
-      return TC_ACT_OK;
+  if (bpf_ntohs(eth->h_proto) != ETH_P_IP)
+    goto APPLY;
 
-    __u32 ip_hdr_len = ip->ihl * 4;
-    if (ip_hdr_len < sizeof(*ip) || (void *)ip + ip_hdr_len > data_end)
-      return TC_ACT_OK;
+  struct iphdr *ip = data + sizeof(*eth);
+  if ((void *)ip + sizeof(*ip) > data_end)
+    goto APPLY;
 
-    // TCP
-    if (ip->protocol == IPPROTO_TCP) {
-      struct tcphdr *tcp = (void *)ip + ip_hdr_len;
-      if ((void *)tcp + sizeof(*tcp) > data_end)
-        return TC_ACT_OK;
+  __u32 ihl = ip->ihl * 4;
+  if (ihl < sizeof(*ip))
+    goto APPLY;
 
-      // Check for Simulation Port (8888)
-      if (bpf_ntohs(tcp->dest) == 8888) {
-        key = 0; // Key 0: Simulation Traffic
-      }
-    }
+  __u16 port = 0;
 
-    // UDP
-    if (ip->protocol == IPPROTO_UDP) {
-      struct udphdr *udp = (void *)ip + ip_hdr_len;
-      if ((void *)udp + sizeof(*udp) > data_end)
-        return TC_ACT_OK;
-      if (bpf_ntohs(udp->dest) == 8888) {
-        key = 0;
-      }
-    }
+  if (ip->protocol == IPPROTO_TCP) {
+    struct tcphdr *tcp = (void *)ip + ihl;
+    if ((void *)tcp + sizeof(*tcp) > data_end)
+      goto APPLY;
+
+    port = (gress == EGRESS) ? bpf_ntohs(tcp->source) : bpf_ntohs(tcp->dest);
+    kuro_debug("tcp: src_port = %u, dst_port = %u, port = %u",
+               bpf_ntohs(tcp->source), bpf_ntohs(tcp->dest), port);
+  } else if (ip->protocol == IPPROTO_UDP) {
+    struct udphdr *udp = (void *)ip + ihl;
+    if ((void *)udp + sizeof(*udp) > data_end)
+      goto APPLY;
+
+    port = (gress == EGRESS) ? bpf_ntohs(udp->source) : bpf_ntohs(udp->dest);
+    kuro_debug("udp: src_port = %u, dst_port = %u, port = %u",
+               bpf_ntohs(udp->source), bpf_ntohs(udp->dest), port);
+  } else {
+    goto APPLY;
   }
 
-  // 2. Apply Rate Limiting
-  int action = token_bucket_rate_limit(key, len);
+  // Check if port is in target list
+  struct port_key k = {
+      .port = port,
+      .gress = gress,
+  };
 
-  // 3. Update Statistics
-  update_stats(key, len, action);
+  port_value *v = bpf_map_lookup_elem(&ports, &k);
+  if (v && *v == 1) {
+    class_id = 0; // target
+  } else {
+    class_id = 1; // other
+  }
 
-  return action;
+  kuro_debug("k = port_key { .port = %u, .gress = %s }, class_id = %d", k.port,
+             k.gress == INGRESS ? "INGRESS" : "EGRESS", class_id);
+
+  int act;
+
+APPLY:
+  act = token_bucket_rate_limit(class_id, len);
+  update_stats(class_id, len, act);
+  kuro_debug("class_id = %u, act = %d", class_id, act);
+  return act;
 }
 
-// --- Main Program ---
-
+// main entry
 SEC("tc") int egress(struct __sk_buff *skb) { return check_limit(skb, EGRESS); }
 
 SEC("tc") int ingress(struct __sk_buff *skb) {
