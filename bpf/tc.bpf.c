@@ -8,13 +8,18 @@
 #define TC_ACT_SHOT 2
 #define NANO_PER_SEC 1000000000ULL
 
+#define INGRESS 0
+#define EGRESS 1
+
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 // --- Configuration Structs ---
 
 struct rule {
   __u64 rate_limit_bps; // Rate limit in Bits per second
-  __u32 burst_bytes;    // Burst size in Bytes
+  __u64 time_scale;
+  __u32 burst_bytes; // Burst size in Bytes
+  __u8 gress;        // 0 INGRESS; 1 EGRESS; 2 UNKNOWN
 };
 
 // Map: Configuration (Input from User Space)
@@ -127,10 +132,8 @@ static __always_inline void update_stats(__u32 key, __u32 len, int action) {
   }
 }
 
-// --- Main Program ---
+static __always_inline int check_limit(struct __sk_buff *skb, __u8 gress) {
 
-SEC("tc")
-int sim_tbf_egress(struct __sk_buff *skb) {
   void *data_end = (void *)(long)skb->data_end;
   void *data = (void *)(long)skb->data;
   __u32 len = skb->len;
@@ -184,4 +187,12 @@ int sim_tbf_egress(struct __sk_buff *skb) {
   update_stats(key, len, action);
 
   return action;
+}
+
+// --- Main Program ---
+
+SEC("tc") int egress(struct __sk_buff *skb) { return check_limit(skb, EGRESS); }
+
+SEC("tc") int ingress(struct __sk_buff *skb) {
+  return check_limit(skb, INGRESS);
 }

@@ -1,0 +1,9 @@
+[log]
+level = "debug"
+
+[rule]
+gress = "egress"
+rate = "1MB"
+time_scale = "1s"
+iface_name = "vethe5f555c"
+port = [1, 2, 3]
