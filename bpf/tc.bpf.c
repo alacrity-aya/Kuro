@@ -201,7 +201,7 @@ static __always_inline int check_limit(struct __sk_buff *skb, __u8 gress) {
     if ((void *)tcp + sizeof(*tcp) > data_end)
       goto APPLY;
 
-    port = (gress == EGRESS) ? bpf_ntohs(tcp->source) : bpf_ntohs(tcp->dest);
+    port = (gress == EGRESS) ? bpf_ntohs(tcp->dest) : bpf_ntohs(tcp->source);
     kuro_debug("tcp: src_port = %u, dst_port = %u, port = %u",
                bpf_ntohs(tcp->source), bpf_ntohs(tcp->dest), port);
   } else if (ip->protocol == IPPROTO_UDP) {
@@ -209,7 +209,7 @@ static __always_inline int check_limit(struct __sk_buff *skb, __u8 gress) {
     if ((void *)udp + sizeof(*udp) > data_end)
       goto APPLY;
 
-    port = (gress == EGRESS) ? bpf_ntohs(udp->source) : bpf_ntohs(udp->dest);
+    port = (gress == EGRESS) ? bpf_ntohs(udp->dest) : bpf_ntohs(udp->source);
     kuro_debug("udp: src_port = %u, dst_port = %u, port = %u",
                bpf_ntohs(udp->source), bpf_ntohs(udp->dest), port);
   } else {

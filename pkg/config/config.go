@@ -59,8 +59,15 @@ func parseRate(s string) (uint64, error) {
 		return 0, errors.New("rate cannot be empty")
 	}
 
-	multiplier := uint64(1)
+	isBytes := false
+	if strings.HasSuffix(s, "B") {
+		isBytes = true
+		s = strings.TrimSuffix(s, "B")
+	} else if strings.HasSuffix(s, "BIT") {
+		s = strings.TrimSuffix(s, "BIT")
+	}
 
+	multiplier := uint64(1)
 	switch {
 	case strings.HasSuffix(s, "K"):
 		multiplier = 1000
@@ -79,7 +86,13 @@ func parseRate(s string) (uint64, error) {
 		return 0, fmt.Errorf("invalid rate format: %s", s)
 	}
 
-	return base * multiplier, nil
+	val := base * multiplier
+
+	if isBytes {
+		val *= 8
+	}
+
+	return val, nil
 }
 
 // Convert "200ms", "1s", "2s" → milliseconds
