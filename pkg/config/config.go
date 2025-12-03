@@ -1,202 +1,64 @@
 package config
 
 import (
-	"errors"
-	"fmt"
-	"strings"
-	"time"
+	"log"
+	"net"
+	"os"
 
 	"github.com/BurntSushi/toml"
 )
 
-// =====================
-// Raw TOML structs
-// =====================
-
-type LoggerConfig struct {
-	Level string `toml:"level"`
+type Config struct {
+	Rules []Rule `toml:"rule"`
 }
 
-type TargetConfig struct {
-	Ports   []int  `toml:"ports"`      // required
-	RateStr string `toml:"rate"`       // required
-	TimeStr string `toml:"time_scale"` // required
+type Rule struct {
+	Ifacename string     `toml:"ifacename"`
+	Gress     string     `toml:"gress"`
+	RateLimit *RateLimit `toml:"rate_limit,omitempty"`
+	NetQoS    *NetQoS    `toml:"net_qos,omitempty"`
 }
 
-type OtherConfig struct {
-	RateStr string `toml:"rate"`       // required
-	TimeStr string `toml:"time_scale"` // optional
+type RateLimit struct {
+	Algo  string `toml:"algo,omitempty"`
+	Rate  int    `toml:"rate,omitempty"`  // bytes
+	Burst int    `toml:"burst,omitempty"` // bytes
 }
 
-type RuleConfig struct {
-	Iface  string       `toml:"iface"` // required
-	Gress  string       `toml:"gress"` // required
-	Target TargetConfig `toml:"target"`
-	Other  OtherConfig  `toml:"other"`
+type NetQoS struct {
+	DelayMs  int     `toml:"delay_ms,omitempty"`
+	JitterMs int     `toml:"jitter_ms,omitempty"`
+	LossPct  float64 `toml:"loss_pct,omitempty"`
 }
 
-type GlobalConfig struct {
-	Log  LoggerConfig `toml:"log"`
-	Rule RuleConfig   `toml:"rule"`
+var C Config
 
-	// Parsed values (converted)
-	TargetRateBps uint64
-	TargetTimeMs  uint64
-	OtherRateBps  uint64
-	OtherTimeMs   uint64
-	TargetGress   uint8
+func LoadConfig(path string) {
+	if _, err := os.Stat(path); err != nil {
+		log.Fatalf("failed to find config file, path: %s", path)
+	}
+
+	if _, err := toml.DecodeFile(path, &C); err != nil {
+		log.Fatalf("Failed to parse TOML: %v", err)
+	}
+	checkConfig(C)
 }
 
-var C GlobalConfig
-
-// =====================
-// Parsing helpers
-// =====================
-
-func parseRate(s string) (uint64, error) {
-	s = strings.TrimSpace(strings.ToUpper(s))
-	if s == "" {
-		return 0, errors.New("rate cannot be empty")
-	}
-
-	isBytes := false
-	if strings.HasSuffix(s, "B") {
-		isBytes = true
-		s = strings.TrimSuffix(s, "B")
-	} else if strings.HasSuffix(s, "BIT") {
-		s = strings.TrimSuffix(s, "BIT")
-	}
-
-	multiplier := uint64(1)
-	switch {
-	case strings.HasSuffix(s, "K"):
-		multiplier = 1000
-		s = strings.TrimSuffix(s, "K")
-	case strings.HasSuffix(s, "M"):
-		multiplier = 1000 * 1000
-		s = strings.TrimSuffix(s, "M")
-	case strings.HasSuffix(s, "G"):
-		multiplier = 1000 * 1000 * 1000
-		s = strings.TrimSuffix(s, "G")
-	}
-
-	var base uint64
-	_, err := fmt.Sscanf(s, "%d", &base)
-	if err != nil {
-		return 0, fmt.Errorf("invalid rate format: %s", s)
-	}
-
-	val := base * multiplier
-
-	if isBytes {
-		val *= 8
-	}
-
-	return val, nil
-}
-
-// Convert "200ms", "1s", "2s" → milliseconds
-func parseTimeScale(s string) (uint64, error) {
-	s = strings.TrimSpace(strings.ToLower(s))
-	if s == "" {
-		return 0, errors.New("time_scale cannot be empty")
-	}
-
-	// Let Go's duration parser handle it
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return 0, fmt.Errorf("invalid time_scale: %s", s)
-	}
-
-	return uint64(d.Milliseconds()), nil
-}
-
-// =====================
-// Required field checker
-// =====================
-
-func validateRequiredFields() error {
-	r := C.Rule
-
-	if r.Iface == "" {
-		return errors.New("[rule.iface] is required")
-	}
-
-	if r.Gress == "" {
-		return errors.New("[rule.gress] is required")
-	}
-
-	// Target required
-	if len(r.Target.Ports) == 0 {
-		return errors.New("[rule.target.ports] cannot be empty")
-	}
-	if r.Target.RateStr == "" {
-		return errors.New("[rule.target.rate] is required")
-	}
-	if r.Target.TimeStr == "" {
-		return errors.New("[rule.target.time_scale] is required")
-	}
-
-	// Other traffic required only for rate
-	if r.Other.RateStr == "" {
-		return errors.New("[rule.other.rate] is required")
-	}
-
-	return nil
-}
-
-// =====================
-// LoadConfig
-// =====================
-
-func LoadConfig(configPath string) error {
-	_, err := toml.DecodeFile(configPath, &C)
-	if err != nil {
-		return fmt.Errorf("failed to decode config file %s: %w", configPath, err)
-	}
-
-	// Validate required fields
-	if err := validateRequiredFields(); err != nil {
-		return err
-	}
-
-	// Parse target values
-	C.TargetRateBps, err = parseRate(C.Rule.Target.RateStr)
-	if err != nil {
-		return err
-	}
-	C.TargetTimeMs, err = parseTimeScale(C.Rule.Target.TimeStr)
-	if err != nil {
-		return err
-	}
-
-	// tc.bpf.c:
-	// #define INGRESS 0
-	// #define EGRESS 1
-	switch C.Rule.Gress {
-	case "egress":
-		C.TargetGress = 1
-	case "ingress":
-		C.TargetGress = 0
-	default:
-		return errors.New("config.C.Rule.Gress != egress/ingress")
-	}
-
-	// Parse other values
-	C.OtherRateBps, err = parseRate(C.Rule.Other.RateStr)
-	if err != nil {
-		return err
-	}
-
-	// time_scale optional for other
-	if C.Rule.Other.TimeStr != "" {
-		C.OtherTimeMs, err = parseTimeScale(C.Rule.Other.TimeStr)
-		if err != nil {
-			return err
+func checkConfig(cfg Config) {
+	for i, r := range cfg.Rules {
+		if r.Ifacename == "" {
+			log.Fatalf("rule[%d]: iface cannot be empty", i)
 		}
-	} else {
-		C.OtherTimeMs = 100 // default 100ms
-	}
+		if r.Gress == "" {
+			log.Fatalf("rule[%d]: gress cannot be empty", i)
+		}
 
-	return nil
+		if r.RateLimit == nil && r.NetQoS == nil {
+			log.Fatalf("rule[%d]: either rate_limit or net_qos must be specified", i)
+		}
+
+		if _, err := net.InterfaceByName(r.Ifacename); err != nil {
+			log.Fatalf("rule[%d]: failed to find eth: %s, %v", i, r.Ifacename, err)
+		}
+	}
 }

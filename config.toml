@@ -1,19 +1,32 @@
-[log]
-level = "debug"
+[[rule]]
+ifacename = "lo"
+gress = "ingress"
 
-[rule]
-iface = "vethf2be3e8" # f6e0f798de7c sim-node-2 perf3 client
+[rule.rate_limit]
+algo = "tbl"
+rate = 1250000
+burst = 8000
+
+[rule.net_qos]
+delay_ms = 20
+jitter_ms = 5
+loss_pct = 0.1
+
+
+[[rule]]
+ifacename = "lo"
+gress = "ingress"
+
+[rule.rate_limit]
+algo = "tb"
+rate = 1250000
+burst = 8000
+
+[[rule]]
+ifacename = "lo"
 gress = "egress"
 
-# [rule]
-# iface = "vethfaee9b2" # sim-node-1 perf3 server
-# gress = "ingress"
-
-[rule.target]
-ports = [8888]
-rate = "10MB"
-time_scale = "1s" # optional
-
-[rule.other]
-rate = "100MB"
-time_scale = "1s" # optional
+[rule.net_qos]
+delay_ms = 20
+jitter_ms = 5
+loss_pct = 0.1
