@@ -6,18 +6,3 @@ gress = "ingress"
 algo = "tbl"
 rate = 1250000
 burst = 8000000
-
-[rule.net_qos]
-delay_ms = 20
-jitter_ms = 5
-loss_pct = 0.1
-
-
-# [[rule]]
-# ifacename = "veth-b"
-# gress = "ingress"
-#
-# [rule.rate_limit]
-# algo = "tb"
-# rate = 1250000
-# burst = 8000

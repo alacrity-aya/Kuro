@@ -85,6 +85,5 @@ func (cfg *Config) checkConfig() {
 				log.Fatalf("rule[%d]: rate or burst equals to zero, rate = %d, burst = %d", i, r.RateLimit.Rate, r.RateLimit.Burst)
 			}
 		}
-
 	}
 }

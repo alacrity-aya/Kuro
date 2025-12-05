@@ -15,12 +15,14 @@ import (
 
 func loop() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-
 	defer stop()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
-		case <-time.After(1 * time.Second):
+		case <-ticker.C:
 			fmt.Printf("ebpf is running...\n")
 
 		case <-ctx.Done():
@@ -32,13 +34,21 @@ func loop() {
 }
 
 func main() {
-	// TODO: RLIMIT_MEMLOCK
+	// TODO: any rule shoule be atmoic, either successful or failed
+
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	config.C.LoadConfig("config.toml")
 	slog.Debug("LoadConfig complete", "config", config.C)
 
-	resource := loader.LoadEbpf(&config.C)
-	defer resource.Close()
+	manager := loader.NewEbpfManager()
+
+	defer manager.Close()
+
+	if err := manager.Load(&config.C); err != nil {
+		slog.Error("Failed to load eBPF programs and attachments", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("eBPF programs loaded and attached successfully.")
 
 	loop()
 }
