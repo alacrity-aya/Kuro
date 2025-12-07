@@ -50,9 +50,9 @@ func ApplyTc(config *config.Config) []string {
 			continue
 		}
 
-		iface, err := applyNetemToIface(rule.Ifacename, rule)
+		iface, err := applyNetemToIface(rule.IfaceName, rule)
 		if err != nil {
-			slog.Error("failed to apply netem", "iface", rule.Ifacename, "net_qos", *rule.NetQoS, "error", err)
+			slog.Error("failed to apply netem", "iface", rule.IfaceName, "net_qos", *rule.NetQoS, "error", err)
 		} else {
 			ifaces = append(ifaces, iface)
 		}

@@ -13,29 +13,7 @@ import (
 	"kuro/loader"
 )
 
-func loop() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			fmt.Printf("ebpf is running...\n")
-
-		case <-ctx.Done():
-			fmt.Println("\nreceive (SIGINT/SIGTERM)")
-			fmt.Println("exit")
-			return
-		}
-	}
-}
-
 func main() {
-	// TODO: any rule shoule be atmoic, either successful or failed
-
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	config.C.LoadConfig("config.toml")
 	slog.Debug("LoadConfig complete", "config", config.C)
@@ -50,5 +28,25 @@ func main() {
 	}
 	slog.Info("eBPF programs loaded and attached successfully.")
 
-	loop()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			stat, err := manager.GetIfaceStats("veth-a")
+			if err != nil {
+				slog.Warn("GetIfaceStats wanring", "error", err)
+			}
+			fmt.Println(stat)
+
+		case <-ctx.Done():
+			fmt.Println("\nreceive (SIGINT/SIGTERM)")
+			fmt.Println("exit")
+			return
+		}
+	}
 }

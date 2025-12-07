@@ -14,7 +14,7 @@ type Config struct {
 }
 
 type Rule struct {
-	Ifacename string     `toml:"ifacename"`
+	IfaceName string     `toml:"ifacename"`
 	Gress     string     `toml:"gress"`
 	RateLimit *RateLimit `toml:"rate_limit,omitempty"`
 	NetQoS    *NetQoS    `toml:"net_qos,omitempty"`
@@ -61,7 +61,7 @@ func (cfg *Config) LoadConfig(path string) {
 
 func (cfg *Config) checkConfig() {
 	for i, r := range cfg.Rules {
-		if r.Ifacename == "" {
+		if r.IfaceName == "" {
 			log.Fatalf("rule[%d]: iface cannot be empty", i)
 		}
 		if r.Gress == "" {
@@ -76,8 +76,8 @@ func (cfg *Config) checkConfig() {
 			log.Fatalf("rule[%d]: either rate_limit or net_qos must be specified", i)
 		}
 
-		if _, err := net.InterfaceByName(r.Ifacename); err != nil {
-			log.Fatalf("rule[%d]: failed to find eth: %s, %v", i, r.Ifacename, err)
+		if _, err := net.InterfaceByName(r.IfaceName); err != nil {
+			log.Fatalf("rule[%d]: failed to find eth: %s, %v", i, r.IfaceName, err)
 		}
 
 		if r.RateLimit != nil {

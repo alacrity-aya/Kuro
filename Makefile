@@ -9,8 +9,7 @@ GEN_DIR := gen
 BUILD_DIR := bin
 
 # Define the list of generated files to be cleaned
-GENERATED_FILES := $(GEN_DIR)/tc_bpfeb.go $(GEN_DIR)/tc_bpfeb.o $(GEN_DIR)/tc_bpfel.go $(GEN_DIR)/tc_bpfel.o  
-# $(GEN_DIR)/xdp_bpfeb.go $(GEN_DIR)/xdp_bpfeb.o $(GEN_DIR)/xdp_bpfel.go $(GEN_DIR)/xdp_bpfel.o 
+GENERATED_FILES := $(GEN_DIR)/tc_bpfeb.go $(GEN_DIR)/tc_bpfeb.o $(GEN_DIR)/tc_bpfel.go $(GEN_DIR)/tc_bpfel.o $(GEN_DIR)/rd_bpfeb.go $(GEN_DIR)/rd_bpfeb.o $(GEN_DIR)/rd_bpfel.go $(GEN_DIR)/rd_bpfel.o 
 
 # Define phonies targets
 .PHONY: all build run clean clean_gen

@@ -4,5 +4,22 @@ gress = "ingress"
 
 [rule.rate_limit]
 algo = "tbl"
-rate = 1250000
-burst = 8000000
+rate = 12500000
+burst = 80000000
+
+[[node]]
+
+container = "container name"
+image = "ubuntu:latest"
+ip = "10.10.0.1/24"
+
+[[node]]
+
+exec = "iperf3"
+args = "-s"
+ip = "10.10.0.2/24"
+
+[[route]]
+dest_cidr = "10.10.0.1"
+out_node = "node1"
+out_iface = "veth-a"
