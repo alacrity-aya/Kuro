@@ -49,25 +49,15 @@ type EbpfProgram struct {
 	statsMu     sync.Mutex
 }
 
-func NewEbpfProgram() *EbpfProgram {
+func NewEbpfProgram(objs *gen.TcObjects) *EbpfProgram {
+	loaded := objs != nil && objs.Gress != nil
+
 	return &EbpfProgram{
-		objs:        &gen.TcObjects{},
+		objs:        objs,
 		links:       make([]link.Link, 0),
 		firstSample: true,
+		loaded:      loaded,
 	}
-}
-
-func (p *EbpfProgram) Load() error {
-	if p.loaded {
-		return nil
-	}
-
-	if err := gen.LoadTcObjects(p.objs, nil); err != nil {
-		return fmt.Errorf("loading objects: %w", err)
-	}
-
-	p.loaded = true
-	return nil
 }
 
 func (p *EbpfProgram) Detach() error {
@@ -88,6 +78,9 @@ func (p *EbpfProgram) Detach() error {
 }
 
 func (p *EbpfProgram) Attach(ifaceName string, gress string) error {
+	if p.objs == nil || p.objs.Gress == nil {
+		return fmt.Errorf("ebpf objects or program not loaded")
+	}
 	if !p.loaded {
 		return fmt.Errorf("program not loaded, call Load() first")
 	}
@@ -151,18 +144,6 @@ func (p *EbpfProgram) Attach(ifaceName string, gress string) error {
 	return nil
 }
 
-func (p *EbpfProgram) Close() {
-	slog.Info("Closing eBPF program resources...")
-	_ = p.Detach()
-
-	if p.loaded && p.objs != nil {
-		if err := p.objs.Close(); err != nil {
-			slog.Error("Failed to close eBPF objects", "error", err)
-		}
-		p.loaded = false
-	}
-}
-
 func (p *EbpfProgram) UpdateRateLimit(rate, burst uint64) error {
 	if !p.loaded {
 		return fmt.Errorf("program not loaded")
@@ -170,18 +151,14 @@ func (p *EbpfProgram) UpdateRateLimit(rate, burst uint64) error {
 
 	// Ensure State Map entry exists (needed for HASH maps with spinlocks)
 	// We must initialize the bucket state if it doesn't exist
-	var state gen.TcBucketState
-	if err := p.objs.BucketStateMap.Lookup(p.ifaceIndex, &state); err != nil {
-		// If not found, create new empty state
-		newState := gen.TcBucketState{
-			Tokens: burst, // Give full burst initially
-			LastNs: uint64(time.Now().UnixNano()),
-		}
-		if err := p.objs.BucketStateMap.Update(p.ifaceIndex, newState, ebpf.UpdateAny); err != nil {
-			return fmt.Errorf("failed to init bucket state: %w", err)
-		}
-		slog.Debug("Initialized bucket state", "state", newState)
+	newState := gen.TcBucketState{
+		Tokens: burst, // Give full burst initially
+		LastNs: uint64(time.Now().UnixNano()),
 	}
+	if err := p.objs.BucketStateMap.Update(p.ifaceIndex, newState, ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("failed to init bucket state: %w", err)
+	}
+	slog.Debug("Initialized bucket state", "state", newState)
 
 	rule := gen.TcBucketRule{
 		RateBytes:  rate,
@@ -197,7 +174,7 @@ func (p *EbpfProgram) UpdateRateLimit(rate, burst uint64) error {
 	return nil
 }
 
-func (p *EbpfProgram) UpdateRedirectRule(dstIPStr string, targetIfaceName string) error {
+func (p *EbpfProgram) UpdateloaRedirectRule(dstIPStr string, targetIfaceName string) error {
 	if !p.loaded {
 		return fmt.Errorf("program not loaded")
 	}
@@ -217,6 +194,7 @@ func (p *EbpfProgram) UpdateRedirectRule(dstIPStr string, targetIfaceName string
 	// Convert to __be32 (Big Endian uint32)
 	// net.IP is already a byte slice, but we need it as a uint32 for the map key
 	ipKey := binary.BigEndian.Uint32(v4)
+	slog.Debug("IP str to be32", "dstIPStr", dstIPStr, "be32", ipKey, "targetIfaceName", targetIfaceName)
 
 	// Get target interface index
 	targetIface, err := net.InterfaceByName(targetIfaceName)
@@ -225,10 +203,17 @@ func (p *EbpfProgram) UpdateRedirectRule(dstIPStr string, targetIfaceName string
 	}
 	targetIdx := uint32(targetIface.Index)
 
-	slog.Debug("Updating RedirectMap", "ip", dstIPStr, "ip_be32", ipKey, "target", targetIfaceName, "idx", targetIdx)
-
 	if err := p.objs.RedirectMap.Update(ipKey, targetIdx, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("failed to update redirect map: %w", err)
+	}
+
+	slog.Debug("Updating RedirectMap", "ip", dstIPStr, "ip_be32", ipKey, "target", targetIfaceName, "idx", targetIdx)
+
+	var key uint32
+	var val uint32
+	it := p.objs.RedirectMap.Iterate()
+	for it.Next(&key, &val) {
+		fmt.Printf("===map entry: key=%d (0x%x) -> val=%d===\n", key, key, val)
 	}
 
 	return nil
@@ -290,6 +275,8 @@ func (p *EbpfProgram) GetStats() (TrafficStats, error) {
 type EbpfManager struct {
 	mu       sync.RWMutex
 	programs map[string]*EbpfProgram
+
+	objs *gen.TcObjects
 }
 
 func NewEbpfManager() *EbpfManager {
@@ -302,30 +289,37 @@ func (m *EbpfManager) Load(cfg *config.Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Load objects once (shared among all interfaces)
+	if m.objs == nil {
+		m.objs = &gen.TcObjects{}
+		if err := gen.LoadTcObjects(m.objs, nil); err != nil {
+			slog.Error("Failed to load tc objects", "error", err)
+			return err
+		}
+		slog.Debug("successed to load tc objects")
+	}
+
 	for _, rule := range cfg.Rules {
-		// ... existing loading logic ...
-		// Simplified for brevity, same as original but prog.Attach now sets internal ifaceIndex
 		if _, exists := m.programs[rule.IfaceName]; exists {
 			continue
 		}
 
-		prog := NewEbpfProgram()
-		if err := prog.Load(); err != nil {
-			slog.Error("Failed to load BPF objects", "iface", rule.IfaceName, "error", err)
-			continue
-		}
+		// Create program that references the shared objs
+		prog := NewEbpfProgram(m.objs)
+
+		slog.Debug("Attach tc hook...")
 
 		// Attach sets the p.ifaceIndex
 		if err := prog.Attach(rule.IfaceName, rule.Gress); err != nil {
 			slog.Error("Failed to attach BPF program", "iface", rule.IfaceName, "error", err)
-			prog.Close()
+			prog.Detach()
 			continue
 		}
 
 		if rule.RateLimit != nil {
 			if err := prog.UpdateRateLimit(rule.RateLimit.Rate, rule.RateLimit.Burst); err != nil {
 				slog.Error("Failed to update rate limit", "iface", rule.IfaceName, "error", err)
-				prog.Close()
+				prog.Detach()
 				continue
 			}
 		}
@@ -341,9 +335,19 @@ func (m *EbpfManager) Close() error {
 	defer m.mu.Unlock()
 
 	for name, prog := range m.programs {
-		prog.Close()
+		if err := prog.Detach(); err != nil {
+			slog.Warn("Failed to detach program", "error", err)
+		}
 		delete(m.programs, name)
 	}
+
+	if m.objs != nil {
+		if err := m.objs.Close(); err != nil {
+			return err
+		}
+		m.objs = nil
+	}
+
 	return nil
 }
 
@@ -351,12 +355,10 @@ func initFlowCounterMap(prog *EbpfProgram) error {
 	if prog.firstSample {
 		var counterVals []gen.TcFlowCounter
 		key := prog.ifaceIndex
-		if err := prog.objs.FlowCounterMap.Lookup(key, &counterVals); err != nil {
-			if err := prog.objs.FlowCounterMap.Update(key, counterVals, ebpf.UpdateAny); err != nil {
-				return fmt.Errorf("init flow counter failed: %w", err)
-			}
-			slog.Debug("Initialized flow counter entry", "ifaceIdx", key)
+		if err := prog.objs.FlowCounterMap.Update(key, counterVals, ebpf.UpdateNoExist); err != nil {
+			return fmt.Errorf("init flow counter failed: %w", err)
 		}
+		slog.Debug("Initialized flow counter entry", "ifaceIdx", key)
 	}
 	return nil
 }

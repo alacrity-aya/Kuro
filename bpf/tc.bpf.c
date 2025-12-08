@@ -3,21 +3,19 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
-/*         +-------------+
-packet --->| tc ingress  |
-           +-------------+
-                |
-                v
-        [BPF program entry]
-                |
-                |-- check rate limit
-                |       |
-                |       +- drop → TC_ACT_SHOT
-                |
-                |-- pick output iface (e.g. by dest IP)
-                |
-                +-- bpf_redirect(ifindex) → TC_ACT_REDIRECT
-*/
+//      [TC ingress]
+//           |
+//           v
+//  lookup(limit_rule_map)
+//    |             |
+//    |no rule      |has rule
+//    v             v
+// redirect      call check_limit()
+//                  |
+//          drop? → return SHOT
+//                  |
+//                  v
+//               redirect
 
 #define ETH_P_IP 0x0800
 #define IPPROTO_TCP 6
@@ -28,13 +26,13 @@ packet --->| tc ingress  |
 
 #define INGRESS 0
 #define EGRESS 1
+
 #define NANO_PER_SEC 1000000000ULL
 
 #define ENABLE_PRINT 1
 
 #if ENABLE_PRINT
-#define kuro_debug(fmt, ...)                                                   \
-  bpf_printk("[%d %s]: " fmt, __LINE__, __func__, ##__VA_ARGS__)
+#define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
 
 #else
 
@@ -94,72 +92,112 @@ struct {
   __type(value, __u32); // iface_index
 } redirect_map SEC(".maps");
 
+// return 0 = ok, 1 = drop
 static __always_inline int check_limit(struct __sk_buff *skb) {
 
   __u32 key = skb->ifindex;
   struct bucket_state *bucket = bpf_map_lookup_elem(&bucket_state_map, &key);
   if (bucket == NULL)
-    return TC_ACT_OK;
+    return 0; // no limit → ok
 
   struct bucket_rule *rule = bpf_map_lookup_elem(&bucket_rule_map, &key);
   if (rule == NULL)
-    return TC_ACT_OK;
+    return 0; // no limit → ok
 
   __u64 now = bpf_ktime_get_ns();
   __u32 skb_len = skb->len;
-  int decision = TC_ACT_SHOT;
-
-  // kuro_debug("burst_bytes = %llu, rate_bytes = %llu", rule->burst_bytes,
-  //            rule->rate_bytes);
+  int dropped = 1;
 
   bpf_spin_lock(&bucket->lock);
 
   __u64 delta = now - bucket->last_ns;
 
-  // add tokens to bucket
   if (delta > 0) {
-    __u64 new_tokens;
     __u64 max_tokens = rule->burst_bytes;
+    __u64 new_tokens = (delta * rule->rate_bytes) / NANO_PER_SEC;
 
-    new_tokens = (delta * rule->rate_bytes) / NANO_PER_SEC; // may be overflow
     bucket->tokens += new_tokens;
 
-    if (bucket->tokens > max_tokens) {
+    if (bucket->tokens > max_tokens)
       bucket->tokens = max_tokens;
-    }
 
     bucket->last_ns = now;
   }
 
-  // consume tokens
   if (bucket->tokens >= skb_len) {
     bucket->tokens -= skb_len;
-    decision = TC_ACT_OK;
-  } else {
-    decision = TC_ACT_SHOT;
+    dropped = 0;
   }
 
   bpf_spin_unlock(&bucket->lock);
 
-  kuro_debug("decision = %s",
-             decision == TC_ACT_OK ? "TC_ACT_OK" : "TC_ACT_SHOT");
-
+  // counter
   struct flow_counter *cnt = bpf_map_lookup_elem(&flow_counter_map, &key);
   if (cnt) {
-    if (decision == TC_ACT_OK) {
-      // accepted
-      ++cnt->accepted_packets;
+    if (dropped == 0) {
+      cnt->accepted_packets++;
       cnt->accepted_bytes += skb_len;
     } else {
-      // dropped
-      ++cnt->dropped_packets;
+      cnt->dropped_packets++;
       cnt->dropped_bytes += skb_len;
     }
   }
 
-  // FIXME: temporarily disable redirection
-  return decision;
+  return dropped;
+}
+
+static __always_inline void print_ip_addr(__be32 ip_addr) {
+  __u32 host_ip = bpf_ntohl(ip_addr);
+  __u32 o1 = (host_ip >> 24) & 0xFF;
+  __u32 o2 = (host_ip >> 16) & 0xFF;
+  __u32 o3 = (host_ip >> 8) & 0xFF;
+  __u32 o4 = host_ip & 0xFF;
+
+  kuro_debug("DIP {raw_be: %u, raw_host: %u, str: %d.%d.%d.%d}", ip_addr,
+             host_ip, o1, o2, o3, o4);
 }
 
 // main entry
-SEC("tc") int gress(struct __sk_buff *skb) { return check_limit(skb); }
+SEC("tc")
+int gress(struct __sk_buff *skb) {
+  __u32 in_ifindex = skb->ifindex;
+
+  // check if there's rate limiting
+  int dropped = check_limit(skb);
+  if (dropped == 1) {
+    return TC_ACT_SHOT;
+  }
+
+  // redirect according to dst ip
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
+
+  struct ethhdr *eth = data;
+  if ((void *)(eth + 1) > data_end)
+    return TC_ACT_OK;
+
+  if (eth->h_proto != bpf_htons(ETH_P_IP))
+    return TC_ACT_OK;
+
+  struct iphdr *ip = data + sizeof(*eth);
+  if ((void *)(ip + 1) > data_end)
+    return TC_ACT_OK;
+
+  __be32 dip = ip->daddr;
+
+  __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);
+  if (!to_ifindex) {
+    kuro_debug("[Failed] found to_ifindex");
+    print_ip_addr(dip);
+    return TC_ACT_OK;
+  }
+
+  long ret = bpf_redirect(*to_ifindex, 0);
+
+  print_ip_addr(dip);
+  kuro_debug("[Success] src index = %u, dst index = %u, ret = [%ld-%s]",
+             skb->ifindex, to_ifindex, ret,
+             ret == TCX_REDIRECT ? "REDIRECT" : "SHOT");
+
+  return ret;
+}
