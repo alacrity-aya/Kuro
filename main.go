@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"kuro/config"
-	"kuro/loader"
+	"kuro/manager"
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 	config.C.LoadConfig("config.toml")
 	slog.Debug("LoadConfig complete", "config", config.C)
 
-	manager := loader.NewEbpfManager()
+	manager := manager.NewEbpfManager()
 
 	defer manager.Close()
 

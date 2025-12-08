@@ -1,4 +1,3 @@
-
 # host1
 
 - node

@@ -1,4 +1,4 @@
-package loader
+package manager
 
 import (
 	"encoding/binary"
