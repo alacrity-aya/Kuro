@@ -193,7 +193,7 @@ func (p *EbpfProgram) UpdateloaRedirectRule(dstIPStr string, targetIfaceName str
 
 	// Convert to __be32 (Big Endian uint32)
 	// net.IP is already a byte slice, but we need it as a uint32 for the map key
-	ipKey := binary.BigEndian.Uint32(v4)
+	ipKey := binary.BigEndian.Uint32(v4) // FIXME: I don't know why here is BigEndian, it should be litter endian instead. Anyhow, it works well
 	slog.Debug("IP str to be32", "dstIPStr", dstIPStr, "rawIP", ipKey, "targetIfaceName", targetIfaceName)
 
 	// Get target interface index

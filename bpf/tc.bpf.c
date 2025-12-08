@@ -17,7 +17,9 @@
 //                  v
 //               redirect
 
-#define ETH_P_IP 0x0800
+#define ETH_P_IP 0x0800  /* Internet Protocol packet	*/
+#define ETH_P_ARP 0x0806 /* Address Resolution packet	*/
+
 #define IPPROTO_TCP 6
 #define IPPROTO_UDP 17
 
@@ -41,6 +43,17 @@
 #endif /* ENABLE_PRINT */
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
+
+static __always_inline void print_ip_addr(__be32 ip_addr) {
+  __u32 host_ip = bpf_ntohl(ip_addr);
+  __u32 o1 = (host_ip >> 24) & 0xFF;
+  __u32 o2 = (host_ip >> 16) & 0xFF;
+  __u32 o3 = (host_ip >> 8) & 0xFF;
+  __u32 o4 = host_ip & 0xFF;
+
+  kuro_debug("ip {raw_be: %u, raw_host: %u, str: %d.%d.%d.%d}", ip_addr,
+             host_ip, o1, o2, o3, o4);
+}
 
 // token bucket
 struct bucket_state {
@@ -146,15 +159,44 @@ static __always_inline int check_limit(struct __sk_buff *skb) {
   return dropped;
 }
 
-static __always_inline void print_ip_addr(__be32 ip_addr) {
-  __u32 host_ip = bpf_ntohl(ip_addr);
-  __u32 o1 = (host_ip >> 24) & 0xFF;
-  __u32 o2 = (host_ip >> 16) & 0xFF;
-  __u32 o3 = (host_ip >> 8) & 0xFF;
-  __u32 o4 = host_ip & 0xFF;
+struct arp_eth_ipv4 {
+  __be16 ar_hrd;
+  __be16 ar_pro;
+  __u8 ar_hln;
+  __u8 ar_pln;
+  __be16 ar_op;
+  unsigned char ar_sha[6];
+  __be32 ar_sip;
+  unsigned char ar_tha[6];
+  __be32 ar_tip;
+} __attribute__((packed));
 
-  kuro_debug("ip {raw_be: %u, raw_host: %u, str: %d.%d.%d.%d}", ip_addr,
-             host_ip, o1, o2, o3, o4);
+static __always_inline int handle_arp(struct __sk_buff *skb) {
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
+
+  struct ethhdr *eth = data;
+  struct arp_eth_ipv4 *arp = data + sizeof(*eth);
+
+  if ((void *)(arp + 1) > data_end)
+    return TC_ACT_OK;
+
+  if (arp->ar_pro != bpf_htons(ETH_P_IP) || arp->ar_pln != 4) {
+    return TC_ACT_OK;
+  }
+
+  __be32 target_ip = bpf_htonl(arp->ar_tip);
+  __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &target_ip);
+
+  if (!to_ifindex) {
+    kuro_debug("ARP target %x not found in map", target_ip);
+    return TC_ACT_OK;
+  }
+
+  kuro_debug("Redirecting ARP for %x to iface %d", target_ip, *to_ifindex);
+  return bpf_redirect_peer(*to_ifindex, 0);
+
+  return 0;
 }
 
 // main entry
@@ -175,6 +217,10 @@ int gress(struct __sk_buff *skb) {
   if ((void *)(eth + 1) > data_end)
     return TC_ACT_OK;
 
+  if (eth->h_proto == bpf_htons(ETH_P_ARP)) {
+    return handle_arp(skb);
+  }
+
   if (eth->h_proto != bpf_htons(ETH_P_IP))
     return TC_ACT_OK;
 
@@ -182,7 +228,7 @@ int gress(struct __sk_buff *skb) {
   if ((void *)(ip + 1) > data_end)
     return TC_ACT_OK;
 
-  __u32 dip = bpf_htonl(ip->daddr);
+  __u32 dip = bpf_htonl(ip->daddr); // maybe there is a bug here
   print_ip_addr(dip);
 
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);

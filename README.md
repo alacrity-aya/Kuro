@@ -3,13 +3,6 @@
 </div>
 
 
-## TODO:
-
-- using smoothrate to improve flow limit
-
-
----
-
 <div align="center">          
     <img src="assert/kuro.png" alt="kuro CG" width="70%">
 </div>
