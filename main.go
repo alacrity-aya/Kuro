@@ -37,11 +37,11 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			stat, err := manager.GetIfaceStats("veth-a")
-			if err != nil {
-				slog.Warn("GetIfaceStats wanring", "error", err)
-			}
-			fmt.Println(stat)
+			// stat, err := manager.GetIfaceStats("veth-a")
+			// if err != nil {
+			// 	slog.Warn("GetIfaceStats wanring", "error", err)
+			// }
+			// fmt.Println(stat)
 
 		case <-ctx.Done():
 			fmt.Println("\nreceive (SIGINT/SIGTERM)")

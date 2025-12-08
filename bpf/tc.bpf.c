@@ -88,7 +88,7 @@ struct { // send stats back to user-side
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, 4096);
-  __type(key, __be32);  // dst ip
+  __type(key, __u32);   // host-endian ip
   __type(value, __u32); // iface_index
 } redirect_map SEC(".maps");
 
@@ -153,7 +153,7 @@ static __always_inline void print_ip_addr(__be32 ip_addr) {
   __u32 o3 = (host_ip >> 8) & 0xFF;
   __u32 o4 = host_ip & 0xFF;
 
-  kuro_debug("DIP {raw_be: %u, raw_host: %u, str: %d.%d.%d.%d}", ip_addr,
+  kuro_debug("ip {raw_be: %u, raw_host: %u, str: %d.%d.%d.%d}", ip_addr,
              host_ip, o1, o2, o3, o4);
 }
 
@@ -164,9 +164,8 @@ int gress(struct __sk_buff *skb) {
 
   // check if there's rate limiting
   int dropped = check_limit(skb);
-  if (dropped == 1) {
+  if (dropped == 1)
     return TC_ACT_SHOT;
-  }
 
   // redirect according to dst ip
   void *data = (void *)(long)skb->data;
@@ -183,16 +182,16 @@ int gress(struct __sk_buff *skb) {
   if ((void *)(ip + 1) > data_end)
     return TC_ACT_OK;
 
-  __be32 dip = ip->daddr;
+  __u32 dip = bpf_htonl(ip->daddr);
+  print_ip_addr(dip);
 
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);
   if (!to_ifindex) {
     kuro_debug("[Failed] found to_ifindex");
-    print_ip_addr(dip);
     return TC_ACT_OK;
   }
 
-  long ret = bpf_redirect(*to_ifindex, 0);
+  long ret = bpf_redirect_peer(*to_ifindex, 0);
 
   print_ip_addr(dip);
   kuro_debug("[Success] src index = %u, dst index = %u, ret = [%ld-%s]",

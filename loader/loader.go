@@ -194,7 +194,7 @@ func (p *EbpfProgram) UpdateloaRedirectRule(dstIPStr string, targetIfaceName str
 	// Convert to __be32 (Big Endian uint32)
 	// net.IP is already a byte slice, but we need it as a uint32 for the map key
 	ipKey := binary.BigEndian.Uint32(v4)
-	slog.Debug("IP str to be32", "dstIPStr", dstIPStr, "be32", ipKey, "targetIfaceName", targetIfaceName)
+	slog.Debug("IP str to be32", "dstIPStr", dstIPStr, "rawIP", ipKey, "targetIfaceName", targetIfaceName)
 
 	// Get target interface index
 	targetIface, err := net.InterfaceByName(targetIfaceName)
@@ -322,6 +322,10 @@ func (m *EbpfManager) Load(cfg *config.Config) error {
 				prog.Detach()
 				continue
 			}
+
+			prog.UpdateloaRedirectRule("10.10.0.2", "veth-b")
+		} else {
+			prog.UpdateloaRedirectRule("10.10.0.1", "veth-a")
 		}
 
 		m.programs[rule.IfaceName] = prog
@@ -333,6 +337,8 @@ func (m *EbpfManager) Load(cfg *config.Config) error {
 func (m *EbpfManager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	slog.Info("clear bpf resource...")
 
 	for name, prog := range m.programs {
 		if err := prog.Detach(); err != nil {

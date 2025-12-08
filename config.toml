@@ -8,13 +8,13 @@ rate = 12500000
 burst = 80000000
 
 
-# [[rule]]
-# ifacename = "veth-b"
-# gress = "ingress"
-#
-#
-# [rule.net_qos]
-# loss = 0.1
+[[rule]]
+ifacename = "veth-b"
+gress = "ingress"
+
+
+[rule.net_qos]
+loss = 0.1
 #
 # [[node]]
 #
