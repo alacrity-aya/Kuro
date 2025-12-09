@@ -1,35 +1,45 @@
-[[rule]]
-ifacename = "veth-a"
-gress = "ingress"
+# ###########################################
+# # Top-level: Simulation hosts (multi-host)
+# ###########################################
+[[host]]
+name = "hostA"
 
-[rule.rate_limit]
-algo = "tbl"
-rate = 12500000
-burst = 80000000
+[host.vxlan]
+vxlan_id = 42
+vxlan_iface = "vxlan42"
+vxlan_port = 4789
+vxlan_remote = "192.168.1.10" # remote host for vxlan fallback
 
+###########################################
+# Nodes in hostA
+###########################################
+[[host.node]]
+name = "node1"
+type = "container"       # container | exec | router
+container = "sim-node-1"
+image = "ubuntu:latest"
+ip = "10.10.0.1/24"
 
-[[rule]]
-ifacename = "veth-b"
-gress = "ingress"
+[host.node.traffic_shaping]
+rate_bps = 12_500_000    # bytes per second
+burst_bytes = 80_000_000
 
-
-[rule.net_qos]
+[host.node.netem]
 loss = 0.1
-#
-# [[node]]
-#
-# container = "container name"
-# image = "ubuntu:latest"
-# ip = "10.10.0.1/24"
-#
-#
-# [[node]]
-#
-# exec = "iperf3"
-# args = "-s"
-# ip = "10.10.0.2/24"
-#
-# [[route]]
-# dest_cidr = "10.10.0.1"
-# out_node = "node1"
-# out_iface = "veth-a"
+jitter_ms = 1000
+delay_ms = 10
+
+
+###########################################
+[[host.node]]
+name = "server"
+type = "exec"
+exec = "iperf3"
+args = ["-s"]
+cwd = "/workspace"
+ip = "10.10.0.2/24"
+
+
+[[host.route]]
+dest_ip = "10.10.0.1" # exact-match IP (eBPF uses exact match)
+out_node = "node1"

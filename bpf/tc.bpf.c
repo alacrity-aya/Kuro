@@ -51,7 +51,7 @@ static __always_inline void print_ip_addr(__be32 ip_addr) {
   __u32 o3 = (host_ip >> 8) & 0xFF;
   __u32 o4 = host_ip & 0xFF;
 
-  kuro_debug("ip {raw_be: %u, raw_host: %u, str: %d.%d.%d.%d}", ip_addr,
+  kuro_debug("ip {raw_be: %u, raw_host: %u, str: %u.%u.%u.%u}", ip_addr,
              host_ip, o1, o2, o3, o4);
 }
 
@@ -159,7 +159,7 @@ static __always_inline int check_limit(struct __sk_buff *skb) {
   return dropped;
 }
 
-struct arp_eth_ipv4 {
+struct arp_eth_ipv4 { // arp header
   __be16 ar_hrd;
   __be16 ar_pro;
   __u8 ar_hln;

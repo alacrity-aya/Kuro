@@ -2,88 +2,108 @@ package config
 
 import (
 	"fmt"
-	"log"
-	"net"
 	"os"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
 )
 
-type Config struct {
-	Rules []Rule `toml:"rule"`
+type SimulationConfig struct {
+	Hosts []HostConfig `toml:"host"`
 }
 
-type Rule struct {
-	IfaceName string     `toml:"ifacename"`
-	Gress     string     `toml:"gress"`
-	RateLimit *RateLimit `toml:"rate_limit,omitempty"`
-	NetQoS    *NetQoS    `toml:"net_qos,omitempty"`
+type HostConfig struct {
+	Name   string        `toml:"name"`
+	Vxlan  *VxlanConfig  `toml:"vxlan,omitempty"`
+	Nodes  []NodeConfig  `toml:"node"`
+	Routes []RouteConfig `toml:"route"`
 }
 
-type RateLimit struct {
-	Algo  string `toml:"algo,omitempty"`
-	Rate  uint64 `toml:"rate,omitempty"`  // bytes
-	Burst uint64 `toml:"burst,omitempty"` // bytes
+type VxlanConfig struct {
+	ID     int    `toml:"vxlan_id"`
+	Iface  string `toml:"vxlan_iface"`
+	Port   int    `toml:"vxlan_port"`
+	Remote string `toml:"vxlan_remote"`
 }
 
-func (r *RateLimit) String() string {
-	if r == nil {
-		return "nil"
-	}
-	return fmt.Sprintf("{algo=%s rate=%d burst=%d}", r.Algo, r.Rate, r.Burst)
+type NodeConfig struct {
+	Name           string          `toml:"name"` // Will be used as Interface Name usually
+	Type           string          `toml:"type"` // container | exec
+	Container      string          `toml:"container,omitempty"`
+	Image          string          `toml:"image,omitempty"`
+	Exec           string          `toml:"exec,omitempty"`
+	Args           []string        `toml:"args,omitempty"`
+	Cwd            string          `toml:"cwd,omitempty"`
+	IP             string          `toml:"ip"`
+	TrafficShaping *TrafficShaping `toml:"traffic_shaping,omitempty"`
+	Netem          *Netem          `toml:"netem,omitempty"`
 }
 
-func (q *NetQoS) String() string {
-	if q == nil {
-		return "nil"
-	}
-	return fmt.Sprintf("{delay=%dms jitter=%dms loss=%.3f%%}", q.DelayMs, q.JitterMs, q.LossPct)
+type TrafficShaping struct {
+	RateBps    uint64 `toml:"rate_bps"`    // bytes per second
+	BurstBytes uint64 `toml:"burst_bytes"` // bytes
 }
 
-type NetQoS struct {
-	DelayMs  int     `toml:"delay_ms,omitempty"`
-	JitterMs int     `toml:"jitter_ms,omitempty"`
-	LossPct  float64 `toml:"loss_pct,omitempty"`
+type Netem struct {
+	DelayMs  uint32  `toml:"delay_ms,omitempty"`
+	JitterMs uint32  `toml:"jitter_ms,omitempty"`
+	LossPct  float64 `toml:"loss,omitempty"`
 }
 
-var C Config
+type RouteConfig struct {
+	DestIP  string `toml:"dest_ip"`
+	OutNode string `toml:"out_node"` // This refers to the node name (interface name)
+}
 
-func (cfg *Config) LoadConfig(path string) {
+// LoadHostConfig parses the TOML and returns the config for the specific hostName
+func LoadHostConfig(path string, hostName string) (*HostConfig, error) {
 	if _, err := os.Stat(path); err != nil {
-		log.Fatalf("failed to find config file, path: %s", path)
+		return nil, fmt.Errorf("config file not found: %s", path)
 	}
 
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
-		log.Fatalf("Failed to parse TOML: %v", err)
+	var simCfg SimulationConfig
+	if _, err := toml.DecodeFile(path, &simCfg); err != nil {
+		return nil, fmt.Errorf("failed to parse TOML: %w", err)
 	}
-	cfg.checkConfig()
+
+	for _, h := range simCfg.Hosts {
+		if h.Name == hostName {
+			// Found the target host
+			if err := h.validateHost(); err != nil {
+				return nil, err
+			}
+			return &h, nil
+		}
+	}
+
+	return nil, fmt.Errorf("host '%s' not found in config file", hostName)
 }
 
-func (cfg *Config) checkConfig() {
-	for i, r := range cfg.Rules {
-		if r.IfaceName == "" {
-			log.Fatalf("rule[%d]: iface cannot be empty", i)
-		}
-		if r.Gress == "" {
-			log.Fatalf("rule[%d]: gress cannot be empty", i)
-		}
+func ValidateNodeName(name string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("node name cannot be empty")
+	}
+	if len(name) > 8 {
+		return fmt.Errorf("node name %q too long (max 8 chars)", name)
+	}
 
-		if r.Gress != "both" && r.Gress != "ingress" && r.Gress != "egress" {
-			log.Fatalf("rule[%d]: gress = %v, expected 'both', 'ingress' or 'egress'", i, r.Gress)
-		}
-
-		if r.RateLimit == nil && r.NetQoS == nil {
-			log.Fatalf("rule[%d]: either rate_limit or net_qos must be specified", i)
-		}
-
-		if _, err := net.InterfaceByName(r.IfaceName); err != nil {
-			log.Fatalf("rule[%d]: failed to find eth: %s, %v", i, r.IfaceName, err)
-		}
-
-		if r.RateLimit != nil {
-			if r.RateLimit.Rate == 0 || r.RateLimit.Burst == 0 {
-				log.Fatalf("rule[%d]: rate or burst equals to zero, rate = %d, burst = %d", i, r.RateLimit.Rate, r.RateLimit.Burst)
-			}
+	for _, c := range name {
+		if !unicode.IsLetter(c) && !unicode.IsDigit(c) {
+			return fmt.Errorf("node name %q contains illegal character %q", name, c)
 		}
 	}
+	return nil
+}
+
+// validate current host config here
+func (h *HostConfig) validateHost() error {
+	for i, n := range h.Nodes {
+		if err := ValidateNodeName(n.Name); err != nil {
+			return err
+		}
+		if n.IP == "" {
+			return fmt.Errorf("node[%d] (%s) IP cannot be empty", i, n.Name)
+		}
+	}
+	return nil
 }

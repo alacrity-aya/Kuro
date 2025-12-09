@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"kuro/config"
 	"kuro/gen"
 
 	"github.com/cilium/ebpf"
@@ -20,6 +19,24 @@ func init() {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		slog.Error("Failed to remove memlock", "error", err)
 	}
+}
+
+// RateLimitSpec defines the parameters for Token Bucket
+type RateLimitSpec struct {
+	RateBytes  uint64
+	BurstBytes uint64
+}
+
+// ProgramSpec defines how an interface should be managed
+type ProgramSpec struct {
+	IfaceName string
+	RateLimit *RateLimitSpec
+}
+
+// RouteSpec defines a redirect rule: DestIP -> Target Interface Name
+type RouteSpec struct {
+	DestIP     string // e.g. "10.10.0.1" (Single IP for exact match map)
+	TargetNode string // The interface name to redirect to
 }
 
 type TrafficStats struct {
@@ -77,7 +94,8 @@ func (p *EbpfProgram) Detach() error {
 	return nil
 }
 
-func (p *EbpfProgram) Attach(ifaceName string, gress string) error {
+// Attach I think attaching ingress only is enough
+func (p *EbpfProgram) Attach(ifaceName string) error {
 	if p.objs == nil || p.objs.Gress == nil {
 		return fmt.Errorf("ebpf objects or program not loaded")
 	}
@@ -90,7 +108,6 @@ func (p *EbpfProgram) Attach(ifaceName string, gress string) error {
 		return fmt.Errorf("failed to find interface %s: %w", ifaceName, err)
 	}
 
-	// 2. Store the interface index for map keys
 	p.ifaceIndex = uint32(iface.Index)
 
 	// Detach existing links
@@ -98,6 +115,7 @@ func (p *EbpfProgram) Attach(ifaceName string, gress string) error {
 
 	var newLinks []link.Link
 
+	// TODO: remove this in future
 	attachDir := func(attachType ebpf.AttachType) error {
 		l, err := link.AttachTCX(link.TCXOptions{
 			Interface: iface.Index,
@@ -111,36 +129,15 @@ func (p *EbpfProgram) Attach(ifaceName string, gress string) error {
 		return nil
 	}
 
-	switch gress {
-	case "ingress":
-		if err := attachDir(ebpf.AttachTCXIngress); err != nil {
-			return err
-		}
-	case "egress":
-		if err := attachDir(ebpf.AttachTCXEgress); err != nil {
-			return err
-		}
-	case "both":
-		if err := attachDir(ebpf.AttachTCXEgress); err != nil {
-			return err
-		}
-		if err := attachDir(ebpf.AttachTCXIngress); err != nil {
-			for _, l := range newLinks {
-				l.Close()
-			}
-			return err
-		}
-	default:
-		if err := attachDir(ebpf.AttachTCXEgress); err != nil {
-			return err
-		}
+	if err := attachDir(ebpf.AttachTCXIngress); err != nil {
+		return err
 	}
 
 	p.links = newLinks
 	p.firstSample = true
 	p.lastCheck = time.Now()
 
-	slog.Info("Attached eBPF program", "iface", ifaceName, "index", p.ifaceIndex, "gress", gress)
+	slog.Info("Attached eBPF program", "iface", ifaceName, "index", p.ifaceIndex, "gress", "ingress")
 	return nil
 }
 
@@ -174,48 +171,30 @@ func (p *EbpfProgram) UpdateRateLimit(rate, burst uint64) error {
 	return nil
 }
 
-func (p *EbpfProgram) UpdateloaRedirectRule(dstIPStr string, targetIfaceName string) error {
-	if !p.loaded {
-		return fmt.Errorf("program not loaded")
-	}
-
-	// Parse IP
+func (m *EbpfManager) updateGlobalRedirect(dstIPStr string, targetIfaceName string) error {
 	ip := net.ParseIP(dstIPStr)
 	if ip == nil {
 		return fmt.Errorf("invalid ip: %s", dstIPStr)
 	}
-
-	// Ensure IPv4 and get 4 bytes
 	v4 := ip.To4()
 	if v4 == nil {
-		return fmt.Errorf("not an ipv4 address: %s", dstIPStr)
+		return fmt.Errorf("not ipv4: %s", dstIPStr)
 	}
 
-	// Convert to __be32 (Big Endian uint32)
-	// net.IP is already a byte slice, but we need it as a uint32 for the map key
-	ipKey := binary.BigEndian.Uint32(v4) // FIXME: I don't know why here is BigEndian, it should be litter endian instead. Anyhow, it works well
-	slog.Debug("IP str to be32", "dstIPStr", dstIPStr, "rawIP", ipKey, "targetIfaceName", targetIfaceName)
+	ipKey := binary.BigEndian.Uint32(v4)
 
-	// Get target interface index
+	// NOTE: The target interface must exist on the host.
 	targetIface, err := net.InterfaceByName(targetIfaceName)
 	if err != nil {
-		return fmt.Errorf("target interface not found: %w", err)
+		return fmt.Errorf("target iface %s not found: %w", targetIfaceName, err)
 	}
 	targetIdx := uint32(targetIface.Index)
 
-	if err := p.objs.RedirectMap.Update(ipKey, targetIdx, ebpf.UpdateAny); err != nil {
-		return fmt.Errorf("failed to update redirect map: %w", err)
+	if err := m.objs.RedirectMap.Update(ipKey, targetIdx, ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("map update failed: %w", err)
 	}
 
-	slog.Debug("Updating RedirectMap", "ip", dstIPStr, "ip_be32", ipKey, "target", targetIfaceName, "idx", targetIdx)
-
-	var key uint32
-	var val uint32
-	it := p.objs.RedirectMap.Iterate()
-	for it.Next(&key, &val) {
-		fmt.Printf("===map entry: key=%d (0x%x) -> val=%d===\n", key, key, val)
-	}
-
+	slog.Debug("Route Updated", "ip", dstIPStr, "target", targetIfaceName, "idx", targetIdx)
 	return nil
 }
 
@@ -285,7 +264,7 @@ func NewEbpfManager() *EbpfManager {
 	}
 }
 
-func (m *EbpfManager) Load(cfg *config.Config) error {
+func (m *EbpfManager) Sync(specs []ProgramSpec, routes []RouteSpec) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -299,8 +278,8 @@ func (m *EbpfManager) Load(cfg *config.Config) error {
 		slog.Debug("successed to load tc objects")
 	}
 
-	for _, rule := range cfg.Rules {
-		if _, exists := m.programs[rule.IfaceName]; exists {
+	for _, spec := range specs {
+		if _, exists := m.programs[spec.IfaceName]; exists {
 			continue
 		}
 
@@ -310,25 +289,28 @@ func (m *EbpfManager) Load(cfg *config.Config) error {
 		slog.Debug("Attach tc hook...")
 
 		// Attach sets the p.ifaceIndex
-		if err := prog.Attach(rule.IfaceName, rule.Gress); err != nil {
-			slog.Error("Failed to attach BPF program", "iface", rule.IfaceName, "error", err)
+		if err := prog.Attach(spec.IfaceName); err != nil {
+			slog.Error("Failed to attach BPF program", "iface", spec.IfaceName, "error", err)
 			prog.Detach()
 			continue
 		}
 
-		if rule.RateLimit != nil {
-			if err := prog.UpdateRateLimit(rule.RateLimit.Rate, rule.RateLimit.Burst); err != nil {
-				slog.Error("Failed to update rate limit", "iface", rule.IfaceName, "error", err)
+		if spec.RateLimit != nil {
+			if err := prog.UpdateRateLimit(spec.RateLimit.RateBytes, spec.RateLimit.BurstBytes); err != nil {
+				slog.Error("Failed to update rate limit", "iface", spec.IfaceName, "error", err)
 				prog.Detach()
 				continue
 			}
-
-			prog.UpdateloaRedirectRule("10.10.0.2", "veth-b")
-		} else {
-			prog.UpdateloaRedirectRule("10.10.0.1", "veth-a")
 		}
 
-		m.programs[rule.IfaceName] = prog
+		m.programs[spec.IfaceName] = prog
+	}
+
+	// Update Redirect Map
+	for _, route := range routes {
+		if err := m.updateGlobalRedirect(route.DestIP, route.TargetNode); err != nil {
+			slog.Error("Failed to update route", "dest", route.DestIP, "target", route.TargetNode, "err", err)
+		}
 	}
 
 	return nil
@@ -386,7 +368,7 @@ func (m *EbpfManager) GetIfaceStats(ifaceName string) (TrafficStats, error) {
 	return prog.GetStats()
 }
 
-func (m *EbpfManager) Reload(ifaceName string, rateLimit config.RateLimit) error {
+func (m *EbpfManager) Reload(ifaceName string, rateLimit RateLimitSpec) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -398,7 +380,7 @@ func (m *EbpfManager) Reload(ifaceName string, rateLimit config.RateLimit) error
 		return fmt.Errorf("interface %s not managed", ifaceName)
 	}
 
-	err := prog.UpdateRateLimit(rateLimit.Rate, rateLimit.Burst)
+	err := prog.UpdateRateLimit(rateLimit.RateBytes, rateLimit.BurstBytes)
 	if err != nil {
 		slog.Error("Failed to reload rule", "iface", ifaceName, "error", err)
 	} else {
