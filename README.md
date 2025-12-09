@@ -8,8 +8,7 @@
 
 ## todo
 
-1. add update redirection in manager.go
-2. complete netem
-3. python sdk/gui to write config file
+1. complete netem
+2. python sdk/gui to write config file
 
 

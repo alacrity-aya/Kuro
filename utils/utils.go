@@ -48,7 +48,6 @@ func NodeNameFromPeerEth(eth string) (string, error) {
 }
 
 func ConvertToSpecs(cfg config.HostConfig) ([]manager.ProgramSpec, []manager.RouteSpec, []netem.NetemSpec) {
-	// TODO: parse vxlan
 	var progSpecs []manager.ProgramSpec
 	var netemSpecs []netem.NetemSpec
 

@@ -1,3 +1,4 @@
+// Package netem is used to apply tc netem
 package netem
 
 import (

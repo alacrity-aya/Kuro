@@ -4,17 +4,17 @@
 [[host]]
 name = "hostA"
 
-[host.vxlan]
-vxlan_id = 42
-vxlan_iface = "vxlan42"
-vxlan_port = 4789
-vxlan_remote = "192.168.1.10" # remote host for vxlan fallback
+# [host.vxlan]
+# vxlan_id = 42
+# vxlan_iface = "wlp0s20f3"
+# vxlan_port = 4789
+# vxlan_remote = "192.168.1.10" # remote host for vxlan fallback
 
 ###########################################
 # Nodes in hostA
 ###########################################
 [[host.node]]
-name = "node1"
+name = "image"
 type = "container"       # container | exec | router
 container = "sim-node-1"
 image = "ubuntu:latest"

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"kuro/config"
+	"kuro/topo"
 	"kuro/utils"
 )
 
@@ -22,12 +23,20 @@ func main() {
 	programSpecs, routeSpecs, netemSpecs := utils.ConvertToSpecs(*cfg)
 	slog.Debug("ConvertToSpecs", "programSpecs", programSpecs, "routeSpecs", routeSpecs, "netemSpecs", netemSpecs)
 
-	// TODO: create network topology here
+	topo := topo.NewRuntimeTopo(*cfg)
+
+	err = topo.Setup()
+	defer topo.TearDown()
+
+	if err != nil {
+		slog.Error("Setup network topology failed", "error", err)
+	}
+
+	topo.PrintTopology()
 
 	// mgr := manager.NewEbpfManager()
 	// defer mgr.Close()
 	//
-	// // FIXME: Not work now because host doesn't have network topology
 	// if err := mgr.Sync(programSpecs, routeSpecs); err != nil {
 	// 	slog.Error("Failed to load eBPF programs and attachments", "error", err)
 	// 	os.Exit(1)
