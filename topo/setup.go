@@ -15,6 +15,7 @@ import (
 	"github.com/vishvananda/netns"
 )
 
+// RuntimeNode represents a node in the runtime topology.
 type RuntimeNode struct {
 	Name string
 	IP   string
@@ -30,11 +31,11 @@ type Vxlan struct {
 type RuntimeTopo struct {
 	Nodes  []RuntimeNode
 	Vxlan  *Vxlan
-	origns netns.NsHandle // host netns
+	origns netns.NsHandle // original host network namespace
 
-	// track network resource
+	// Track resources created during setup
 	createdNs    []string
-	createdLinks []string // Host side link names (veths, vxlan)
+	createdLinks []string // host-side links (veths, vxlan)
 }
 
 func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
@@ -51,8 +52,10 @@ func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
 	var nodes []RuntimeNode
 
 	for _, node := range cfg.Nodes {
-		node := RuntimeNode{Name: node.Name, IP: node.IP}
-		nodes = append(nodes, node)
+		nodes = append(nodes, RuntimeNode{
+			Name: node.Name,
+			IP:   node.IP,
+		})
 	}
 
 	topo := &RuntimeTopo{
@@ -67,9 +70,10 @@ func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
 }
 
 func (topo *RuntimeTopo) initOrigNs() error {
+	// Save the current host network namespace handle
 	origns, err := netns.Get()
 	if err != nil {
-		return fmt.Errorf("failed to get current netns handle, error: %v", err)
+		return fmt.Errorf("failed to get current netns handle: %v", err)
 	}
 	topo.origns = origns
 	return nil
@@ -93,10 +97,12 @@ func (topo *RuntimeTopo) Setup() error {
 		return fmt.Errorf("failed to setup vxlan: %w", err)
 	}
 
+	slog.Info("Setup topology completed")
+
 	return nil
 }
 
-// create netns, veth Pair and config ip addr for each node
+// createNodeNetwork creates a netns, veth pair, and configures IP for the node.
 func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 	nsName := utils.NetnsName(node.Name)
 	hostEth := utils.EthName(node.Name)
@@ -104,9 +110,8 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 
 	slog.Info("Setting up node", "node", node.Name, "ns", nsName, "ip", node.IP)
 
-	// A. 创建 Netns
-	// NewNamed 会自动创建一个新的命名空间并在 /var/run/netns/ 下挂载
-	// 注意：这会自动将当前线程切换到新的 netns，所以我们需要切回来
+	// A. Create a new named network namespace.
+	// netns.NewNamed automatically switches the current thread into the new ns.
 	newNs, err := netns.NewNamed(nsName)
 	if err != nil {
 		return fmt.Errorf("failed to create netns %s: %w", nsName, err)
@@ -114,12 +119,12 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 	defer newNs.Close()
 	topo.createdNs = append(topo.createdNs, nsName)
 
-	// 恢复到 Host Netns 以创建 veth pair
-	if err := netns.Set(topo.origns); err != nil {
+	// Switch back to the host ns before creating the veth pair.
+	if err = netns.Set(topo.origns); err != nil {
 		return fmt.Errorf("failed to set original netns: %w", err)
 	}
 
-	// B. 创建 Veth Pair
+	// B. Create a veth pair
 	veth := &netlink.Veth{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: hostEth,
@@ -127,42 +132,42 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 		PeerName: peerEth,
 	}
 
-	if err := netlink.LinkAdd(veth); err != nil {
+	if err = netlink.LinkAdd(veth); err != nil {
 		return fmt.Errorf("failed to create veth pair %s <-> %s: %w", hostEth, peerEth, err)
 	}
 	topo.createdLinks = append(topo.createdLinks, hostEth)
 
-	// C. 将 Peer 端移动到新的 Netns
+	// C. Move the peer veth into the new netns.
 	peerLink, err := netlink.LinkByName(peerEth)
 	if err != nil {
 		return fmt.Errorf("failed to find peer link %s: %w", peerEth, err)
 	}
 
-	if err := netlink.LinkSetNsFd(peerLink, int(newNs)); err != nil {
+	if err = netlink.LinkSetNsFd(peerLink, int(newNs)); err != nil {
 		return fmt.Errorf("failed to move peer link to ns: %w", err)
 	}
 
-	// D. 启动 Host 端 Veth
+	// D. Bring up host-side veth.
 	hostLink, err := netlink.LinkByName(hostEth)
 	if err != nil {
 		return fmt.Errorf("failed to find host link %s: %w", hostEth, err)
 	}
-	if err := netlink.LinkSetUp(hostLink); err != nil {
+	if err = netlink.LinkSetUp(hostLink); err != nil {
 		return fmt.Errorf("failed to set host link up: %w", err)
 	}
 
-	// E. 进入新的 Netns 配置 IP 和 Lo
-	if err := netns.Set(newNs); err != nil {
+	// E. Enter the node namespace to configure IP and loopback.
+	if err = netns.Set(newNs); err != nil {
 		return fmt.Errorf("failed to switch to netns %s: %w", nsName, err)
 	}
 
-	// E.1 启动 lo (Loopback) - 对网络栈很重要
+	// E.1 Bring up loopback interface.
 	loLink, err := netlink.LinkByName("lo")
 	if err == nil {
 		_ = netlink.LinkSetUp(loLink)
 	}
 
-	// E.2 配置 Peer Veth IP
+	// E.2 Configure peer veth IP inside the namespace.
 	peerLinkInNs, err := netlink.LinkByName(peerEth)
 	if err != nil {
 		return fmt.Errorf("failed to find peer link inside ns: %w", err)
@@ -170,18 +175,18 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 
 	addr, err := netlink.ParseAddr(node.IP)
 	if err != nil {
-		return fmt.Errorf("invalid ip address %s: %w", node.IP, err)
+		return fmt.Errorf("invalid IP address %s: %w", node.IP, err)
 	}
 
 	if err := netlink.AddrAdd(peerLinkInNs, addr); err != nil {
-		return fmt.Errorf("failed to add ip %s to interface: %w", node.IP, err)
+		return fmt.Errorf("failed to add IP %s to interface: %w", node.IP, err)
 	}
 
 	if err := netlink.LinkSetUp(peerLinkInNs); err != nil {
 		return fmt.Errorf("failed to set peer link up: %w", err)
 	}
 
-	// F. 恢复到 Host Netns
+	// F. Switch back to the host namespace.
 	if err := netns.Set(topo.origns); err != nil {
 		return fmt.Errorf("failed to restore original netns: %w", err)
 	}
@@ -189,27 +194,27 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 	return nil
 }
 
-// createVxlan 创建 VXLAN 接口
+// createVxlan creates the VXLAN interface on the host.
 func (topo *RuntimeTopo) createVxlan() error {
 	if topo.Vxlan == nil {
-		slog.Info("No VXLAN config found, skipping VXLAN setup")
+		slog.Info("No VXLAN config found, skipping setup")
 		return nil
 	}
 
 	if topo.Vxlan.Iface == "" {
-		slog.Error("No parent interface specified for VXLAN, skipping or creating standalone")
+		slog.Error("No parent interface specified for VXLAN; skipping")
 		return nil
 	}
 
 	parentLink, err := netlink.LinkByName(topo.Vxlan.Iface)
 	if err != nil {
-		return fmt.Errorf("failed to find parent interface %s for vxlan: %w", topo.Vxlan.Iface, err)
+		return fmt.Errorf("failed to find parent interface %s: %w", topo.Vxlan.Iface, err)
 	}
 
 	vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
-	slog.Info("Setting up Vxlan", "name", vxlanName, "id", topo.Vxlan.ID, "remote", topo.Vxlan.Remote)
+	slog.Info("Setting up VXLAN", "name", vxlanName, "id", topo.Vxlan.ID, "remote", topo.Vxlan.Remote)
 
-	vxlan := &netlink.Vxlan{
+	vx := &netlink.Vxlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: vxlanName,
 		},
@@ -218,21 +223,20 @@ func (topo *RuntimeTopo) createVxlan() error {
 		Port:         topo.Vxlan.Port,
 	}
 
-	// 如果配置了 Remote IP，通常设置为 Group (组播) 或直接 Remote (如果是单播)
-	// 这里简单处理：如果 Remote 是有效 IP，将其设为 Group 以支持简单的点对点或组播发现
+	// If Remote is set, treat it as the group/multicast/remote endpoint.
 	if topo.Vxlan.Remote != "" {
 		ip := net.ParseIP(topo.Vxlan.Remote)
 		if ip != nil {
-			vxlan.Group = ip
+			vx.Group = ip
 		}
 	}
 
-	if err := netlink.LinkAdd(vxlan); err != nil {
+	err = netlink.LinkAdd(vx)
+	if err != nil {
 		return fmt.Errorf("failed to create vxlan interface: %w", err)
 	}
 	topo.createdLinks = append(topo.createdLinks, vxlanName)
 
-	// 启动接口
 	vxlanLink, err := netlink.LinkByName(vxlanName)
 	if err != nil {
 		return err
@@ -244,64 +248,49 @@ func (topo *RuntimeTopo) createVxlan() error {
 	return nil
 }
 
-// TearDown 清理所有创建的资源
+// TearDown removes all created resources.
 func (topo *RuntimeTopo) TearDown() {
 	slog.Info("Tearing down topology...")
 
-	// 1. 删除 VXLAN 接口 (Link)
-	// 注意：我们在 createdLinks 里记录了所有的 Host 侧接口
-	// 删除 Netns 时，Veth 的 Host 端会自动删除，所以这里主要为了删除 VXLAN
-	// 为了安全起见，尝试删除记录的所有 link，忽略 "not found" 错误
+	// Remove all created interfaces.
 	for _, linkName := range topo.createdLinks {
 		if strings.HasPrefix(linkName, "v-") {
-			// Veth pair 的 host 端通常随 netns 删除而消失，
-			// 但如果 netns 删除失败，这里可以作为兜底
+			// veth host side normally disappears with namespace deletion,
+			// but delete here as fallback.
 			if link, err := netlink.LinkByName(linkName); err == nil {
 				_ = netlink.LinkDel(link)
 			}
 		} else {
-			// VXLAN 等其他接口
 			if link, err := netlink.LinkByName(linkName); err == nil {
 				slog.Info("Deleting interface", "name", linkName)
-				if err := netlink.LinkDel(link); err != nil {
-					slog.Warn("Failed to delete link", "name", linkName, "error", err)
-				}
+				_ = netlink.LinkDel(link)
 			}
 		}
 	}
 
-	// 2. 删除 Netns
-	// 这会自动清理 namespace 里面的所有接口
-	for _, nsName := range topo.createdNs {
-		slog.Info("Deleting netns", "name", nsName)
-		if err := netns.DeleteNamed(nsName); err != nil {
-			slog.Warn("Failed to delete netns", "name", nsName, "error", err)
-		}
+	// Remove namespaces (removes node-side interfaces automatically).
+	for _, ns := range topo.createdNs {
+		slog.Info("Deleting netns", "name", ns)
+		_ = netns.DeleteNamed(ns)
 	}
 
-	// 清空列表
 	topo.createdNs = nil
 	topo.createdLinks = nil
 
-	// 关闭 host 句柄
 	if topo.origns.IsOpen() {
 		topo.origns.Close()
 	}
 }
 
-// PrintTopology 打印当前创建的网络拓扑结构
 func (topo *RuntimeTopo) PrintTopology() {
 	fmt.Println("====== Network Topology ======")
 
-	// 打印 VXLAN 信息
-
 	if topo.Vxlan != nil {
 		vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
-		fmt.Printf("[Host] --- (vxlan: %s, VNI: %d, Remote: %s) ---> External\n",
+		fmt.Printf("[Host] --- (VXLAN: %s, VNI: %d, Remote: %s) ---> External\n",
 			vxlanName, topo.Vxlan.ID, topo.Vxlan.Remote)
 	}
 
-	// 打印节点信息
 	for _, node := range topo.Nodes {
 		hostEth := utils.EthName(node.Name)
 		peerEth := utils.PeerEthName(node.Name)
@@ -310,5 +299,6 @@ func (topo *RuntimeTopo) PrintTopology() {
 		fmt.Printf("[Host] %s <===> [Netns: %s] %s (IP: %s)\n",
 			hostEth, nsName, peerEth, node.IP)
 	}
+
 	fmt.Println("==============================")
 }

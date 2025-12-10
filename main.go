@@ -81,7 +81,12 @@ func main() {
 	defer topo.TearDown()
 
 	if err != nil {
-		slog.Error("Setup network topology failed", "error", err)
+		panic(fmt.Sprintf("Setup network topology failed: %v", err))
+	}
+
+	err = netem.SetNetems(netemSpecs...)
+	if err != nil {
+		panic(fmt.Sprintf("Set netem rules failed: %v", err))
 	}
 
 	topo.PrintTopology()

@@ -8,8 +8,10 @@
 
 ## todo
 
-1. complete netem
-2. python sdk/gui to write config file
-3. add default route
+- add ip addr to vxlan
+- add default route(vxlan)
+- netem
+- complete netem
+- python sdk/gui to write config file
 
 

@@ -3,6 +3,7 @@ package netem
 
 import (
 	"fmt"
+	"log/slog"
 	"runtime"
 
 	"github.com/vishvananda/netlink"
@@ -17,7 +18,19 @@ type NetemSpec struct {
 	LossPercent float64
 }
 
-func SetNetemConfig(nsName string, ifaceName string, latencyMs uint32, jitterMs uint32, lossPercent float32) error {
+func SetNetems(specs ...NetemSpec) error {
+	for _, spec := range specs {
+		if err := setNetem(spec); err != nil {
+			return fmt.Errorf("IfaceName %s: %v", spec.IfaceName, err)
+		}
+	}
+
+	slog.Info("set netem rules completed")
+
+	return nil
+}
+
+func setNetem(spec NetemSpec) error {
 	originNs, err := netns.Get()
 	if err != nil {
 		return fmt.Errorf("failed to get current ns: %v", err)
@@ -28,38 +41,37 @@ func SetNetemConfig(nsName string, ifaceName string, latencyMs uint32, jitterMs 
 	defer runtime.UnlockOSThread()
 	defer netns.Set(originNs)
 
-	targetNsHandle, err := netns.GetFromName(nsName)
+	targetNsHandle, err := netns.GetFromName(spec.NsName)
 	if err != nil {
-		return fmt.Errorf("failed to get netns %s: %v", nsName, err)
+		return fmt.Errorf("failed to get netns %s: %v", spec.NsName, err)
 	}
 	defer targetNsHandle.Close()
 
-	err = netns.Set(targetNsHandle)
-	if err != nil {
+	if err = netns.Set(targetNsHandle); err != nil {
 		return fmt.Errorf("failed to enter netns: %v", err)
 	}
 
-	// --- Now we are in other netns  ---
-
-	link, err := netlink.LinkByName(ifaceName)
+	link, err := netlink.LinkByName(spec.IfaceName)
 	if err != nil {
-		return fmt.Errorf("interface %s not found in ns %s: %v", ifaceName, nsName, err)
+		return fmt.Errorf("interface %s not found in ns %s: %v",
+			spec.IfaceName, spec.NsName, err)
 	}
 
-	// tc qdisc add dev eth0 root netem delay 100ms 10ms loss 1%
 	qdisc := &netlink.Netem{
 		QdiscAttrs: netlink.QdiscAttrs{
 			LinkIndex: link.Attrs().Index,
 			Handle:    netlink.MakeHandle(1, 0),
 			Parent:    netlink.HANDLE_ROOT,
 		},
-		Latency: latencyMs * 1000,
-		Jitter:  jitterMs * 1000,
-		Limit:   1000,
+		Latency: spec.LatencyMs * 1000,
+		Jitter:  spec.JitterMs * 1000,
+		Loss:    uint32(spec.LossPercent * 100),
 	}
 
+	// ensure idempotent behavior
 	_ = netlink.QdiscDel(qdisc)
 
+	// there is no need to clear this qdisc, because we'll delete all netns in topo.teardown()
 	if err := netlink.QdiscAdd(qdisc); err != nil {
 		return fmt.Errorf("failed to add netem qdisc: %v", err)
 	}

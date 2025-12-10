@@ -20,14 +20,14 @@ container = "sim-node-1"
 image = "ubuntu:latest"
 ip = "10.10.0.1/24"
 
-[host.node.traffic_shaping]
-rate_bps = 12_500_000    # bytes per second
-burst_bytes = 80_000_000
+# [host.node.traffic_shaping]
+# rate_bps = 12_500_000    # bytes per second
+# burst_bytes = 80_000_000
 
-[host.node.netem]
-loss = 0.1
-jitter_ms = 1000
-delay_ms = 10
+# [host.node.netem]
+# loss = 0.8
+# jitter_ms = 1000
+# delay_ms = 10
 
 
 ###########################################
