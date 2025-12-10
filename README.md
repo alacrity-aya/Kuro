@@ -10,8 +10,7 @@
 
 - add ip addr to vxlan
 - add default route(vxlan)
-- netem
-- complete netem
 - python sdk/gui to write config file
+- create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 
 
 
