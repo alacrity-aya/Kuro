@@ -4,6 +4,7 @@ package netem
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"runtime"
 
 	"github.com/vishvananda/netlink"
@@ -13,9 +14,10 @@ import (
 type NetemSpec struct {
 	NsName      string
 	IfaceName   string
-	LatencyMs   uint32
-	JitterMs    uint32
+	LatencyMs   float64
+	JitterMs    float64
 	LossPercent float64
+	Limit       uint32
 }
 
 func SetNetems(specs ...NetemSpec) error {
@@ -37,11 +39,16 @@ func setNetem(spec NetemSpec) error {
 	}
 	defer originNs.Close()
 
+	if _, err = netlink.LinkList(); err != nil {
+		slog.Warn("failed to warm up netlink clock", "error", err)
+	}
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer netns.Set(originNs)
 
 	targetNsHandle, err := netns.GetFromName(spec.NsName)
+	slog.Debug("GetFromName", "namespace", spec.NsName)
 	if err != nil {
 		return fmt.Errorf("failed to get netns %s: %v", spec.NsName, err)
 	}
@@ -57,19 +64,28 @@ func setNetem(spec NetemSpec) error {
 			spec.IfaceName, spec.NsName, err)
 	}
 
+	// --- Remove any existing root qdisc (netem or other) ---
+	cleanup := &netlink.GenericQdisc{
+		QdiscAttrs: netlink.QdiscAttrs{
+			LinkIndex: link.Attrs().Index,
+			Handle:    netlink.MakeHandle(1, 0),
+			Parent:    netlink.HANDLE_ROOT,
+		},
+	}
+	_ = netlink.QdiscDel(cleanup)
+
 	qdisc := &netlink.Netem{
 		QdiscAttrs: netlink.QdiscAttrs{
 			LinkIndex: link.Attrs().Index,
 			Handle:    netlink.MakeHandle(1, 0),
 			Parent:    netlink.HANDLE_ROOT,
 		},
-		Latency: spec.LatencyMs * 1000,
-		Jitter:  spec.JitterMs * 1000,
-		Loss:    uint32(spec.LossPercent * 100),
+		// NOTE: https://github.com/vishvananda/netlink/issues/480
+		Latency: uint32(spec.LatencyMs * 1_000 * netlink.TickInUsec()), // ms → us
+		Jitter:  uint32(spec.JitterMs * 1_000 * netlink.TickInUsec()),  // ms → us
+		Limit:   spec.Limit,
+		Loss:    uint32(spec.LossPercent * float64(math.MaxUint32)),
 	}
-
-	// ensure idempotent behavior
-	_ = netlink.QdiscDel(qdisc)
 
 	// there is no need to clear this qdisc, because we'll delete all netns in topo.teardown()
 	if err := netlink.QdiscAdd(qdisc); err != nil {

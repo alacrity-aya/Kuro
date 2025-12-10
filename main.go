@@ -36,12 +36,18 @@ func ConvertToSpecs(cfg config.HostConfig) ([]manager.ProgramSpec, []manager.Rou
 		progSpecs = append(progSpecs, progSpec)
 
 		if node.Netem != nil {
+			limit := node.Netem.Limit
+			if limit == 0 {
+				limit = 1000
+			}
+
 			netemSpec := netem.NetemSpec{
 				NsName:      utils.NetnsName(node.Name),
 				IfaceName:   utils.PeerEthName(node.Name),
 				LatencyMs:   node.Netem.DelayMs,
 				JitterMs:    node.Netem.JitterMs,
 				LossPercent: node.Netem.LossPct,
+				Limit:       limit,
 			}
 
 			netemSpecs = append(netemSpecs, netemSpec)
@@ -84,12 +90,12 @@ func main() {
 		panic(fmt.Sprintf("Setup network topology failed: %v", err))
 	}
 
+	topo.PrintTopology()
+
 	err = netem.SetNetems(netemSpecs...)
 	if err != nil {
 		panic(fmt.Sprintf("Set netem rules failed: %v", err))
 	}
-
-	topo.PrintTopology()
 
 	mgr := manager.NewEbpfManager()
 	defer mgr.Close()
