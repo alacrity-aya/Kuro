@@ -10,10 +10,10 @@ const testToml = `
 name = "hostA"
 
 [host.vxlan]
-vxlan_id = 42
-vxlan_iface = "vxlan42"
-vxlan_port = 4789
-vxlan_remote = "192.168.1.10"
+id = 42
+iface = "vxlan42"
+port = 4789
+remote = "192.168.1.10"
 
 [[host.node]]
 name = "node1"

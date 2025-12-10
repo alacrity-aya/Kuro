@@ -4,18 +4,18 @@
 [[host]]
 name = "hostA"
 
-# [host.vxlan]
-# vxlan_id = 42
-# vxlan_iface = "wlp0s20f3"
-# vxlan_port = 4789
-# vxlan_remote = "192.168.1.10" # remote host for vxlan fallback
+[host.vxlan]
+id = 42              #VNI
+iface = "wlp0s20f3"
+port = 4789
+remote = "127.0.0.1" # remote host for vxlan fallback
 
 ###########################################
 # Nodes in hostA
 ###########################################
 [[host.node]]
-name = "image"
-type = "container"       # container | exec | router
+name = "node1"
+type = "container"       # container | exec 
 container = "sim-node-1"
 image = "ubuntu:latest"
 ip = "10.10.0.1/24"
@@ -32,7 +32,7 @@ delay_ms = 10
 
 ###########################################
 [[host.node]]
-name = "server"
+name = "node2"
 type = "exec"
 exec = "iperf3"
 args = ["-s"]
@@ -43,3 +43,8 @@ ip = "10.10.0.2/24"
 [[host.route]]
 dest_ip = "10.10.0.1" # exact-match IP (eBPF uses exact match)
 out_node = "node1"
+
+
+[[host.route]]
+dest_ip = "10.10.0.2" # exact-match IP (eBPF uses exact match)
+out_node = "node2"

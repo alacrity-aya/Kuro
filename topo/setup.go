@@ -17,7 +17,7 @@ import (
 
 type RuntimeNode struct {
 	Name string
-	Ip   string
+	IP   string
 }
 
 type Vxlan struct {
@@ -51,7 +51,7 @@ func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
 	var nodes []RuntimeNode
 
 	for _, node := range cfg.Nodes {
-		node := RuntimeNode{Name: node.Name, Ip: node.IP}
+		node := RuntimeNode{Name: node.Name, IP: node.IP}
 		nodes = append(nodes, node)
 	}
 
@@ -102,7 +102,7 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 	hostEth := utils.EthName(node.Name)
 	peerEth := utils.PeerEthName(node.Name)
 
-	slog.Info("Setting up node", "node", node.Name, "ns", nsName, "ip", node.Ip)
+	slog.Info("Setting up node", "node", node.Name, "ns", nsName, "ip", node.IP)
 
 	// A. 创建 Netns
 	// NewNamed 会自动创建一个新的命名空间并在 /var/run/netns/ 下挂载
@@ -168,13 +168,13 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 		return fmt.Errorf("failed to find peer link inside ns: %w", err)
 	}
 
-	addr, err := netlink.ParseAddr(node.Ip)
+	addr, err := netlink.ParseAddr(node.IP)
 	if err != nil {
-		return fmt.Errorf("invalid ip address %s: %w", node.Ip, err)
+		return fmt.Errorf("invalid ip address %s: %w", node.IP, err)
 	}
 
 	if err := netlink.AddrAdd(peerLinkInNs, addr); err != nil {
-		return fmt.Errorf("failed to add ip %s to interface: %w", node.Ip, err)
+		return fmt.Errorf("failed to add ip %s to interface: %w", node.IP, err)
 	}
 
 	if err := netlink.LinkSetUp(peerLinkInNs); err != nil {
@@ -197,8 +197,7 @@ func (topo *RuntimeTopo) createVxlan() error {
 	}
 
 	if topo.Vxlan.Iface == "" {
-		slog.Info("No parent interface specified for VXLAN, skipping or creating standalone")
-		// 实际上通常需要物理接口作为 VTEP，这里假设必须存在
+		slog.Error("No parent interface specified for VXLAN, skipping or creating standalone")
 		return nil
 	}
 
@@ -309,7 +308,7 @@ func (topo *RuntimeTopo) PrintTopology() {
 		nsName := utils.NetnsName(node.Name)
 
 		fmt.Printf("[Host] %s <===> [Netns: %s] %s (IP: %s)\n",
-			hostEth, nsName, peerEth, node.Ip)
+			hostEth, nsName, peerEth, node.IP)
 	}
 	fmt.Println("==============================")
 }

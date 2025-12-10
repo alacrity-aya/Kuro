@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kuro/gen"
+	"kuro/utils"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -308,7 +309,7 @@ func (m *EbpfManager) Sync(specs []ProgramSpec, routes []RouteSpec) error {
 
 	// Update Redirect Map
 	for _, route := range routes {
-		if err := m.updateGlobalRedirect(route.DestIP, route.TargetNode); err != nil {
+		if err := m.updateGlobalRedirect(route.DestIP, utils.EthName(route.TargetNode)); err != nil {
 			slog.Error("Failed to update route", "dest", route.DestIP, "target", route.TargetNode, "err", err)
 		}
 	}

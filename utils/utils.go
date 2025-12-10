@@ -1,12 +1,9 @@
+// Package utils provides some helper function
 package utils
 
 import (
 	"fmt"
 	"strings"
-
-	"kuro/config"
-	"kuro/manager"
-	"kuro/netem"
 )
 
 func NetnsName(nodeName string) string {
@@ -45,47 +42,4 @@ func NodeNameFromPeerEth(eth string) (string, error) {
 		return "", fmt.Errorf("invalid eth name: %s", eth)
 	}
 	return eth[len(prefix):], nil
-}
-
-func ConvertToSpecs(cfg config.HostConfig) ([]manager.ProgramSpec, []manager.RouteSpec, []netem.NetemSpec) {
-	var progSpecs []manager.ProgramSpec
-	var netemSpecs []netem.NetemSpec
-
-	for _, node := range cfg.Nodes {
-		progSpec := manager.ProgramSpec{
-			IfaceName: EthName(node.Name), // Assuming Node Name matches Host Interface Name
-		}
-
-		if node.TrafficShaping != nil {
-			progSpec.RateLimit = &manager.RateLimitSpec{
-				RateBytes:  node.TrafficShaping.RateBps,
-				BurstBytes: node.TrafficShaping.BurstBytes,
-			}
-		}
-
-		progSpecs = append(progSpecs, progSpec)
-
-		if node.Netem != nil {
-			netemSpec := netem.NetemSpec{
-				NsName:      NetnsName(node.Name),
-				IfaceName:   PeerEthName(node.Name),
-				LatencyMs:   node.Netem.DelayMs,
-				JitterMs:    node.Netem.JitterMs,
-				LossPercent: node.Netem.LossPct,
-			}
-
-			netemSpecs = append(netemSpecs, netemSpec)
-		}
-
-	}
-
-	var routeSpecs []manager.RouteSpec
-	for _, r := range cfg.Routes {
-		routeSpecs = append(routeSpecs, manager.RouteSpec{
-			DestIP:     r.DestIP,
-			TargetNode: r.OutNode,
-		})
-	}
-
-	return progSpecs, routeSpecs, netemSpecs
 }

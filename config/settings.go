@@ -20,10 +20,10 @@ type HostConfig struct {
 }
 
 type VxlanConfig struct {
-	ID     int    `toml:"vxlan_id"`
-	Iface  string `toml:"vxlan_iface"`
-	Port   int    `toml:"vxlan_port"`
-	Remote string `toml:"vxlan_remote"`
+	ID     int    `toml:"id"`
+	Iface  string `toml:"iface"`
+	Port   int    `toml:"port"`
+	Remote string `toml:"remote"`
 }
 
 type NodeConfig struct {
@@ -97,6 +97,12 @@ func ValidateNodeName(name string) error {
 
 // validate current host config here
 func (h *HostConfig) validateHost() error {
+	if h.Vxlan != nil {
+		if h.Vxlan.Iface == "" {
+			return fmt.Errorf("vxlan.iface cannot be empty")
+		}
+	}
+
 	for i, n := range h.Nodes {
 		if err := ValidateNodeName(n.Name); err != nil {
 			return err

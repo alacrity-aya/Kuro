@@ -10,5 +10,6 @@
 
 1. complete netem
 2. python sdk/gui to write config file
+3. add default route
 
 
