@@ -15,10 +15,47 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-// RuntimeNode represents a node in the runtime topology.
-type RuntimeNode struct {
+type baseNode struct {
+	name     string
+	ip       string
+	nodeType string
+}
+
+type RuntimeNode interface {
+	Name() string
+	IP() string
+	Type() string
+	Create() error
+}
+
+type ContainerNode struct {
+	baseNode  baseNode
+	container string
+	image     string
+}
+
+func (n *ContainerNode) Name() string  { return n.baseNode.name }
+func (n *ContainerNode) IP() string    { return n.baseNode.ip }
+func (n *ContainerNode) Type() string  { return n.baseNode.nodeType }
+func (n *ContainerNode) Create() error { return nil }
+
+type ExecNode struct {
+	baseNode baseNode
+	exec     string
+	args     []string
+	cwd      string
+}
+
+func (n *ExecNode) Name() string  { return n.baseNode.name }
+func (n *ExecNode) IP() string    { return n.baseNode.ip }
+func (n *ExecNode) Type() string  { return n.baseNode.nodeType }
+func (n *ExecNode) Create() error { return nil }
+
+// TTemp represents a node in the runtime topology.
+type TTemp struct {
 	Name string
 	IP   string
+	Type string
 }
 
 type Vxlan struct {
@@ -38,6 +75,20 @@ type RuntimeTopo struct {
 	createdLinks []string // host-side links (veths, vxlan)
 }
 
+func buildRuntimeNode(cfg config.NodeConfig) RuntimeNode {
+	base := baseNode{name: cfg.Name, ip: cfg.IP, nodeType: cfg.Type}
+	switch cfg.Type {
+
+	case "container":
+		return &ContainerNode{baseNode: base, image: cfg.Image, container: cfg.Container}
+	case "exec":
+		return &ExecNode{baseNode: base, exec: cfg.Exec, args: cfg.Args, cwd: cfg.Cwd}
+
+	default:
+		panic(fmt.Sprintf("should be unreachable! cfg.Type: %s", cfg.Type))
+	}
+}
+
 func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
 	var vxlan *Vxlan = nil
 	if cfg.Vxlan != nil {
@@ -49,13 +100,10 @@ func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
 		}
 	}
 
-	var nodes []RuntimeNode
+	nodes := make([]RuntimeNode, 0, len(cfg.Nodes))
 
 	for _, node := range cfg.Nodes {
-		nodes = append(nodes, RuntimeNode{
-			Name: node.Name,
-			IP:   node.IP,
-		})
+		nodes = append(nodes, buildRuntimeNode(node))
 	}
 
 	topo := &RuntimeTopo{
@@ -89,7 +137,7 @@ func (topo *RuntimeTopo) Setup() error {
 
 	for _, node := range topo.Nodes {
 		if err := topo.createNodeNetwork(node); err != nil {
-			return fmt.Errorf("failed to setup node %s: %w", node.Name, err)
+			return fmt.Errorf("failed to setup node %s: %w", node.Name(), err)
 		}
 	}
 
@@ -104,11 +152,12 @@ func (topo *RuntimeTopo) Setup() error {
 
 // createNodeNetwork creates a netns, veth pair, and configures IP for the node.
 func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
-	nsName := utils.NetnsName(node.Name)
-	hostEth := utils.EthName(node.Name)
-	peerEth := utils.PeerEthName(node.Name)
+	nodeName := node.Name()
+	nsName := utils.NetnsName(nodeName)
+	hostEth := utils.EthName(nodeName)
+	peerEth := utils.PeerEthName(nodeName)
 
-	slog.Info("Setting up node", "node", node.Name, "ns", nsName, "ip", node.IP)
+	slog.Info("Setting up node", "node", nodeName, "ns", nsName, "ip", node.IP)
 
 	// A. Create a new named network namespace.
 	// netns.NewNamed automatically switches the current thread into the new ns.
@@ -173,13 +222,13 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 		return fmt.Errorf("failed to find peer link inside ns: %w", err)
 	}
 
-	addr, err := netlink.ParseAddr(node.IP)
+	addr, err := netlink.ParseAddr(node.IP())
 	if err != nil {
-		return fmt.Errorf("invalid IP address %s: %w", node.IP, err)
+		return fmt.Errorf("invalid IP address %s: %w", node.IP(), err)
 	}
 
 	if err := netlink.AddrAdd(peerLinkInNs, addr); err != nil {
-		return fmt.Errorf("failed to add IP %s to interface: %w", node.IP, err)
+		return fmt.Errorf("failed to add IP %s to interface: %w", node.IP(), err)
 	}
 
 	if err := netlink.LinkSetUp(peerLinkInNs); err != nil {
@@ -292,12 +341,13 @@ func (topo *RuntimeTopo) PrintTopology() {
 	}
 
 	for _, node := range topo.Nodes {
-		hostEth := utils.EthName(node.Name)
-		peerEth := utils.PeerEthName(node.Name)
-		nsName := utils.NetnsName(node.Name)
+
+		hostEth := utils.EthName(node.Name())
+		peerEth := utils.PeerEthName(node.Name())
+		nsName := utils.NetnsName(node.Name())
 
 		fmt.Printf("[Host] %s <===> [Netns: %s] %s (IP: %s)\n",
-			hostEth, nsName, peerEth, node.IP)
+			hostEth, nsName, peerEth, node.IP())
 	}
 
 	fmt.Println("==============================")

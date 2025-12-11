@@ -12,5 +12,3 @@
 - add default route(vxlan)
 - python sdk/gui to write config file
 - create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 
-
-
