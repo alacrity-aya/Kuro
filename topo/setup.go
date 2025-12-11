@@ -15,49 +15,6 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-type baseNode struct {
-	name     string
-	ip       string
-	nodeType string
-}
-
-type RuntimeNode interface {
-	Name() string
-	IP() string
-	Type() string
-	Create() error
-}
-
-type ContainerNode struct {
-	baseNode  baseNode
-	container string
-	image     string
-}
-
-func (n *ContainerNode) Name() string  { return n.baseNode.name }
-func (n *ContainerNode) IP() string    { return n.baseNode.ip }
-func (n *ContainerNode) Type() string  { return n.baseNode.nodeType }
-func (n *ContainerNode) Create() error { return nil }
-
-type ExecNode struct {
-	baseNode baseNode
-	exec     string
-	args     []string
-	cwd      string
-}
-
-func (n *ExecNode) Name() string  { return n.baseNode.name }
-func (n *ExecNode) IP() string    { return n.baseNode.ip }
-func (n *ExecNode) Type() string  { return n.baseNode.nodeType }
-func (n *ExecNode) Create() error { return nil }
-
-// TTemp represents a node in the runtime topology.
-type TTemp struct {
-	Name string
-	IP   string
-	Type string
-}
-
 type Vxlan struct {
 	ID     int
 	Iface  string
@@ -82,7 +39,7 @@ func buildRuntimeNode(cfg config.NodeConfig) RuntimeNode {
 	case "container":
 		return &ContainerNode{baseNode: base, image: cfg.Image, container: cfg.Container}
 	case "exec":
-		return &ExecNode{baseNode: base, exec: cfg.Exec, args: cfg.Args, cwd: cfg.Cwd}
+		return &ExecNode{baseNode: base, exec: cfg.Exec, args: cfg.Args, cwd: cfg.Cwd, cmd: nil, pid: -1}
 
 	default:
 		panic(fmt.Sprintf("should be unreachable! cfg.Type: %s", cfg.Type))
@@ -136,8 +93,13 @@ func (topo *RuntimeTopo) Setup() error {
 	}
 
 	for _, node := range topo.Nodes {
-		if err := topo.createNodeNetwork(node); err != nil {
+		if err := topo.setupNodeNetwork(node); err != nil {
 			return fmt.Errorf("failed to setup node %s: %w", node.Name(), err)
+		}
+
+		// Start node
+		if err := node.Run(); err != nil {
+			return err
 		}
 	}
 
@@ -150,14 +112,16 @@ func (topo *RuntimeTopo) Setup() error {
 	return nil
 }
 
-// createNodeNetwork creates a netns, veth pair, and configures IP for the node.
-func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
+// setupNodeNetwork creates a netns, veth pair, and configures IP for the node.
+func (topo *RuntimeTopo) setupNodeNetwork(node RuntimeNode) error {
 	nodeName := node.Name()
 	nsName := utils.NetnsName(nodeName)
 	hostEth := utils.EthName(nodeName)
 	peerEth := utils.PeerEthName(nodeName)
 
 	slog.Info("Setting up node", "node", nodeName, "ns", nsName, "ip", node.IP)
+
+	// add network devices
 
 	// A. Create a new named network namespace.
 	// netns.NewNamed automatically switches the current thread into the new ns.
@@ -227,15 +191,14 @@ func (topo *RuntimeTopo) createNodeNetwork(node RuntimeNode) error {
 		return fmt.Errorf("invalid IP address %s: %w", node.IP(), err)
 	}
 
-	if err := netlink.AddrAdd(peerLinkInNs, addr); err != nil {
+	if err = netlink.AddrAdd(peerLinkInNs, addr); err != nil {
 		return fmt.Errorf("failed to add IP %s to interface: %w", node.IP(), err)
 	}
 
-	if err := netlink.LinkSetUp(peerLinkInNs); err != nil {
+	if err = netlink.LinkSetUp(peerLinkInNs); err != nil {
 		return fmt.Errorf("failed to set peer link up: %w", err)
 	}
 
-	// F. Switch back to the host namespace.
 	if err := netns.Set(topo.origns); err != nil {
 		return fmt.Errorf("failed to restore original netns: %w", err)
 	}
@@ -300,6 +263,12 @@ func (topo *RuntimeTopo) createVxlan() error {
 // TearDown removes all created resources.
 func (topo *RuntimeTopo) TearDown() {
 	slog.Info("Tearing down topology...")
+
+	for _, node := range topo.Nodes {
+		if err := node.Stop(); err != nil {
+			slog.Warn("Failed to stop node", "error", err)
+		}
+	}
 
 	// Remove all created interfaces.
 	for _, linkName := range topo.createdLinks {

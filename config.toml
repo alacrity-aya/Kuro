@@ -13,16 +13,25 @@ remote = "127.0.0.1" # remote host for vxlan fallback
 ###########################################
 # Nodes in hostA
 ###########################################
+# [[host.node]]
+# name = "node1"
+# type = "container"       # container | exec 
+# container = "sim-node-1"
+# image = "ubuntu:latest"
+# ip = "10.10.0.1/24"
+
+
 [[host.node]]
 name = "node1"
-type = "container"       # container | exec 
-container = "sim-node-1"
-image = "ubuntu:latest"
+type = "exec"
+exec = "iperf3"
+args = ["-s"]
+# cwd = "/workspace"
 ip = "10.10.0.1/24"
 
-# [host.node.traffic_shaping]
-# rate_bps = 12_500_000    # bytes per second
-# burst_bytes = 80_000_000
+[host.node.traffic_shaping]
+rate_bps = 12_500_0    # bytes per second
+burst_bytes = 80_000_0
 
 # [host.node.netem]
 # loss = 0.1
@@ -35,9 +44,9 @@ ip = "10.10.0.1/24"
 [[host.node]]
 name = "node2"
 type = "exec"
-exec = "iperf3"
-args = ["-s"]
-cwd = "/workspace"
+exec = "ping"
+args = ["127.0.0.1"]
+# cwd = "/workspace"
 ip = "10.10.0.2/24"
 
 
