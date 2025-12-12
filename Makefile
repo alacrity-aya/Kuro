@@ -8,20 +8,24 @@ BINARY_NAME := kuro
 GEN_DIR := gen
 BUILD_DIR := bin
 
+# RPC generation
+PROTO_SRC := proto/kuro.proto 
+PROTO_OUT_DIR := proto
+
 # Define the list of generated files to be cleaned
 GENERATED_FILES := $(GEN_DIR)/tc_bpfeb.go $(GEN_DIR)/tc_bpfeb.o $(GEN_DIR)/tc_bpfel.go $(GEN_DIR)/tc_bpfel.o
+GENERATED_FILES += $(PROTO_OUT_DIR)/kuro.pb.go $(PROTO_OUT_DIR)/kuro_grpc.pb.go
 
 # Define phonies targets
-.PHONY: all build run clean clean_gen
+.PHONY: all build run clean clean_gen proto
 
 # Default target: build
 all: build
 
 # --------------------
-# 1. BUILD Target
 # Executes cleanup, code generation, and final compilation.
 # --------------------
-build: clean_gen
+build: clean_gen proto
 	@echo "-> Running go generate..."
 	go generate ./...
 	@echo "-> Running go build..."
@@ -32,8 +36,14 @@ clean_gen:
 	@echo "-> Cleaning generated files in $(GEN_DIR)/"
 	rm -f $(GENERATED_FILES)
 
+proto:
+	@echo "-> Compiling protobuf files..."
+	protoc --go_out=$(PROTO_OUT_DIR) --go_opt=paths=source_relative \
+	       --go-grpc_out=$(PROTO_OUT_DIR) --go-grpc_opt=paths=source_relative \
+	       -Iproto $(PROTO_SRC)
+	@echo "Protobuf code generated in $(PROTO_OUT_DIR)/"
+
 # --------------------
-# 2. RUN Target
 # Builds the project and runs the compiled binary with sudo.
 # --------------------
 run: build

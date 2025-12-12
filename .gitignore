@@ -2,3 +2,4 @@ gen/*bpf*.go
 gen/*.o
 bpf/vmlinux.h
 /bin
+/proto/*.go
