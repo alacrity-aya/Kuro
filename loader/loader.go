@@ -1,4 +1,5 @@
-package manager
+// Package loader is used to load ebpf program
+package loader
 
 import (
 	"encoding/binary"

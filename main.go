@@ -10,24 +10,24 @@ import (
 	"time"
 
 	"kuro/config"
-	"kuro/manager"
+	"kuro/loader"
 	"kuro/netem"
 	"kuro/topo"
 	"kuro/utils"
 )
 
 // ConvertToSpecs  TODO: move this function to another package
-func ConvertToSpecs(cfg config.HostConfig) ([]manager.ProgramSpec, []manager.RouteSpec, []netem.NetemSpec) {
-	var progSpecs []manager.ProgramSpec
+func ConvertToSpecs(cfg config.HostConfig) ([]loader.ProgramSpec, []loader.RouteSpec, []netem.NetemSpec) {
+	var progSpecs []loader.ProgramSpec
 	var netemSpecs []netem.NetemSpec
 
 	for _, node := range cfg.Nodes {
-		progSpec := manager.ProgramSpec{
+		progSpec := loader.ProgramSpec{
 			IfaceName: utils.EthName(node.Name), // Assuming Node Name matches Host Interface Name
 		}
 
 		if node.TrafficShaping != nil {
-			progSpec.RateLimit = &manager.RateLimitSpec{
+			progSpec.RateLimit = &loader.RateLimitSpec{
 				RateBytes:  node.TrafficShaping.RateBps,
 				BurstBytes: node.TrafficShaping.BurstBytes,
 			}
@@ -55,9 +55,9 @@ func ConvertToSpecs(cfg config.HostConfig) ([]manager.ProgramSpec, []manager.Rou
 
 	}
 
-	var routeSpecs []manager.RouteSpec
+	var routeSpecs []loader.RouteSpec
 	for _, r := range cfg.Routes {
-		routeSpecs = append(routeSpecs, manager.RouteSpec{
+		routeSpecs = append(routeSpecs, loader.RouteSpec{
 			DestIP:     r.DestIP,
 			TargetNode: r.OutNode,
 		})
@@ -97,7 +97,7 @@ func main() {
 		panic(fmt.Sprintf("Set netem rules failed: %v", err))
 	}
 
-	mgr := manager.NewEbpfManager()
+	mgr := loader.NewEbpfManager()
 	defer mgr.Close()
 
 	if err := mgr.Sync(programSpecs, routeSpecs); err != nil {

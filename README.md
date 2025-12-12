@@ -8,7 +8,25 @@
 
 ## todo
 
-- add ip addr to vxlan
-- add default route(vxlan)
-- python sdk/gui to write config file
-- create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 
+- control panel
+    - RPC(across hosts)
+    - UDS(local only)
+
+- across hosts
+    - add ip addr to vxlan
+    - add default route(vxlan)
+
+- config file
+    - python sdk to write config file
+    - gui(Tauri: Typescript + rust)
+
+- sandbox
+    - node - cgroup - netns
+
+- performance
+    - TC -> XDP
+
+
+- upstream(nelink bug)
+    - create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 
+

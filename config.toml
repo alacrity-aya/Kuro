@@ -10,17 +10,6 @@ iface = "wlp0s20f3"
 port = 4789
 remote = "127.0.0.1" # remote host for vxlan fallback
 
-###########################################
-# Nodes in hostA
-###########################################
-# [[host.node]]
-# name = "node1"
-# type = "container"       # container | exec 
-# container = "sim-node-1"
-# image = "ubuntu:latest"
-# ip = "10.10.0.1/24"
-
-
 [[host.node]]
 name = "node1"
 type = "exec"
@@ -39,8 +28,6 @@ burst_bytes = 80_000_0
 # delay_ms = 1000
 # limit = 10000
 
-
-###########################################
 [[host.node]]
 name = "node2"
 type = "exec"

@@ -74,6 +74,15 @@ func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
 	return topo
 }
 
+func (topo *RuntimeTopo) GetRuntimeNode(name string) RuntimeNode {
+	for _, node := range topo.Nodes {
+		if name == node.Name() {
+			return node
+		}
+	}
+	return nil
+}
+
 func (topo *RuntimeTopo) initOrigNs() error {
 	// Save the current host network namespace handle
 	origns, err := netns.Get()
