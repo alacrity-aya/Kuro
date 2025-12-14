@@ -41,6 +41,11 @@ type RouteSpec struct {
 	TargetNode string // The interface name to redirect to
 }
 
+type IfaceStats struct {
+	IfaceName string
+	Stat      TrafficStats
+}
+
 type TrafficStats struct {
 	TotalAcceptedBytes   uint64
 	TotalDroppedBytes    uint64
@@ -50,6 +55,8 @@ type TrafficStats struct {
 	// Calculated rates (based on AcceptedBytes)
 	InstantRateBps float64 // Bytes per second (Instantaneous)
 	SmoothRateBps  float64 // Bytes per second (Smoothed/EMA)
+
+	TimeStamp time.Time
 }
 
 type EbpfProgram struct {
@@ -223,6 +230,7 @@ func (p *EbpfProgram) GetStats() (TrafficStats, error) {
 	}
 
 	now := time.Now()
+	stats.TimeStamp = now
 
 	if p.firstSample {
 		p.lastBytes = stats.TotalAcceptedBytes
@@ -342,15 +350,29 @@ func (m *EbpfManager) Close() error {
 }
 
 func initFlowCounterMap(prog *EbpfProgram) error {
-	if prog.firstSample {
-		var counterVals []gen.TcFlowCounter
-		key := prog.ifaceIndex
-		if err := prog.objs.FlowCounterMap.Update(key, counterVals, ebpf.UpdateNoExist); err != nil {
-			return fmt.Errorf("init flow counter failed: %w", err)
-		}
-		slog.Debug("Initialized flow counter entry", "ifaceIdx", key)
+	var counterVals []gen.TcFlowCounter
+	key := prog.ifaceIndex
+	if err := prog.objs.FlowCounterMap.Update(key, counterVals, ebpf.UpdateNoExist); err != nil {
+		return fmt.Errorf("init flow counter failed: %w", err)
 	}
+	slog.Debug("Initialized flow counter entry", "ifaceIdx", key)
+
 	return nil
+}
+
+func (m *EbpfManager) CollectStats() []IfaceStats {
+	size := len(m.programs)
+	ifaceStats := make([]IfaceStats, 0, size)
+
+	for ifaceName, prog := range m.programs {
+		trafficStats, err := prog.GetStats()
+		if err != nil {
+			slog.Warn("get traffic stat failed", "ifaceName", ifaceName, "error", err)
+		}
+		ifaceStats = append(ifaceStats, IfaceStats{IfaceName: ifaceName, Stat: trafficStats})
+	}
+
+	return ifaceStats
 }
 
 func (m *EbpfManager) GetIfaceStats(ifaceName string) (TrafficStats, error) {
@@ -363,10 +385,11 @@ func (m *EbpfManager) GetIfaceStats(ifaceName string) (TrafficStats, error) {
 	}
 
 	// initialize flow counter map
-	if err := initFlowCounterMap(prog); err != nil {
-		return TrafficStats{}, err
+	if prog.firstSample {
+		if err := initFlowCounterMap(prog); err != nil {
+			return TrafficStats{}, err
+		}
 	}
-
 	return prog.GetStats()
 }
 

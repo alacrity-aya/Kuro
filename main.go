@@ -1,15 +1,13 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"kuro/config"
+	"kuro/data"
 	"kuro/loader"
 	"kuro/netem"
 	"kuro/topo"
@@ -97,34 +95,16 @@ func main() {
 		panic(fmt.Sprintf("Set netem rules failed: %v", err))
 	}
 
-	mgr := loader.NewEbpfManager()
-	defer mgr.Close()
+	manager := loader.NewEbpfManager()
+	defer manager.Close()
 
-	if err := mgr.Sync(programSpecs, routeSpecs); err != nil {
+	if err := manager.Sync(programSpecs, routeSpecs); err != nil {
 		slog.Error("Failed to load eBPF programs and attachments", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("eBPF programs loaded and attached successfully.")
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// stat, err := manager.GetIfaceStats("veth-a")
-			// if err != nil {
-			// 	slog.Warn("GetIfaceStats wanring", "error", err)
-			// }
-			// fmt.Println(stat)
-
-		case <-ctx.Done():
-			fmt.Println("\nreceive (SIGINT/SIGTERM)")
-			fmt.Println("exit")
-			return
-		}
+	if err := data.RunDataClient("control-panel:50051", "hostA", manager); err != nil {
+		log.Fatalf("Data client stopped with error: %v", err)
 	}
 }
