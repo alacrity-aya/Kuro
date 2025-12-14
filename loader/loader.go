@@ -216,6 +216,13 @@ func (p *EbpfProgram) GetStats() (TrafficStats, error) {
 		return stats, fmt.Errorf("program not loaded")
 	}
 
+	// initialize flow counter map
+	if p.firstSample {
+		if err := initFlowCounterMap(p); err != nil {
+			return TrafficStats{}, err
+		}
+	}
+
 	var values []gen.TcFlowCounter
 
 	if err := p.objs.FlowCounterMap.Lookup(p.ifaceIndex, &values); err != nil {
@@ -360,16 +367,64 @@ func initFlowCounterMap(prog *EbpfProgram) error {
 	return nil
 }
 
-func (m *EbpfManager) CollectStats() []IfaceStats {
-	size := len(m.programs)
-	ifaceStats := make([]IfaceStats, 0, size)
+// func (m *EbpfManager) CollectStats() []IfaceStats {
+// 	size := len(m.programs)
+// 	ifaceStats := make([]IfaceStats, 0, size)
+//
+// 	for ifaceName, prog := range m.programs {
+// 		trafficStats, err := prog.GetStats()
+// 		if err != nil {
+// 			slog.Warn("get traffic stat failed", "ifaceName", ifaceName, "error", err)
+// 		}
+// 		ifaceStats = append(ifaceStats, IfaceStats{IfaceName: ifaceName, Stat: trafficStats})
+// 	}
+//
+// 	return ifaceStats
+// }
 
-	for ifaceName, prog := range m.programs {
-		trafficStats, err := prog.GetStats()
-		if err != nil {
-			slog.Warn("get traffic stat failed", "ifaceName", ifaceName, "error", err)
-		}
-		ifaceStats = append(ifaceStats, IfaceStats{IfaceName: ifaceName, Stat: trafficStats})
+func (m *EbpfManager) CollectStats() []IfaceStats {
+	// create snapshot
+	m.mu.RLock()
+	total := len(m.programs)
+	progs := make([]*EbpfProgram, 0, total)
+	names := make([]string, 0, total)
+
+	for name, prog := range m.programs {
+		progs = append(progs, prog)
+		names = append(names, name)
+	}
+	m.mu.RUnlock()
+
+	if total == 0 {
+		return []IfaceStats{}
+	}
+
+	resultChan := make(chan IfaceStats, total)
+	wg := &sync.WaitGroup{}
+
+	for i, prog := range progs {
+		wg.Add(1)
+
+		go func(p *EbpfProgram, name string) {
+			defer wg.Done()
+
+			trafficStats, err := p.GetStats()
+			if err != nil {
+				slog.Warn("get traffic stat failed", "ifaceName", name, "error", err)
+			}
+
+			resultChan <- IfaceStats{IfaceName: name, Stat: trafficStats}
+		}(prog, names[i])
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	ifaceStats := make([]IfaceStats, 0, total)
+	for res := range resultChan {
+		ifaceStats = append(ifaceStats, res)
 	}
 
 	return ifaceStats
@@ -384,12 +439,6 @@ func (m *EbpfManager) GetIfaceStats(ifaceName string) (TrafficStats, error) {
 		return TrafficStats{}, fmt.Errorf("interface %s not managed", ifaceName)
 	}
 
-	// initialize flow counter map
-	if prog.firstSample {
-		if err := initFlowCounterMap(prog); err != nil {
-			return TrafficStats{}, err
-		}
-	}
 	return prog.GetStats()
 }
 
