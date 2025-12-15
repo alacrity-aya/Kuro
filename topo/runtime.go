@@ -93,6 +93,7 @@ func (topo *RuntimeTopo) initOrigNs() error {
 	return nil
 }
 
+// Setup It's no need to use goroutin in this function because of runtime.LockOSThread
 func (topo *RuntimeTopo) Setup() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -310,12 +311,14 @@ func (topo *RuntimeTopo) TearDown() {
 }
 
 func (topo *RuntimeTopo) PrintTopology() {
-	fmt.Println("====== Network Topology ======")
+	fmt.Println("\n====== Network Topology ======")
 
 	if topo.Vxlan != nil {
 		vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
 		fmt.Printf("[Host] --- (VXLAN: %s, VNI: %d, Remote: %s) ---> External\n",
 			vxlanName, topo.Vxlan.ID, topo.Vxlan.Remote)
+
+		fmt.Println("------------------------------")
 	}
 
 	for _, node := range topo.Nodes {
@@ -324,9 +327,14 @@ func (topo *RuntimeTopo) PrintTopology() {
 		peerEth := utils.PeerEthName(node.Name())
 		nsName := utils.NetnsName(node.Name())
 
+		fmt.Printf("[Host] %s: %s\n", node.Name(), node.Info())
 		fmt.Printf("[Host] %s <===> [Netns: %s] %s (IP: %s)\n",
 			hostEth, nsName, peerEth, node.IP())
+
+		fmt.Println("------------------------------")
+
 	}
 
 	fmt.Println("==============================")
+	fmt.Println()
 }

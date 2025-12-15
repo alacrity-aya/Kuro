@@ -185,7 +185,7 @@ static __always_inline int handle_arp(struct __sk_buff *skb) {
     return TC_ACT_OK;
   }
 
-  __be32 target_ip = bpf_htonl(arp->ar_tip);
+  __be32 target_ip = (arp->ar_tip);
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &target_ip);
 
   if (!to_ifindex) {
@@ -228,7 +228,7 @@ int gress(struct __sk_buff *skb) {
   if ((void *)(ip + 1) > data_end)
     return TC_ACT_OK;
 
-  __u32 dip = bpf_htonl(ip->daddr); // maybe there is a bug here
+  __u32 dip = (ip->daddr); // maybe there is a bug here
   print_ip_addr(dip);
 
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);

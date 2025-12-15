@@ -65,7 +65,7 @@ func ConvertToSpecs(cfg config.HostConfig) ([]loader.ProgramSpec, []loader.Route
 }
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
+	slog.SetLogLoggerLevel(slog.LevelInfo)
 
 	hostName := "hostA"
 	slog.Debug("main start...", "host name", hostName)

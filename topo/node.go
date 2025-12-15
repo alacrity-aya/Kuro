@@ -1,6 +1,7 @@
 package topo
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
@@ -21,9 +22,10 @@ type RuntimeNode interface {
 	Type() string
 	Run() error
 	Stop() error
+	Info() string
 }
 
-type ContainerNode struct {
+type ContainerNode struct { // TODO: the struct here should be optimized
 	baseNode  baseNode
 	container string
 	image     string
@@ -34,6 +36,7 @@ func (n *ContainerNode) IP() string   { return n.baseNode.ip }
 func (n *ContainerNode) Type() string { return n.baseNode.nodeType }
 func (n *ContainerNode) Run() error   { return nil }
 func (n *ContainerNode) Stop() error  { return nil }
+func (n *ContainerNode) Info() string { return "" }
 
 type ExecNode struct {
 	baseNode baseNode
@@ -93,4 +96,18 @@ func (n *ExecNode) Stop() error {
 
 	slog.Info("Exec node stopped", "node.name", n.Name(), "pid", n.pid)
 	return nil
+}
+
+func (n *ExecNode) Info() string {
+	//	type ExecNode struct {
+	//		baseNode baseNode
+	//		exec     string
+	//		args     []string
+	//		cwd      string
+	//
+	//		// save runtime information to stopping this process
+	//		cmd *exec.Cmd
+	//		pid int
+	//	}
+	return fmt.Sprintf("{exec = %s, args = %v, cwd = %s, pid = %d}", n.exec, n.args, n.cwd, n.pid)
 }

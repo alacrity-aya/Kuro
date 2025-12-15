@@ -138,7 +138,7 @@ static __always_inline int handle_arp(struct xdp_md *ctx, struct ethhdr *eth,
     return XDP_PASS;
 
   // NOTE: endian
-  __be32 target_ip = bpf_htonl(arp->ar_tip);
+  __be32 target_ip = arp->ar_tip;
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &target_ip);
 
   if (!to_ifindex) {
@@ -178,7 +178,8 @@ int xdp_prog(struct xdp_md *ctx) {
     return XDP_PASS;
 
   // NOTE: endian
-  __u32 dip = bpf_htonl(ip->daddr);
+
+  __u32 dip = ip->daddr;
 
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);
   if (!to_ifindex) {
