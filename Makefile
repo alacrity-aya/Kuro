@@ -1,64 +1,105 @@
 # ------------------------------------------------------------------------------
 # Makefile for kuro eBPF project
-# Implements 'build' and 'run' targets for code generation and execution.
+# Builds data panel & control panel binaries
 # ------------------------------------------------------------------------------
 
-# Define project variables
-BINARY_NAME := kuro
-GEN_DIR := gen
+# --------------------
+# Project variables
+# --------------------
 BUILD_DIR := bin
 
-# RPC generation
-PROTO_SRC := proto/kuro.proto 
-PROTO_OUT_DIR := proto
+DATA_BIN := $(BUILD_DIR)/kuro-data
+CONTROL_BIN := $(BUILD_DIR)/kuro-control
 
-# Define the list of generated files to be cleaned
-GENERATED_FILES := $(GEN_DIR)/tc_bpfeb.go $(GEN_DIR)/tc_bpfeb.o $(GEN_DIR)/tc_bpfel.go $(GEN_DIR)/tc_bpfel.o
-GENERATED_FILES += $(PROTO_OUT_DIR)/kuro.pb.go $(PROTO_OUT_DIR)/kuro_grpc.pb.go
+CMD_DIR := cmd
 
-# Define phonies targets
-.PHONY: all build run clean clean_gen proto
+GEN_DIR := gen
+PROTO_DIR := proto
 
-# Default target: build
+PROTO_SRC := $(PROTO_DIR)/kuro.proto
+
+# --------------------
+# Generated files
+# --------------------
+GENERATED_FILES := \
+	$(GEN_DIR)/tc_bpfeb.go \
+	$(GEN_DIR)/tc_bpfeb.o \
+	$(GEN_DIR)/tc_bpfel.go \
+	$(GEN_DIR)/tc_bpfel.o \
+	$(PROTO_DIR)/kuro.pb.go \
+	$(PROTO_DIR)/kuro_grpc.pb.go
+
+# --------------------
+# Phony targets
+# --------------------
+.PHONY: all build data control proto clean clean_gen run-data run-control ebpf
+
+# --------------------
+# Default target
+# --------------------
 all: build
 
 # --------------------
-# Executes cleanup, code generation, and final compilation.
+# Build all panels
 # --------------------
-build: clean_gen proto
+build: clean_gen proto ebpf data control
+	@echo "-> All binaries built"
+
+
+# --------------------
+# Generate ebpf-go
+# --------------------
+ebpf:
 	@echo "-> Running go generate..."
 	go generate ./...
-	@echo "-> Running go build..."
-	go build -o $(BUILD_DIR)/$(BINARY_NAME)
 
-# Helper target: Cleans generated files
-clean_gen:
-	@echo "-> Cleaning generated files in $(GEN_DIR)/"
-	rm -f $(GENERATED_FILES)
+# --------------------
+# Build data panel
+# --------------------
+data:
+	@echo "-> Building data panel..."
+	go build -o $(DATA_BIN) ./$(CMD_DIR)/data
 
+# --------------------
+# Build control panel
+# --------------------
+control:
+	@echo "-> Building control panel..."
+	go build -o $(CONTROL_BIN) ./$(CMD_DIR)/control
+
+# --------------------
+# Protobuf generation
+# --------------------
 proto:
 	@echo "-> Compiling protobuf files..."
-	protoc --go_out=$(PROTO_OUT_DIR) --go_opt=paths=source_relative \
-	       --go-grpc_out=$(PROTO_OUT_DIR) --go-grpc_opt=paths=source_relative \
-	       -Iproto $(PROTO_SRC)
-	@echo "Protobuf code generated in $(PROTO_OUT_DIR)/"
+	protoc \
+		--go_out=$(PROTO_DIR) --go_opt=paths=source_relative \
+		--go-grpc_out=$(PROTO_DIR) --go-grpc_opt=paths=source_relative \
+		-I$(PROTO_DIR) $(PROTO_SRC)
+	@echo "-> Protobuf code generated"
 
 # --------------------
-# Builds the project and runs the compiled binary with sudo.
+# Clean generated files
 # --------------------
-run: build
-	@echo "-> Running $(BINARY_NAME) with sudo..."
-	@if [ ! -f "./$(BUILD_DIR)/$(BINARY_NAME)" ]; then \
-		echo "Error: Binary ./$(BINARY_NAME) not found. Build failed."; \
-		exit 1; \
-	fi
-	sudo ./$(BUILD_DIR)/$(BINARY_NAME)
+clean_gen:
+	@echo "-> Cleaning generated files..."
+	rm -f $(GENERATED_FILES)
 
 # --------------------
-# CLEAN Target
-# Removes the built binary and all generated source/object files.
+# Run targets
+# --------------------
+run-data: data
+	@echo "-> Running data panel..."
+	sudo $(DATA_BIN)
+
+run-control: control
+	@echo "-> Running control panel..."
+	sudo $(CONTROL_BIN)
+
+# --------------------
+# Full clean
 # --------------------
 clean:
-	@echo "-> Cleaning built binary and generated files."
-	rm -rf $(BUILD_DIR) 
+	@echo "-> Cleaning all build artifacts..."
+	rm -rf $(BUILD_DIR)
 	rm -f $(GENERATED_FILES)

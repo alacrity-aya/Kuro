@@ -104,7 +104,7 @@ func main() {
 	}
 	slog.Info("eBPF programs loaded and attached successfully.")
 
-	if err := data.RunDataClient("control-panel:50051", "hostA", manager); err != nil {
+	if err := data.RunDataClient("127.0.0.1:50051", "hostA", manager); err != nil {
 		log.Fatalf("Data client stopped with error: %v", err)
 	}
 }

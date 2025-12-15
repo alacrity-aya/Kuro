@@ -46,7 +46,7 @@ func (s *ControlServer) StreamTrafficStats(
 }
 
 func (s *ControlServer) handleTrafficStat(stat *pb.TrafficStats) {
-	slog.Debug(
+	slog.Info(
 		"traffic stat",
 		"node", stat.NodeName,
 		"iface", stat.IfaceName,
