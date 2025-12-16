@@ -51,7 +51,7 @@ func TestLoadHostConfig_Fields(t *testing.T) {
 	}
 	defer os.Remove(tmpFile)
 
-	hc, err := LoadHostConfig(tmpFile, "hostA")
+	hc, err := LoadConfig(tmpFile, "hostA")
 	if err != nil {
 		t.Fatalf("LoadHostConfig failed: %v", err)
 	}
@@ -88,13 +88,5 @@ func TestLoadHostConfig_Fields(t *testing.T) {
 	}
 	if len(node2.Args) != 1 || node2.Args[0] != "-s" {
 		t.Errorf("node2 args mismatch: %+v", node2.Args)
-	}
-
-	if len(hc.Routes) != 1 {
-		t.Fatalf("expected 1 route, got %d", len(hc.Routes))
-	}
-	route := hc.Routes[0]
-	if route.DestIP != "10.10.0.1" || route.OutNode != "node1" {
-		t.Errorf("route fields mismatch: %+v", route)
 	}
 }

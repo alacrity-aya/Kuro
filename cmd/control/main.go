@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"kuro/config"
 	"kuro/control"
-
 	pb "kuro/proto"
 
 	"google.golang.org/grpc"
@@ -17,6 +17,15 @@ import (
 
 func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
+
+	simCfg, nil := config.LoadConfig("config.toml")
+	configMap := config.BuildApplyNodeConfigs(simCfg)
+
+	grpcServer := grpc.NewServer()
+
+	controlServer := control.NewControlServer(configMap)
+	pb.RegisterControlPlaneServiceServer(grpcServer, controlServer)
+
 	addr := ":50051"
 
 	lis, err := net.Listen("tcp", addr)
@@ -24,12 +33,7 @@ func main() {
 		log.Fatalf("failed to listen on %s: %v", addr, err)
 	}
 
-	grpcServer := grpc.NewServer()
-
-	controlServer := control.NewControlServer()
-	pb.RegisterDataPlaneServiceServer(grpcServer, controlServer)
-
-	slog.Info("control panel started", "addr", addr)
+	slog.Info("control panel listening", "addr", addr)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)

@@ -11,7 +11,6 @@
 - control panel
     - RPC(across hosts)
     - UDS(local only)
-    - concurrency in getting flow statistics
 
 - across hosts
     - add ip addr to vxlan

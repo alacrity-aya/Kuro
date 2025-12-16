@@ -70,7 +70,7 @@ func main() {
 	hostName := "hostA"
 	slog.Debug("main start...", "host name", hostName)
 
-	cfg, err := config.LoadHostConfig("config.toml", hostName)
+	cfg, err := config.LoadConfig("config.toml", hostName)
 	if err != nil {
 		panic(err)
 	}

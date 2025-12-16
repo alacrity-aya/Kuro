@@ -1,10 +1,44 @@
 syntax = "proto3";
+
 package kuro;
 option go_package = "kuro/proto";
 
-service DataPlaneService {
-  rpc StreamTrafficStats(stream TrafficStats) returns (StreamAck);
+//
+// =======================
+// Control <-> Data Stream
+// =======================
+//
+
+service ControlPlaneService {
+  // Single long-lived bidirectional stream
+  rpc ControlStream(stream ControlMessage) returns (stream ControlMessage);
 }
+
+//
+// -----------------------
+// Top-level multiplex msg
+// -----------------------
+//
+
+message ControlMessage {
+  oneof payload {
+    // data -> control
+    TrafficStats traffic_stats = 1;
+
+    // control -> data
+    ApplyNodeConfig node_config = 2;
+
+    // bidirectional
+    Ack ack = 3;
+    Heartbeat heartbeat = 4;
+  }
+}
+
+//
+// =======================
+// Data -> Control
+// =======================
+//
 
 message TrafficStats {
   string node_name = 1;
@@ -18,18 +52,75 @@ message TrafficStats {
   double instant_rate_bps = 7;
   double smooth_rate_bps = 8;
 
-  int64 timestamp = 9;
+  int64 timestamp = 9; // unix millis
 }
 
+//
+// =======================
+// Control -> Data
+// =======================
+//
 
-message StreamAck {
+message ApplyNodeConfig {
+  string host_name = 1;
+  VxlanConfig vxlan = 2;
+  repeated NodeConfig nodes = 3;
+}
+
+message VxlanConfig {
+  uint32 id = 1;
+  uint32 port = 2;
+  string iface = 3;
+  string remote_ip = 4;
+}
+
+message NodeConfig {
+  string name = 1;
+  string type = 2; // "exec" / "docker"
+  string ip = 3;
+
+  oneof runtime {
+    ContainerNodeConfig container = 4;
+    ExecNodeConfig exec = 5;
+  }
+
+  TrafficShaping traffic_shaping = 6;
+  Netem netem = 7;
+}
+
+message ContainerNodeConfig {
+  // reserved for future
+}
+
+message ExecNodeConfig {
+  string exec = 1;
+  repeated string args = 2;
+  string cwd = 3;
+}
+
+message TrafficShaping {
+  uint64 rate_bps = 1;
+  uint64 burst_bytes = 2;
+}
+
+message Netem {
+  double loss = 1;
+  double jitter_ms = 2;
+  double delay_ms = 3;
+  uint32 limit = 4;
+}
+
+//
+// =======================
+// Common / Control
+// =======================
+//
+
+message Ack {
   bool ok = 1;
+  string message = 2;
 }
 
-//
-// service ControlPlaneService {
-//   rpc ApplyTopology(ApplyTopologyRequest) returns (ApplyTopologyResponse);
-//   rpc SetRateLimit(SetRateLimitRequest) returns (SetRateLimitResponse);
-//   rpc SetNetem(SetNetemRequest) returns (SetNetemResponse);
-// }
-//
+message Heartbeat { int64 timestamp = 1; }
+
+// TODO: handshake to identify itself

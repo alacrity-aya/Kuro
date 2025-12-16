@@ -2,8 +2,11 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"unicode"
+
+	pb "kuro/proto"
 
 	"github.com/BurntSushi/toml"
 )
@@ -13,16 +16,16 @@ type SimulationConfig struct {
 }
 
 type HostConfig struct {
-	Name   string        `toml:"name"`
-	Vxlan  *VxlanConfig  `toml:"vxlan,omitempty"`
-	Nodes  []NodeConfig  `toml:"node"`
-	Routes []RouteConfig `toml:"route"`
+	Name  string       `toml:"name"`
+	Vxlan *VxlanConfig `toml:"vxlan,omitempty"`
+	Nodes []NodeConfig `toml:"node"`
+	// Routes []RouteConfig `toml:"route,omitempty"`
 }
 
 type VxlanConfig struct {
-	ID     int    `toml:"id"`
+	ID     uint32 `toml:"id"`
 	Iface  string `toml:"iface"`
-	Port   int    `toml:"port"`
+	Port   uint32 `toml:"port"`
 	Remote string `toml:"remote"`
 }
 
@@ -56,8 +59,8 @@ type RouteConfig struct {
 	OutNode string `toml:"out_node"` // This refers to the node name (interface name)
 }
 
-// LoadHostConfig parses the TOML and returns the config for the specific hostName
-func LoadHostConfig(path string, hostName string) (*HostConfig, error) {
+// LoadConfig parses the TOML and returns the config for the specific hostName
+func LoadConfig(path string) (*SimulationConfig, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("config file not found: %s", path)
 	}
@@ -67,17 +70,9 @@ func LoadHostConfig(path string, hostName string) (*HostConfig, error) {
 		return nil, fmt.Errorf("failed to parse TOML: %w", err)
 	}
 
-	for _, h := range simCfg.Hosts {
-		if h.Name == hostName {
-			// Found the target host
-			if err := h.validateHost(); err != nil {
-				return nil, err
-			}
-			return &h, nil
-		}
-	}
+	slog.Debug("LoadConfig", "simulation config", simCfg)
 
-	return nil, fmt.Errorf("host '%s' not found in config file", hostName)
+	return &simCfg, nil
 }
 
 func ValidateNodeName(name string) error {
@@ -113,4 +108,72 @@ func (h *HostConfig) validateHost() error {
 		}
 	}
 	return nil
+}
+
+func BuildApplyNodeConfigs(cfg *SimulationConfig) map[string]*pb.ApplyNodeConfig {
+	ret := make(map[string]*pb.ApplyNodeConfig)
+
+	for _, host := range cfg.Hosts {
+		req := &pb.ApplyNodeConfig{
+			HostName: host.Name,
+		}
+
+		if host.Vxlan != nil {
+			req.Vxlan = &pb.VxlanConfig{
+				Id:       uint32(host.Vxlan.ID),
+				Port:     uint32(host.Vxlan.Port),
+				Iface:    host.Vxlan.Iface,
+				RemoteIp: host.Vxlan.Remote,
+			}
+		}
+
+		for _, node := range host.Nodes {
+			req.Nodes = append(req.Nodes, buildNodeConfig(node))
+		}
+
+		ret[host.Name] = req
+	}
+
+	slog.Debug("BuildApplyNodeConfigs", "return", ret)
+
+	return ret
+}
+
+func buildNodeConfig(n NodeConfig) *pb.NodeConfig {
+	pbNode := &pb.NodeConfig{
+		Name: n.Name,
+		Type: n.Type,
+		Ip:   n.IP,
+	}
+
+	// exec / container → oneof
+	if n.Type == "exec" {
+		pbNode.Runtime = &pb.NodeConfig_Exec{
+			Exec: &pb.ExecNodeConfig{
+				Exec: n.Exec,
+				Args: n.Args,
+				Cwd:  n.Cwd,
+			},
+		}
+	}
+
+	// traffic shaping
+	if n.TrafficShaping != nil {
+		pbNode.TrafficShaping = &pb.TrafficShaping{
+			RateBps:    n.TrafficShaping.RateBps,
+			BurstBytes: n.TrafficShaping.BurstBytes,
+		}
+	}
+
+	// netem
+	if n.Netem != nil {
+		pbNode.Netem = &pb.Netem{
+			Loss:     n.Netem.LossPct,
+			JitterMs: n.Netem.JitterMs,
+			DelayMs:  n.Netem.DelayMs,
+			Limit:    n.Netem.Limit,
+		}
+	}
+
+	return pbNode
 }
