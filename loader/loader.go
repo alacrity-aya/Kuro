@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"kuro/gen"
+	"kuro/spec"
 	"kuro/utils"
 
 	"github.com/cilium/ebpf"
@@ -22,24 +23,6 @@ func init() {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		slog.Error("Failed to remove memlock", "error", err)
 	}
-}
-
-// RateLimitSpec defines the parameters for Token Bucket
-type RateLimitSpec struct {
-	RateBytes  uint64
-	BurstBytes uint64
-}
-
-// ProgramSpec defines how an interface should be managed
-type ProgramSpec struct {
-	IfaceName string
-	RateLimit *RateLimitSpec
-}
-
-// RouteSpec defines a redirect rule: DestIP -> Target Interface Name
-type RouteSpec struct {
-	DestIP     string // e.g. "10.10.0.1" (Single IP for exact match map)
-	TargetNode string // The interface name to redirect to
 }
 
 type IfaceStats struct {
@@ -283,7 +266,7 @@ func NewEbpfManager() *EbpfManager {
 	}
 }
 
-func (m *EbpfManager) Sync(specs []ProgramSpec, routes []RouteSpec) error {
+func (m *EbpfManager) Sync(specs []spec.ProgramSpec, routes []spec.RouteSpec) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -444,7 +427,7 @@ func (m *EbpfManager) GetIfaceStats(ifaceName string) (TrafficStats, error) {
 	return prog.GetStats()
 }
 
-func (m *EbpfManager) Reload(ifaceName string, rateLimit RateLimitSpec) error {
+func (m *EbpfManager) Reload(ifaceName string, rateLimit spec.RateLimitSpec) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

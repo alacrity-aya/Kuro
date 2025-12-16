@@ -15,13 +15,6 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-type Vxlan struct {
-	ID     int
-	Iface  string
-	Port   int
-	Remote string
-}
-
 type RuntimeTopo struct {
 	Nodes  []RuntimeNode
 	Vxlan  *Vxlan
@@ -46,7 +39,10 @@ func buildRuntimeNode(cfg config.NodeConfig) RuntimeNode {
 	}
 }
 
-func NewRuntimeTopo(cfg config.HostConfig) *RuntimeTopo {
+func NewRuntimeTopo(spec TopoSpec, cfg config.HostConfig) *RuntimeTopo {
+	var runtimeTopo RuntimeTopo
+	runtimeTopo.Vxlan = spec.Vxlan
+
 	var vxlan *Vxlan = nil
 	if cfg.Vxlan != nil {
 		vxlan = &Vxlan{

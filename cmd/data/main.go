@@ -10,22 +10,23 @@ import (
 	"kuro/data"
 	"kuro/loader"
 	"kuro/netem"
+	"kuro/spec"
 	"kuro/topo"
 	"kuro/utils"
 )
 
 // ConvertToSpecs  TODO: move this function to another package
-func ConvertToSpecs(cfg config.HostConfig) ([]loader.ProgramSpec, []loader.RouteSpec, []netem.NetemSpec) {
-	var progSpecs []loader.ProgramSpec
-	var netemSpecs []netem.NetemSpec
+func ConvertToSpecs(cfg config.HostConfig) ([]spec.ProgramSpec, []spec.RouteSpec, []spec.NetemSpec) {
+	var progSpecs []spec.ProgramSpec
+	var netemSpecs []spec.NetemSpec
 
 	for _, node := range cfg.Nodes {
-		progSpec := loader.ProgramSpec{
+		progSpec := spec.ProgramSpec{
 			IfaceName: utils.EthName(node.Name), // Assuming Node Name matches Host Interface Name
 		}
 
 		if node.TrafficShaping != nil {
-			progSpec.RateLimit = &loader.RateLimitSpec{
+			progSpec.RateLimit = &spec.RateLimitSpec{
 				RateBytes:  node.TrafficShaping.RateBps,
 				BurstBytes: node.TrafficShaping.BurstBytes,
 			}
@@ -39,7 +40,7 @@ func ConvertToSpecs(cfg config.HostConfig) ([]loader.ProgramSpec, []loader.Route
 				limit = 1000
 			}
 
-			netemSpec := netem.NetemSpec{
+			netemSpec := spec.NetemSpec{
 				NsName:      utils.NetnsName(node.Name),
 				IfaceName:   utils.PeerEthName(node.Name),
 				LatencyMs:   node.Netem.DelayMs,
@@ -53,9 +54,9 @@ func ConvertToSpecs(cfg config.HostConfig) ([]loader.ProgramSpec, []loader.Route
 
 	}
 
-	var routeSpecs []loader.RouteSpec
+	var routeSpecs []spec.RouteSpec
 	for _, r := range cfg.Routes {
-		routeSpecs = append(routeSpecs, loader.RouteSpec{
+		routeSpecs = append(routeSpecs, spec.RouteSpec{
 			DestIP:     r.DestIP,
 			TargetNode: r.OutNode,
 		})
@@ -67,21 +68,19 @@ func ConvertToSpecs(cfg config.HostConfig) ([]loader.ProgramSpec, []loader.Route
 func main() {
 	slog.SetLogLoggerLevel(slog.LevelInfo)
 
+	manager := loader.NewEbpfManager()
+	defer manager.Close()
+
+	if err := data.RunDataClient("127.0.0.1:50051", "hostA", manager); err != nil {
+		log.Fatalf("Data client stopped with error: %v", err)
+	}
+
 	hostName := "hostA"
 	slog.Debug("main start...", "host name", hostName)
 
-	cfg, err := config.LoadConfig("config.toml", hostName)
-	if err != nil {
-		panic(err)
-	}
-	slog.Debug("LoadConfig complete", "config", cfg)
-
-	programSpecs, routeSpecs, netemSpecs := ConvertToSpecs(*cfg)
-	slog.Debug("ConvertToSpecs", "programSpecs", programSpecs, "routeSpecs", routeSpecs, "netemSpecs", netemSpecs)
-
 	topo := topo.NewRuntimeTopo(*cfg)
 
-	err = topo.Setup()
+	err := topo.Setup()
 	defer topo.TearDown()
 
 	if err != nil {
@@ -95,16 +94,9 @@ func main() {
 		panic(fmt.Sprintf("Set netem rules failed: %v", err))
 	}
 
-	manager := loader.NewEbpfManager()
-	defer manager.Close()
-
 	if err := manager.Sync(programSpecs, routeSpecs); err != nil {
 		slog.Error("Failed to load eBPF programs and attachments", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("eBPF programs loaded and attached successfully.")
-
-	if err := data.RunDataClient("127.0.0.1:50051", "hostA", manager); err != nil {
-		log.Fatalf("Data client stopped with error: %v", err)
-	}
 }

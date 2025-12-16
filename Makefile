@@ -40,6 +40,32 @@ GENERATED_FILES := \
 all: build
 
 # --------------------
+# Help target
+# --------------------
+help:
+	@echo ""
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Project Targets (Build & Run):"
+	@echo "------------------------------"
+	@echo "  all            Builds all components (Default target)."
+	@echo "  build          Equivalent to 'all': cleans generated files, generates proto, builds eBPF/Go code, then builds data and control binaries."
+	@echo "  data           Builds the data panel binary ($(DATA_BIN))."
+	@echo "  control        Builds the control panel binary ($(CONTROL_BIN))."
+	@echo "  run-data       Builds and runs the data panel binary (requires sudo)."
+	@echo "  run-control    Builds and runs the control panel binary (requires sudo)."
+	@echo ""
+	@echo "Generation & Cleanup Targets:"
+	@echo "-----------------------------"
+	@echo "  proto          Generates Go code from $(PROTO_SRC) (Protobuf/gRPC)."
+	@echo "  ebpf           Runs 'go generate ./...' to compile and embed eBPF object files (.o) into Go code."
+	@echo "  clean          Removes all build artifacts ($(BUILD_DIR)) and generated source files."
+	@echo "  clean_gen      Removes only generated source files (Protobuf/eBPF code)."
+	@echo ""
+
+
+
+# --------------------
 # Build all panels
 # --------------------
 build: clean_gen proto ebpf data control

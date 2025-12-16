@@ -7,20 +7,13 @@ import (
 	"math"
 	"runtime"
 
+	"kuro/spec"
+
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
 
-type NetemSpec struct {
-	NsName      string
-	IfaceName   string
-	LatencyMs   float64
-	JitterMs    float64
-	LossPercent float64
-	Limit       uint32
-}
-
-func SetNetems(specs ...NetemSpec) error {
+func SetNetems(specs ...spec.NetemSpec) error {
 	for _, spec := range specs {
 		if err := setNetem(spec); err != nil {
 			return fmt.Errorf("IfaceName %s: %v", spec.IfaceName, err)
@@ -32,7 +25,7 @@ func SetNetems(specs ...NetemSpec) error {
 	return nil
 }
 
-func setNetem(spec NetemSpec) error {
+func setNetem(spec spec.NetemSpec) error {
 	originNs, err := netns.Get()
 	if err != nil {
 		return fmt.Errorf("failed to get current ns: %v", err)
