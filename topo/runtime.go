@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	"kuro/config"
+	"kuro/spec"
 	"kuro/utils"
 
 	"github.com/vishvananda/netlink"
@@ -17,7 +17,7 @@ import (
 
 type RuntimeTopo struct {
 	Nodes  []RuntimeNode
-	Vxlan  *Vxlan
+	Vxlan  *spec.Vxlan
 	origns netns.NsHandle // original host network namespace
 
 	// Track resources created during setup
@@ -25,49 +25,33 @@ type RuntimeTopo struct {
 	createdLinks []string // host-side links (veths, vxlan)
 }
 
-func buildRuntimeNode(cfg config.NodeConfig) RuntimeNode {
-	base := baseNode{name: cfg.Name, ip: cfg.IP, nodeType: cfg.Type}
-	switch cfg.Type {
-
+func buildRuntimeNode(node spec.TopoNode) RuntimeNode {
+	base := baseNode{name: node.Name, ip: node.IP, nodeType: node.Type}
+	switch node.Type {
 	case "container":
-		return &ContainerNode{baseNode: base, image: cfg.Image, container: cfg.Container}
+		slog.Error("container is still todo")
+		return &ContainerNode{baseNode: base, image: node.Image, container: node.Container}
 	case "exec":
-		return &ExecNode{baseNode: base, exec: cfg.Exec, args: cfg.Args, cwd: cfg.Cwd, cmd: nil, pid: -1}
+		return &ExecNode{baseNode: base, exec: node.Exec, args: node.Args, cwd: node.Cwd, cmd: nil, pid: -1}
 
 	default:
-		panic(fmt.Sprintf("should be unreachable! cfg.Type: %s", cfg.Type))
+		panic(fmt.Sprintf("should be unreachable! cfg.Type: %s", node.Type))
 	}
 }
 
-func NewRuntimeTopo(spec TopoSpec, cfg config.HostConfig) *RuntimeTopo {
-	var runtimeTopo RuntimeTopo
-	runtimeTopo.Vxlan = spec.Vxlan
+func NewRuntimeTopo(topoSpec spec.TopoSpec) *RuntimeTopo {
+	var topo RuntimeTopo
+	topo.Vxlan = topoSpec.Vxlan
 
-	var vxlan *Vxlan = nil
-	if cfg.Vxlan != nil {
-		vxlan = &Vxlan{
-			ID:     cfg.Vxlan.ID,
-			Iface:  cfg.Vxlan.Iface,
-			Port:   cfg.Vxlan.Port,
-			Remote: cfg.Vxlan.Remote,
-		}
+	for _, node := range topoSpec.Nodes {
+		topo.Nodes = append(topo.Nodes, buildRuntimeNode(node))
 	}
 
-	nodes := make([]RuntimeNode, 0, len(cfg.Nodes))
-
-	for _, node := range cfg.Nodes {
-		nodes = append(nodes, buildRuntimeNode(node))
-	}
-
-	topo := &RuntimeTopo{
-		Vxlan:        vxlan,
-		Nodes:        nodes,
-		createdNs:    make([]string, 0),
-		createdLinks: make([]string, 0),
-	}
+	topo.createdLinks = make([]string, 0)
+	topo.createdNs = make([]string, 0)
 
 	slog.Debug("ConvertToRuntimeTopo", "runtime topology", topo)
-	return topo
+	return &topo
 }
 
 func (topo *RuntimeTopo) GetRuntimeNode(name string) RuntimeNode {
@@ -236,9 +220,9 @@ func (topo *RuntimeTopo) createVxlan() error {
 		LinkAttrs: netlink.LinkAttrs{
 			Name: vxlanName,
 		},
-		VxlanId:      topo.Vxlan.ID,
+		VxlanId:      int(topo.Vxlan.ID),
 		VtepDevIndex: parentLink.Attrs().Index,
-		Port:         topo.Vxlan.Port,
+		Port:         int(topo.Vxlan.Port),
 	}
 
 	// If Remote is set, treat it as the group/multicast/remote endpoint.

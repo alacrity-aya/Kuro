@@ -6,64 +6,13 @@ import (
 	"log/slog"
 	"os"
 
-	"kuro/config"
 	"kuro/data"
 	"kuro/loader"
 	"kuro/netem"
-	"kuro/spec"
 	"kuro/topo"
-	"kuro/utils"
 )
 
 // ConvertToSpecs  TODO: move this function to another package
-func ConvertToSpecs(cfg config.HostConfig) ([]spec.ProgramSpec, []spec.RouteSpec, []spec.NetemSpec) {
-	var progSpecs []spec.ProgramSpec
-	var netemSpecs []spec.NetemSpec
-
-	for _, node := range cfg.Nodes {
-		progSpec := spec.ProgramSpec{
-			IfaceName: utils.EthName(node.Name), // Assuming Node Name matches Host Interface Name
-		}
-
-		if node.TrafficShaping != nil {
-			progSpec.RateLimit = &spec.RateLimitSpec{
-				RateBytes:  node.TrafficShaping.RateBps,
-				BurstBytes: node.TrafficShaping.BurstBytes,
-			}
-		}
-
-		progSpecs = append(progSpecs, progSpec)
-
-		if node.Netem != nil {
-			limit := node.Netem.Limit
-			if limit == 0 {
-				limit = 1000
-			}
-
-			netemSpec := spec.NetemSpec{
-				NsName:      utils.NetnsName(node.Name),
-				IfaceName:   utils.PeerEthName(node.Name),
-				LatencyMs:   node.Netem.DelayMs,
-				JitterMs:    node.Netem.JitterMs,
-				LossPercent: node.Netem.LossPct,
-				Limit:       limit,
-			}
-
-			netemSpecs = append(netemSpecs, netemSpec)
-		}
-
-	}
-
-	var routeSpecs []spec.RouteSpec
-	for _, r := range cfg.Routes {
-		routeSpecs = append(routeSpecs, spec.RouteSpec{
-			DestIP:     r.DestIP,
-			TargetNode: r.OutNode,
-		})
-	}
-
-	return progSpecs, routeSpecs, netemSpecs
-}
 
 func main() {
 	slog.SetLogLoggerLevel(slog.LevelInfo)

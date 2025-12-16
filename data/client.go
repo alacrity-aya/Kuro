@@ -10,6 +10,7 @@ import (
 
 	"kuro/loader"
 	pb "kuro/proto"
+	"kuro/spec"
 	"kuro/utils"
 
 	"google.golang.org/grpc"
@@ -24,7 +25,7 @@ const (
 )
 
 type DataClient struct {
-	hostName string
+	hostName string // will be assigned in applyNodeConfig
 	manager  *loader.EbpfManager
 	client   pb.ControlPlaneServiceClient
 
@@ -38,9 +39,8 @@ func NewDataClient(
 	conn *grpc.ClientConn,
 ) *DataClient {
 	c := &DataClient{
-		hostName: hostName,
-		manager:  manager,
-		client:   pb.NewControlPlaneServiceClient(conn),
+		manager: manager,
+		client:  pb.NewControlPlaneServiceClient(conn),
 	}
 
 	c.state.Store(StateInit)
@@ -171,7 +171,9 @@ func (c *DataClient) recvLoop(
 		switch payload := msg.Payload.(type) {
 
 		case *pb.ControlMessage_NodeConfig:
-			c.applyNodeConfig(payload.NodeConfig)
+			if err := c.applyNodeConfig(payload.NodeConfig); err != nil {
+				return err
+			}
 
 		case *pb.ControlMessage_Ack:
 			slog.Info("received ack", "msg", payload.Ack.Message)
@@ -182,25 +184,28 @@ func (c *DataClient) recvLoop(
 	}
 }
 
-func (c *DataClient) applyNodeConfig(cfg *pb.ApplyNodeConfig) {
-	if cfg.HostName != c.hostName {
-		return
-	}
-
+func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
 	slog.Info("Applying node config",
-		"host", cfg.HostName,
-		"nodes", cfg.Nodes,
+		"host", config.HostName,
+		"nodes", config.Nodes,
 	)
 
-	// for _, node := range cfg.Nodes {
-	// 	// TODO:
-	// 	// - setup tc
-	// 	// - setup netem
-	// 	// - setup vxlan
-	// }
+	c.hostName = config.HostName
+
+	spec, err := spec.BuildSpecs(config)
+	if err != nil {
+		return err
+	}
+
+	// TODO:
+	// - setup tc
+	// - setup netem
+	// - setup vxlan
 
 	if c.state.Load().(DataState) == StateInit {
 		c.state.Store(StateRunning)
 		close(c.ready)
 	}
+
+	return nil
 }

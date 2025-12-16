@@ -1,5 +1,12 @@
 package spec
 
+type Specs struct {
+	ProgramSpecs []ProgramSpec
+	RouteSpecs   []RouteSpec
+	NetemSpecs   []NetemSpec
+	TopoSpec     TopoSpec
+}
+
 // RateLimitSpec defines the parameters for Token Bucket
 type RateLimitSpec struct {
 	RateBytes  uint64
@@ -25,24 +32,24 @@ type Vxlan struct {
 	Remote string
 }
 
-type Node struct {
-	name     string
-	nodetype string
-	ip       string
+type TopoNode struct {
+	Name string
+	Type string
+	IP   string
 
-	// exec
-	exec string
-	args []string
-	cwd  string
+	// Exec
+	Exec string
+	Args []string
+	Cwd  string
 
 	// container
-	image     string
-	container string
+	Image     string
+	Container string
 }
 
 type TopoSpec struct {
 	Vxlan *Vxlan
-	nodes []Node
+	Nodes []TopoNode
 }
 
 type NetemSpec struct {
