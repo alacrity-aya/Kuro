@@ -14,9 +14,9 @@ CONTROL_BIN := $(BUILD_DIR)/kuro-control
 CMD_DIR := cmd
 
 GEN_DIR := gen
-PROTO_DIR := proto
 
-PROTO_SRC := $(PROTO_DIR)/kuro.proto
+PROTO_DIR := proto
+PROTO_SRC := $(shell find $(PROTO_DIR) -name "*.proto")
 
 # --------------------
 # Generated files

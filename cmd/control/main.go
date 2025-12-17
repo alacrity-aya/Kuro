@@ -23,8 +23,8 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 
-	controlServer := control.NewControlServer(configMap)
-	pb.RegisterControlPlaneServiceServer(grpcServer, controlServer)
+	controlServer := control.NewAgentServer(configMap)
+	pb.RegisterAgentServiceServer(grpcServer, controlServer)
 
 	addr := ":50051"
 

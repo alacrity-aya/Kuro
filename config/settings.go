@@ -120,7 +120,7 @@ func BuildApplyNodeConfigs(cfg *SimulationConfig) map[string]*pb.ApplyNodeConfig
 
 		if host.Vxlan != nil {
 			req.Vxlan = &pb.VxlanConfig{
-				Id:       uint32(host.Vxlan.ID),
+				Vni:      uint32(host.Vxlan.ID),
 				Port:     uint32(host.Vxlan.Port),
 				Iface:    host.Vxlan.Iface,
 				RemoteIp: host.Vxlan.Remote,
@@ -140,9 +140,18 @@ func BuildApplyNodeConfigs(cfg *SimulationConfig) map[string]*pb.ApplyNodeConfig
 }
 
 func buildNodeConfig(n NodeConfig) *pb.NodeConfig {
+	nodeType := pb.NodeType_NODE_TYPE_UNSPECIFIED
+
+	switch n.Type {
+	case "exec":
+		nodeType = pb.NodeType_EXEC
+	case "container":
+		nodeType = pb.NodeType_CONTAINER
+	}
+
 	pbNode := &pb.NodeConfig{
 		Name: n.Name,
-		Type: n.Type,
+		Type: nodeType,
 		Ip:   n.IP,
 	}
 

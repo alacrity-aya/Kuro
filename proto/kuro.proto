@@ -3,42 +3,32 @@ syntax = "proto3";
 package kuro;
 option go_package = "kuro/proto";
 
-//
-// =======================
-// Control <-> Data Stream
-// =======================
-//
-
-service ControlPlaneService {
-  // Single long-lived bidirectional stream
-  rpc ControlStream(stream ControlMessage) returns (stream ControlMessage);
+service AgentService {
+  rpc ControlStream(stream ClientMessage) returns (stream ServerMessage);
+  rpc ReportTraffic(stream TrafficStats) returns (ReportAck);
 }
 
-//
-// -----------------------
-// Top-level multiplex msg
-// -----------------------
-//
-
-message ControlMessage {
+message ClientMessage {
   oneof payload {
-    // data -> control
-    TrafficStats traffic_stats = 1;
-
-    // control -> data
-    ApplyNodeConfig node_config = 2;
-
-    // bidirectional
-    Ack ack = 3;
-    Heartbeat heartbeat = 4;
+    Hello hello = 1;
+    Ack ack = 2;
+    Heartbeat heartbeat = 3;
   }
 }
 
-//
-// =======================
-// Data -> Control
-// =======================
-//
+message Hello {
+  string ip = 1;
+  string agent_version = 2;
+  repeated string capabilities = 3;
+}
+
+message ServerMessage {
+  oneof payload {
+    ApplyNodeConfig apply_config = 1;
+    Heartbeat heartbeat = 2;
+    Ack ack = 3;
+  }
+}
 
 message TrafficStats {
   string node_name = 1;
@@ -52,14 +42,8 @@ message TrafficStats {
   double instant_rate_bps = 7;
   double smooth_rate_bps = 8;
 
-  int64 timestamp = 9; // unix millis
+  uint64 timestamp = 9; // unix millis
 }
-
-//
-// =======================
-// Control -> Data
-// =======================
-//
 
 message ApplyNodeConfig {
   string host_name = 1;
@@ -68,7 +52,7 @@ message ApplyNodeConfig {
 }
 
 message VxlanConfig {
-  uint32 id = 1;
+  uint32 vni = 1;
   uint32 port = 2;
   string iface = 3;
   string remote_ip = 4;
@@ -76,7 +60,7 @@ message VxlanConfig {
 
 message NodeConfig {
   string name = 1;
-  string type = 2; // "exec" / "docker"
+  NodeType type = 2;
   string ip = 3;
 
   oneof runtime {
@@ -86,6 +70,12 @@ message NodeConfig {
 
   TrafficShaping traffic_shaping = 6;
   Netem netem = 7;
+}
+
+enum NodeType {
+  NODE_TYPE_UNSPECIFIED = 0;
+  EXEC = 1;
+  CONTAINER = 2;
 }
 
 message ContainerNodeConfig {
@@ -99,15 +89,17 @@ message ExecNodeConfig {
 }
 
 message TrafficShaping {
-  uint64 rate_bps = 1;
-  uint64 burst_bytes = 2;
+  bool enabled = 1;
+  uint64 rate_bps = 2;
+  uint64 burst_bytes = 3;
 }
 
 message Netem {
-  double loss = 1;
-  double jitter_ms = 2;
-  double delay_ms = 3;
-  uint32 limit = 4;
+  bool enabled = 1;
+  double loss = 2;
+  double jitter_ms = 3;
+  double delay_ms = 4;
+  uint32 limit = 5;
 }
 
 //
@@ -116,9 +108,15 @@ message Netem {
 // =======================
 //
 
-message Ack {
+message ReportAck {
   bool ok = 1;
   string message = 2;
+}
+
+message Ack {
+  string ref_id = 1; // id of the message being acknowledged
+  bool ok = 2;
+  string message = 3;
 }
 
 message Heartbeat { int64 timestamp = 1; }
