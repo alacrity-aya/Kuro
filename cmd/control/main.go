@@ -19,11 +19,11 @@ func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	simCfg, nil := config.LoadConfig("config.toml")
-	configMap := config.BuildApplyNodeConfigs(simCfg)
+	config := config.BuildApplyNodeConfigs(simCfg)
 
 	grpcServer := grpc.NewServer()
 
-	controlServer := control.NewAgentServer(configMap)
+	controlServer := control.NewAgentServer(config)
 	pb.RegisterAgentServiceServer(grpcServer, controlServer)
 
 	addr := ":50051"
