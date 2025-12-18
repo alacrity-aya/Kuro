@@ -28,6 +28,7 @@ message ServerMessage {
     ApplyNodeConfig apply_config = 1;
     Heartbeat heartbeat = 2;
     Ack ack = 3;
+    Error error = 4;
   }
 }
 
@@ -121,5 +122,10 @@ message Ack {
 }
 
 message Heartbeat { int64 timestamp = 1; }
+
+message Error {
+  string message = 1;
+  uint32 code = 2;
+}
 
 // TODO: handshake to identify itself

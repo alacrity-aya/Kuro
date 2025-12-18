@@ -3,16 +3,11 @@ package control
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	pb "kuro/proto"
 )
-
-type NodeRegistry interface {
-	RegisterNode(ctx context.Context, hello *pb.Hello) (*pb.ApplyNodeConfig, error)
-	UpdateNodeInfo(ctx context.Context, hello *pb.Hello, online bool) error
-	GetInfo(ctx context.Context, hostName string) *hostInfo
-}
 
 type hostInfo struct {
 	// become true when receiving ApplyNodeConfig ack from data panel
@@ -37,11 +32,13 @@ func NewMemRegistry(configs map[string]*pb.ApplyNodeConfig) *MemRegistry {
 }
 
 // RegisterNode return hostname config
-func (m *MemRegistry) RegisterNode(ctx context.Context, hello *pb.Hello) (*pb.ApplyNodeConfig, error) {
+func (m *MemRegistry) RegisterHost(ctx context.Context, hello *pb.Hello) (*pb.ApplyNodeConfig, error) {
 	hostName := hello.GetHostName()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	slog.Debug("RegisterNode", "hostName", hostName, "config", m.configs[hostName], "hello", hello)
 
 	config, exist := m.configs[hostName]
 	if !exist {
@@ -60,11 +57,9 @@ func (m *MemRegistry) RegisterNode(ctx context.Context, hello *pb.Hello) (*pb.Ap
 	return config, nil
 }
 
-func (m *MemRegistry) UpdateNodeInfo(ctx context.Context, hello *pb.Hello, online bool) error {
+func (m *MemRegistry) UpdateHostState(ctx context.Context, hostName string, online bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	hostName := hello.GetHostName()
 
 	_, exist := m.info[hostName]
 	if !exist {
@@ -75,10 +70,15 @@ func (m *MemRegistry) UpdateNodeInfo(ctx context.Context, hello *pb.Hello, onlin
 	return nil
 }
 
-func (m *MemRegistry) GetInfo(ctx context.Context, hostName string) *hostInfo {
+func (m *MemRegistry) GetInfo(hostName string) (hostInfo, bool) {
 	info, exist := m.info[hostName]
 	if !exist {
-		return nil
+		return hostInfo{}, false
 	}
-	return info
+
+	if info == nil {
+		return hostInfo{}, false
+	}
+
+	return *info, true
 }
