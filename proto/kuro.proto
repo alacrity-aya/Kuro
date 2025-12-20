@@ -91,17 +91,15 @@ message ExecNodeConfig {
 }
 
 message TrafficShaping {
-  bool enabled = 1;
-  uint64 rate_bps = 2;
-  uint64 burst_bytes = 3;
+  uint64 rate_bps = 1;
+  uint64 burst_bytes = 2;
 }
 
 message Netem {
-  bool enabled = 1;
-  double loss = 2;
-  double jitter_ms = 3;
-  double delay_ms = 4;
-  uint32 limit = 5;
+  double loss = 1;
+  double jitter_ms = 2;
+  double delay_ms = 3;
+  uint32 limit = 4;
 }
 
 //
@@ -127,5 +125,3 @@ message Error {
   string message = 1;
   uint32 code = 2;
 }
-
-// TODO: handshake to identify itself

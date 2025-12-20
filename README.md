@@ -8,6 +8,9 @@
 
 ## todo
 
+- rpc
+    - use enum or something to describe client capabilities 
+
 - control panel
     - RPC(across hosts)
     - UDS(local only)
@@ -25,7 +28,6 @@
 
 - performance
     - TC -> XDP
-
 
 - upstream(nelink bug)
     - create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 

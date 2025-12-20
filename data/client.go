@@ -3,17 +3,20 @@ package data
 
 import (
 	"context"
-	"io"
+	"fmt"
 	"log/slog"
+	"os"
+	"os/signal"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"kuro/loader"
 	pb "kuro/proto"
 	"kuro/spec"
-	"kuro/utils"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type DataState int
@@ -24,10 +27,16 @@ const (
 	StateRunning
 )
 
+type clientInfo struct {
+	hostName     string
+	agentVersion string
+	capabilities []string
+	ip           string
+}
 type DataClient struct {
-	hostName string // will be assigned in applyNodeConfig
-	manager  *loader.EbpfManager
-	client   pb.ControlPlaneServiceClient
+	info    clientInfo
+	manager *loader.EbpfManager
+	client  pb.AgentServiceClient
 
 	state atomic.Value  // DataState
 	ready chan struct{} // congest sendLoop
@@ -35,153 +44,59 @@ type DataClient struct {
 
 func NewDataClient(
 	hostName string,
+	agentVersion string,
+	capabilities []string,
+	ip string,
+
 	manager *loader.EbpfManager,
 	conn *grpc.ClientConn,
 ) *DataClient {
 	c := &DataClient{
+		info:    clientInfo{hostName, agentVersion, capabilities, ip},
 		manager: manager,
-		client:  pb.NewControlPlaneServiceClient(conn),
+		client:  pb.NewAgentServiceClient(conn),
 	}
 
 	c.state.Store(StateInit)
 	return c
 }
 
-func (c *DataClient) Run(ctx context.Context) error {
+func (c *DataClient) run(ctx context.Context) error {
 	stream, err := c.client.ControlStream(ctx)
 	if err != nil {
 		return err
 	}
-	slog.Info("ControlStream established", "host", c.hostName)
 
-	// control -> data
-	recvErr := make(chan error, 1)
-	go func() {
-		recvErr <- c.recvLoop(ctx, stream)
-	}()
-
-	// data -> control
-	sendErr := make(chan error, 1)
-	go func() {
-		sendErr <- c.sendLoop(ctx, stream)
-	}()
-
-	// exit client
-	select {
-	case <-ctx.Done():
-		_ = stream.CloseSend()
-		return ctx.Err()
-	case err := <-recvErr:
-		return err
-	case err := <-sendErr:
+	err = stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Hello{
+		Hello: &pb.Hello{HostName: c.info.hostName, Ip: c.info.ip, AgentVersion: c.info.agentVersion, Capabilities: c.info.capabilities},
+	}})
+	if err != nil {
 		return err
 	}
-}
 
-func (c *DataClient) sendLoop(
-	ctx context.Context,
-	stream pb.ControlPlaneService_ControlStreamClient,
-) error {
-	select {
-	case <-c.ready:
-		slog.Info("configuration ready, start sending stats")
-	case <-ctx.Done():
-		return ctx.Err()
+	message, err := stream.Recv()
+	if err != nil {
+		return err
 	}
 
-	statsTicker := time.NewTicker(1 * time.Second)
-	heartbeatTicker := time.NewTicker(5 * time.Second)
-
-	defer statsTicker.Stop()
-	defer heartbeatTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		case <-statsTicker.C:
-			c.sendTrafficStats(stream)
-
-		case <-heartbeatTicker.C:
-			err := stream.Send(&pb.ControlMessage{
-				Payload: &pb.ControlMessage_Heartbeat{
-					Heartbeat: &pb.Heartbeat{
-						Timestamp: time.Now().UnixMilli(),
-					},
-				},
-			})
-			if err != nil {
-				return err
-			}
-		}
+	message_config := message.GetApplyConfig()
+	if message_config == nil {
+		return fmt.Errorf("expected to receive config from server")
 	}
-}
 
-func (c *DataClient) sendTrafficStats(
-	stream pb.ControlPlaneService_ControlStreamClient,
-) {
-	stats := c.manager.CollectStats()
-
-	// TODO: use goroutine here
-	for _, s := range stats {
-		nodeName, err := utils.NodeNameFromEth(s.IfaceName)
-		if err != nil {
-			slog.Warn("failed to get node name from eth", "ifaceName", s.IfaceName, "error", err)
-			continue
-		}
-
-		msg := &pb.ControlMessage{
-			Payload: &pb.ControlMessage_TrafficStats{
-				TrafficStats: &pb.TrafficStats{
-					NodeName:             nodeName,
-					IfaceName:            s.IfaceName,
-					TotalAcceptedBytes:   s.Stat.TotalAcceptedBytes,
-					TotalDroppedBytes:    s.Stat.TotalDroppedBytes,
-					TotalAcceptedPackets: s.Stat.TotalAcceptedPackets,
-					TotalDroppedPackets:  s.Stat.TotalDroppedPackets,
-					InstantRateBps:       s.Stat.InstantRateBps,
-					SmoothRateBps:        s.Stat.SmoothRateBps,
-					Timestamp:            s.Stat.TimeStamp.UnixMilli(),
-				},
-			},
-		}
-
-		if err := stream.Send(msg); err != nil {
-			slog.Error("send traffic stats failed", "err", err)
-			return
-		}
+	err = c.applyNodeConfig(message_config)
+	if err != nil {
+		return err
 	}
-}
 
-func (c *DataClient) recvLoop(
-	ctx context.Context,
-	stream pb.ControlPlaneService_ControlStreamClient,
-) error {
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF {
-				slog.Info("stream closed by control")
-				return nil
-			}
-			return err
-		}
-
-		switch payload := msg.Payload.(type) {
-
-		case *pb.ControlMessage_NodeConfig:
-			if err := c.applyNodeConfig(payload.NodeConfig); err != nil {
-				return err
-			}
-
-		case *pb.ControlMessage_Ack:
-			slog.Info("received ack", "msg", payload.Ack.Message)
-
-		default:
-			slog.Warn("unknown control message")
-		}
+	err = stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{
+		Ack: &pb.Ack{Ok: true, Message: "kuro-Message", RefId: "kuro-RefId"},
+	}})
+	if err != nil {
+		return err
 	}
+
+	return nil
 }
 
 func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
@@ -190,12 +105,12 @@ func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
 		"nodes", config.Nodes,
 	)
 
-	c.hostName = config.HostName
-
-	spec, err := spec.BuildSpecs(config)
+	specs, err := spec.BuildSpecs(config)
 	if err != nil {
 		return err
 	}
+
+	slog.Debug("Build specs", "specs", specs)
 
 	// TODO:
 	// - setup tc
@@ -208,4 +123,45 @@ func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
 	}
 
 	return nil
+}
+
+func RunDataClient(target, hostName string, agentVersion string, capabilities []string, ip string, manager *loader.EbpfManager) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// capture signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		slog.Info("Received interrupt, shutting down...")
+		cancel()
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			// establish connection
+			conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				slog.Error("Failed to create grpc client", "error", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			slog.Info("Connected to data plane", "target", target)
+			dataClient := NewDataClient(hostName, agentVersion, capabilities, ip, manager, conn)
+
+			if err := dataClient.run(ctx); err != nil {
+				slog.Error("DataClient run error (reconnecting...)", "error", err)
+			}
+
+			// close older connect, ready to reconnect
+			_ = conn.Close()
+			time.Sleep(2 * time.Second)
+		}
+	}
 }

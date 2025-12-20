@@ -3,6 +3,7 @@ package spec
 
 import (
 	"fmt"
+	"log/slog"
 
 	pb "kuro/proto"
 	"kuro/utils"
@@ -16,25 +17,30 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 	var topoSpec TopoSpec
 
 	if config.Vxlan != nil {
-		topoSpec.Vxlan.ID = config.Vxlan.GetId()
-		topoSpec.Vxlan.Iface = config.Vxlan.GetIface()
-		topoSpec.Vxlan.Port = config.Vxlan.GetPort()
-		topoSpec.Vxlan.Remote = config.Vxlan.GetRemoteIp()
+		topoSpec.Vxlan = &Vxlan{
+			ID:     config.Vxlan.GetVni(),
+			Iface:  config.Vxlan.GetIface(),
+			Port:   config.Vxlan.GetPort(),
+			Remote: config.Vxlan.GetRemoteIp(),
+		}
 	}
 
 	for _, node := range config.GetNodes() {
 
 		// TopoSpec
-		topoNode := TopoNode{Name: node.GetName(), Type: node.GetType(), IP: node.GetIp()}
 
-		if node.GetType() == "exec" {
-			topoNode.Exec = node.GetExec().GetExec()
-			topoNode.Args = node.GetExec().GetArgs()
-			topoNode.Cwd = node.GetExec().GetCwd()
-		} else if node.GetType() == "container" {
-			return nil, fmt.Errorf("node type container is not implemented")
-		} else {
-			return nil, fmt.Errorf("should be unreachable")
+		slog.Debug("GetNodeType", "type", node.GetType().String())
+		topoNode := TopoNode{Name: node.GetName(), IP: node.GetIp(), Type: node.GetType().String()}
+
+		// TODO: support container
+		switch v := node.Runtime.(type) {
+		case *pb.NodeConfig_Exec:
+			topoNode.Exec = v.Exec.GetExec()
+			topoNode.Args = v.Exec.GetArgs()
+			topoNode.Cwd = v.Exec.GetCwd()
+
+		default:
+			return nil, fmt.Errorf("node type: %s not supported yet", node.GetType().String())
 		}
 
 		topoSpec.Nodes = append(topoSpec.Nodes, topoNode)
