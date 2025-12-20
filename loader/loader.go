@@ -165,6 +165,8 @@ func (p *EbpfProgram) UpdateRateLimit(rate, burst uint64) error {
 }
 
 func (m *EbpfManager) updateGlobalRedirect(dstIPStr string, targetIfaceName string) error {
+	slog.Debug("updateGlobalRedirect", "dstIPStr", dstIPStr, "targetIfaceName", targetIfaceName)
+
 	ip := net.ParseIP(dstIPStr)
 	if ip == nil {
 		return fmt.Errorf("invalid ip: %s", dstIPStr)

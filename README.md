@@ -8,6 +8,11 @@
 
 ## todo
 
+- bugs
+    - 'ctrl + c' not works for server
+    - server should keep alive when client shutdonw
+    - when converting pb.config to specs, remove suffix '/24'
+
 - manager
     - the field manager in client should be an interface
 

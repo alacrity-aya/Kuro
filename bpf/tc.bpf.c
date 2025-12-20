@@ -45,6 +45,9 @@
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 static __always_inline void print_ip_addr(__be32 ip_addr) {
+
+#if ENABLE_PRINT
+
   __u32 host_ip = bpf_ntohl(ip_addr);
   __u32 o1 = (host_ip >> 24) & 0xFF;
   __u32 o2 = (host_ip >> 16) & 0xFF;
@@ -53,6 +56,8 @@ static __always_inline void print_ip_addr(__be32 ip_addr) {
 
   kuro_debug("ip {raw_be: %u, raw_host: %u, str: %u.%u.%u.%u}", ip_addr,
              host_ip, o1, o2, o3, o4);
+
+#endif // ENABLE_PRINT
 }
 
 // token bucket

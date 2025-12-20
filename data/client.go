@@ -259,6 +259,8 @@ func (c *DataClient) inspectMetadata() {
 	fmt.Println("\n=========================================")
 }
 
+// TODO: RunDataClient should record args: agentVersion capabilities ip
+
 func RunDataClient(target, hostName string, agentVersion string, capabilities []string, ip string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

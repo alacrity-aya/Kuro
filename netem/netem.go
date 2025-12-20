@@ -99,7 +99,7 @@ func applySingle(spec spec.NetemSpec) error {
 
 // Inspect queries the current qdisc information from the OS and prints it.
 func (m *NetemManager) Inspect() {
-	fmt.Println("--- Netem Runtime Inspection ---")
+	fmt.Println("\n--- Netem Runtime Inspection ---")
 
 	for _, s := range m.specs {
 		info, err := m.getLiveQdiscInfo(s)

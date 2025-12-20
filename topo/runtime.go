@@ -296,7 +296,7 @@ func (topo *RuntimeTopo) TearDown() error {
 }
 
 func (topo *RuntimeTopo) InspectTopology() {
-	fmt.Println("\n------- Network Topology ------")
+	fmt.Println("\n--- Network Topology ---")
 
 	if topo.Vxlan != nil {
 		vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
