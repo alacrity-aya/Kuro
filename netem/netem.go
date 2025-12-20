@@ -13,19 +13,28 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-func SetNetems(specs ...spec.NetemSpec) error {
-	for _, spec := range specs {
-		if err := setNetem(spec); err != nil {
-			return fmt.Errorf("IfaceName %s: %v", spec.IfaceName, err)
+type NetemManager struct {
+	specs []spec.NetemSpec
+}
+
+// NewNetemManager creates a new manager with the provided specs.
+func NewNetemManager(specs []spec.NetemSpec) *NetemManager {
+	return &NetemManager{
+		specs: specs,
+	}
+}
+
+func (m *NetemManager) Apply() error {
+	for _, s := range m.specs {
+		if err := applySingle(s); err != nil {
+			return fmt.Errorf("interface %s in ns %s: %w", s.IfaceName, s.NsName, err)
 		}
 	}
-
-	slog.Info("set netem rules completed")
-
+	slog.Info("All netem rules applied successfully", "count", len(m.specs))
 	return nil
 }
 
-func setNetem(spec spec.NetemSpec) error {
+func applySingle(spec spec.NetemSpec) error {
 	originNs, err := netns.Get()
 	if err != nil {
 		return fmt.Errorf("failed to get current ns: %v", err)
@@ -86,4 +95,56 @@ func setNetem(spec spec.NetemSpec) error {
 	}
 
 	return nil
+}
+
+// Inspect queries the current qdisc information from the OS and prints it.
+func (m *NetemManager) Inspect() {
+	slog.Info("--- Netem Runtime Inspection ---")
+
+	for _, s := range m.specs {
+		info, err := m.getLiveQdiscInfo(s)
+		if err != nil {
+			slog.Error("Failed to inspect interface", "ns", s.NsName, "iface", s.IfaceName, "error", err)
+			continue
+		}
+		fmt.Printf("[NS: %s | Iface: %s] %s\n", s.NsName, s.IfaceName, info)
+	}
+}
+
+func (m *NetemManager) getLiveQdiscInfo(s spec.NetemSpec) (string, error) {
+	originNs, _ := netns.Get()
+	defer originNs.Close()
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	defer netns.Set(originNs)
+
+	targetNs, err := netns.GetFromName(s.NsName)
+	if err != nil {
+		return "", err
+	}
+	defer targetNs.Close()
+
+	netns.Set(targetNs)
+
+	link, err := netlink.LinkByName(s.IfaceName)
+	if err != nil {
+		return "", err
+	}
+
+	qdiscs, err := netlink.QdiscList(link)
+	if err != nil {
+		return "", err
+	}
+
+	for _, q := range qdiscs {
+		if q.Type() == "netem" {
+			// Type assertion to get specific netem details if needed
+			if n, ok := q.(*netlink.Netem); ok {
+				return fmt.Sprintf("Type: netem, Latency: %v, Loss: %v, Limit: %d",
+					n.Latency, n.Loss, n.Limit), nil
+			}
+		}
+	}
+	return "No netem qdisc found", nil
 }

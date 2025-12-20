@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net"
 	"runtime"
-	"strings"
 
 	"kuro/spec"
 	"kuro/utils"
@@ -251,47 +250,53 @@ func (topo *RuntimeTopo) createVxlan() error {
 }
 
 // TearDown removes all created resources.
-func (topo *RuntimeTopo) TearDown() {
+func (topo *RuntimeTopo) TearDown() error {
 	slog.Info("Tearing down topology...")
+	var errs []error
 
+	// Stop Nodes
 	for _, node := range topo.Nodes {
 		if err := node.Stop(); err != nil {
 			slog.Warn("Failed to stop node", "error", err)
+			errs = append(errs, fmt.Errorf("stop node failed: %w", err))
 		}
 	}
 
-	// Remove all created interfaces.
+	// Remove Links
 	for _, linkName := range topo.createdLinks {
-		if strings.HasPrefix(linkName, "v-") {
-			// veth host side normally disappears with namespace deletion,
-			// but delete here as fallback.
-			if link, err := netlink.LinkByName(linkName); err == nil {
-				_ = netlink.LinkDel(link)
-			}
-		} else {
-			if link, err := netlink.LinkByName(linkName); err == nil {
-				slog.Info("Deleting interface", "name", linkName)
-				_ = netlink.LinkDel(link)
+		if link, err := netlink.LinkByName(linkName); err == nil {
+			slog.Info("Deleting interface", "name", linkName)
+			if delErr := netlink.LinkDel(link); delErr != nil {
+				errs = append(errs, fmt.Errorf("delete link %s failed: %w", linkName, delErr))
 			}
 		}
 	}
 
-	// Remove namespaces (removes node-side interfaces automatically).
+	// Remove Namespaces
 	for _, ns := range topo.createdNs {
 		slog.Info("Deleting netns", "name", ns)
-		_ = netns.DeleteNamed(ns)
+		if delErr := netns.DeleteNamed(ns); delErr != nil {
+			errs = append(errs, fmt.Errorf("delete ns %s failed: %w", ns, delErr))
+		}
 	}
 
+	// Reset state
 	topo.createdNs = nil
 	topo.createdLinks = nil
 
 	if topo.origns.IsOpen() {
 		topo.origns.Close()
 	}
+
+	// Return aggregated errors
+	if len(errs) > 0 {
+		return fmt.Errorf("teardown encountered multiple errors: %v", errs)
+	}
+	return nil
 }
 
-func (topo *RuntimeTopo) PrintTopology() {
-	fmt.Println("\n====== Network Topology ======")
+func (topo *RuntimeTopo) InspectTopology() {
+	fmt.Println("\n------- Network Topology ------")
 
 	if topo.Vxlan != nil {
 		vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)

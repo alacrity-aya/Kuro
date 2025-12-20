@@ -352,21 +352,6 @@ func initFlowCounterMap(prog *EbpfProgram) error {
 	return nil
 }
 
-// func (m *EbpfManager) CollectStats() []IfaceStats {
-// 	size := len(m.programs)
-// 	ifaceStats := make([]IfaceStats, 0, size)
-//
-// 	for ifaceName, prog := range m.programs {
-// 		trafficStats, err := prog.GetStats()
-// 		if err != nil {
-// 			slog.Warn("get traffic stat failed", "ifaceName", ifaceName, "error", err)
-// 		}
-// 		ifaceStats = append(ifaceStats, IfaceStats{IfaceName: ifaceName, Stat: trafficStats})
-// 	}
-//
-// 	return ifaceStats
-// }
-
 func (m *EbpfManager) CollectStats() []IfaceStats {
 	// create snapshot
 	m.mu.RLock()

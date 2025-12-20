@@ -67,6 +67,8 @@ func (m *MemRegistry) UpdateHostState(ctx context.Context, hostName string, onli
 	}
 
 	m.info[hostName].online = online
+
+	slog.Debug("UpdateHostState", "clientName", hostName)
 	return nil
 }
 

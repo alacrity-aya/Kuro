@@ -7,13 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"kuro/loader"
+	"kuro/netem"
 	pb "kuro/proto"
 	"kuro/spec"
+	"kuro/topo"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -34,12 +35,18 @@ type clientInfo struct {
 	ip           string
 }
 type DataClient struct {
-	info    clientInfo
-	manager *loader.EbpfManager
-	client  pb.AgentServiceClient
+	info clientInfo
 
-	state atomic.Value  // DataState
-	ready chan struct{} // congest sendLoop
+	client pb.AgentServiceClient
+
+	// Ebpf loader
+	bpfManager *loader.EbpfManager
+
+	// Keep track of the current topology to tear it down on shutdown/reconfig
+	topoManager *topo.RuntimeTopo
+
+	// Network netem manager
+	netemManager *netem.NetemManager
 }
 
 func NewDataClient(
@@ -52,55 +59,151 @@ func NewDataClient(
 	conn *grpc.ClientConn,
 ) *DataClient {
 	c := &DataClient{
-		info:    clientInfo{hostName, agentVersion, capabilities, ip},
-		manager: manager,
-		client:  pb.NewAgentServiceClient(conn),
+		info:       clientInfo{hostName, agentVersion, capabilities, ip},
+		bpfManager: manager,
+		client:     pb.NewAgentServiceClient(conn),
 	}
 
-	c.state.Store(StateInit)
 	return c
 }
 
+// TearDown cleans up network topology resources
+func (c *DataClient) TearDown() {
+	if c.topoManager != nil {
+		slog.Info("Tearing down network topology...")
+		if err := c.topoManager.TearDown(); err != nil {
+			slog.Error("Failed to tear down topology", "error", err)
+		}
+		c.topoManager = nil
+	}
+}
+
 func (c *DataClient) run(ctx context.Context) error {
+	defer c.TearDown()
+
+	// Use the stream context to monitor connection state
 	stream, err := c.client.ControlStream(ctx)
 	if err != nil {
 		return err
 	}
 
+	// --- Stage 1: Handshake with Timeout ---
+	// We expect the server to send ApplyConfig within a specific window
+	configTimeout := 10 * time.Second
+	timer := time.NewTimer(configTimeout)
+	defer timer.Stop()
+
+	// Send Hello first
 	err = stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Hello{
-		Hello: &pb.Hello{HostName: c.info.hostName, Ip: c.info.ip, AgentVersion: c.info.agentVersion, Capabilities: c.info.capabilities},
+		Hello: &pb.Hello{HostName: c.info.hostName, Ip: c.info.ip, AgentVersion: c.info.agentVersion},
 	}})
 	if err != nil {
 		return err
 	}
 
-	message, err := stream.Recv()
+	// Result channel for async Recv
+	type recvRes struct {
+		msg *pb.ServerMessage
+		err error
+	}
+	resChan := make(chan recvRes, 1)
+
+	go func() {
+		m, e := stream.Recv()
+		resChan <- recvRes{m, e}
+	}()
+
+	var messageConfig *pb.ApplyNodeConfig
+	select {
+	case res := <-resChan:
+		if res.err != nil {
+			return fmt.Errorf("failed to receive config: %w", res.err)
+		}
+		messageConfig = res.msg.GetApplyConfig()
+		if messageConfig == nil {
+			return fmt.Errorf("protocol error: expected config, got nil")
+		}
+	case <-timer.C:
+		return fmt.Errorf("server timed out sending configuration")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// --- Stage 2: Apply Config & ACK ---
+	err = c.applyNodeConfig(messageConfig)
 	if err != nil {
+		stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{Ack: &pb.Ack{Ok: false, Message: err.Error()}}})
 		return err
 	}
 
-	message_config := message.GetApplyConfig()
-	if message_config == nil {
-		return fmt.Errorf("expected to receive config from server")
-	}
-
-	err = c.applyNodeConfig(message_config)
-	if err != nil {
+	if err := stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{Ack: &pb.Ack{Ok: true}}}); err != nil {
 		return err
 	}
 
-	err = stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{
-		Ack: &pb.Ack{Ok: true, Message: "kuro-Message", RefId: "kuro-RefId"},
-	}})
-	if err != nil {
-		return err
-	}
+	// --- Stage 3: Heartbeat Loop with Receive Timeout ---
+	// If we don't receive a heartbeat response from the server, we consider it offline.
+	heartbeatInterval := 5 * time.Second
+	serverTimeout := 15 * time.Second // Must be > interval
+	timer.Reset(serverTimeout)
 
-	return nil
+	slog.Info("Client entering running state with heartbeat monitoring")
+
+	for {
+		// Launch receiver for heartbeat responses or async errors
+		go func() {
+			m, e := stream.Recv()
+			resChan <- recvRes{m, e}
+		}()
+
+		// Ticker for sending heartbeats
+		ticker := time.NewTicker(heartbeatInterval)
+
+		select {
+		case <-ticker.C:
+			// Send heartbeat to server
+			err := stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Heartbeat{
+				Heartbeat: &pb.Heartbeat{Timestamp: time.Now().UnixMilli()},
+			}})
+			if err != nil {
+				ticker.Stop()
+				return err
+			}
+
+		case res := <-resChan:
+			if res.err != nil {
+				ticker.Stop()
+				return fmt.Errorf("stream read error: %w", res.err)
+			}
+
+			// We received something from server, reset the "Server Alive" timer
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(serverTimeout)
+
+			// Process server message (e.g., Heartbeat ACK)
+			if hb := res.msg.GetHeartbeat(); hb != nil {
+				slog.Debug("Server heartbeat ACK received", "server_time", hb.Timestamp)
+			}
+
+		case <-timer.C:
+			ticker.Stop()
+			slog.Error("Server is considered offline: heartbeat response timeout")
+			return fmt.Errorf("server heartbeat timeout")
+
+		case <-ctx.Done():
+			ticker.Stop()
+			return ctx.Err()
+		}
+		ticker.Stop() // Cleanup ticker before next loop iteration
+	}
 }
 
 func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
-	slog.Info("Applying node config",
+	slog.Debug("Applying node config",
 		"host", config.HostName,
 		"nodes", config.Nodes,
 	)
@@ -111,18 +214,40 @@ func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
 	}
 
 	slog.Debug("Build specs", "specs", specs)
+	c.TearDown()
 
-	// TODO:
-	// - setup tc
-	// - setup netem
-	// - setup vxlan
+	t := topo.NewRuntimeTopo(specs.TopoSpec)
+	if err = t.Setup(); err != nil {
+		return fmt.Errorf("setup network topology failed: %w", err)
+	}
+	c.topoManager = t
 
-	if c.state.Load().(DataState) == StateInit {
-		c.state.Store(StateRunning)
-		close(c.ready)
+	// optional debug print
+	c.topoManager.InspectTopology()
+
+	n := netem.NewNetemManager(specs.NetemSpecs)
+	err = n.Apply()
+	if err != nil {
+		panic(fmt.Sprintf("Set netem rules failed: %v", err))
 	}
 
+	c.netemManager = n
+
+	if err := c.bpfManager.Sync(specs.ProgramSpecs, specs.RouteSpecs); err != nil {
+		slog.Error("Failed to load eBPF programs and attachments", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("eBPF programs loaded and attached successfully.")
+
+	c.inspectMetadata()
+
 	return nil
+}
+
+func (c *DataClient) inspectMetadata() {
+	c.bpfManager.InspectMetadata()
+	c.netemManager.Inspect()
+	c.topoManager.InspectTopology()
 }
 
 func RunDataClient(target, hostName string, agentVersion string, capabilities []string, ip string, manager *loader.EbpfManager) error {

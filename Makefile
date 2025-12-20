@@ -120,7 +120,7 @@ run-data: data
 
 run-control: control
 	@echo "-> Running control panel..."
-	sudo $(CONTROL_BIN)
+	$(CONTROL_BIN)
 
 # --------------------
 # Full clean

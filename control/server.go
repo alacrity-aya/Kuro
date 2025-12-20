@@ -4,7 +4,6 @@ package control
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -15,33 +14,41 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type AgentServer struct { // heartbeat timeout 10s, ack timeout 10s
+// AgentServer handles gRPC connections from agents.
+type AgentServer struct {
 	pb.UnimplementedAgentServiceServer
 	registry *MemRegistry
 
 	heartbeatTimeout time.Duration
+	ackTimeout       time.Duration
 
 	// inject DB / aggregator / TSDB writer
 }
 
+// NewAgentServer creates a new server with default timeouts.
 func NewAgentServer(config map[string]*pb.ApplyNodeConfig) *AgentServer {
-	return &AgentServer{registry: NewMemRegistry(config), heartbeatTimeout: 10 * time.Second}
+	return &AgentServer{
+		registry:         NewMemRegistry(config),
+		heartbeatTimeout: 30 * time.Second, // Standard heartbeat interval
+		ackTimeout:       5 * time.Second,  // Time to wait for config ACK
+	}
 }
 
-// TODO: Implement dynamic push via channel
-// FIXME: the following function is completely awful, refactor it
-
-// ControlStream registers host
+// ControlStream handles the bidirectional stream for agent registration and heartbeats.
+// It acts as a state machine: Unregistered -> WaitingAck -> Online.
 func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) error {
 	ctx := stream.Context()
 	var registeredHost string
 	var isPendingAck bool // state flag: is waiting ApplyNodeConfig ack
 
+	// Initialize timer with heartbeat timeout.
 	timer := time.NewTimer(s.heartbeatTimeout)
 	defer timer.Stop()
 
+	// Ensure cleanup happens when the stream closes (error or EOF).
 	defer func() {
 		if registeredHost != "" {
+			// Use a detached context for cleanup to ensure it runs even if stream context is cancelled.
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = s.registry.UpdateHostState(cleanupCtx, registeredHost, false)
@@ -50,12 +57,14 @@ func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) 
 	}()
 
 	for {
+		// Create a channel to receive messages from the blocking stream.Recv()
 		type recvMsg struct {
 			msg *pb.ClientMessage
 			err error
 		}
 		msgChan := make(chan recvMsg, 1)
 
+		// Launch a goroutine to read the next message.
 		go func() {
 			m, e := stream.Recv()
 			msgChan <- recvMsg{m, e}
@@ -73,7 +82,7 @@ func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) 
 				return res.err
 			}
 
-			// reset heartbeat timer
+			// Safely reset the timer
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -84,22 +93,19 @@ func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) 
 
 			in := res.msg
 
-			// --- scene A: new connection without hello ---
+			// --- Scene A: New connection (expecting Hello) ---
 			if registeredHost == "" {
 				hello := in.GetHello()
 				if hello == nil {
-					_ = stream.Send(&pb.ServerMessage{Payload: &pb.ServerMessage_Error{
-						Error: &pb.Error{Code: 401, Message: "Please send Hello first"},
-					}})
-					continue
+					slog.Warn("protocol violation: expected Hello", "payload", in.Payload)
+					return status.Error(codes.Unauthenticated, "protocol violation: expected Hello first")
 				}
 
 				config, err := s.registry.RegisterHost(ctx, hello)
 				if err != nil {
-					_ = stream.Send(&pb.ServerMessage{Payload: &pb.ServerMessage_Error{
-						Error: &pb.Error{Code: 402, Message: err.Error()},
-					}})
-					continue
+					slog.Warn("registration failed", "host", hello.HostName, "err", err)
+					// Using Internal or NotFound depending on logic, Internal is safer for generic errors.
+					return status.Errorf(codes.Internal, "registration failed: %v", err)
 				}
 
 				if err := stream.Send(&pb.ServerMessage{
@@ -108,57 +114,77 @@ func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) 
 					return err
 				}
 
-				// enter wait ack state
+				// Transition state: Wait for ACK
 				registeredHost = hello.GetHostName()
 				isPendingAck = true
-				timer.Reset(10 * time.Second) // change to ack timeout
+
+				// Reset timer to a shorter duration specifically for ACK waiting
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(s.ackTimeout)
+
 				continue
 			}
 
-			// --- scene B: received hello，waiting ACK ---
+			// --- Scene B: Received Hello, Waiting for ACK ---
 			if isPendingAck {
 				ack := in.GetAck()
 				if ack == nil {
-					// protocol violation: must be ack
+					// Protocol violation: Sending Heartbeat or Hello while Server expects ACK
+					slog.Warn("protocol violation: expected Ack", "host", registeredHost, "payload", in.Payload)
 					return status.Error(codes.FailedPrecondition, "expected ACK after config")
 				}
 				if !ack.Ok {
-					return fmt.Errorf("client failed to apply config: %s", ack.Message)
+					return status.Errorf(codes.Internal, "client failed to apply config: %s", ack.Message)
 				}
 
-				// success, online
+				// Success: Mark node as Online
 				if err := s.registry.UpdateHostState(ctx, registeredHost, true); err != nil {
-					return err
+					return status.Errorf(codes.Internal, "failed to update state: %v", err)
 				}
+
 				isPendingAck = false
-				timer.Reset(s.heartbeatTimeout) // change to heartbeat timeout
+				// Timer was already reset to heartbeatTimeout at the start of select case
 				slog.Info("node is now online", "host", registeredHost)
 				continue
 			}
 
-			// --- scene C: Heartbeat, etc. ---
+			// --- Scene C: Normal Operation (Heartbeat) ---
 			switch in.Payload.(type) {
 			case *pb.ClientMessage_Heartbeat:
-				_ = stream.Send(&pb.ServerMessage{
+				// Respond to heartbeat
+				err := stream.Send(&pb.ServerMessage{
 					Payload: &pb.ServerMessage_Heartbeat{
 						Heartbeat: &pb.Heartbeat{Timestamp: time.Now().UnixMilli()},
 					},
 				})
+				if err != nil {
+					return err
+				}
 			case *pb.ClientMessage_Hello:
-				slog.Warn("duplicate hello", "host", registeredHost)
+				slog.Warn("duplicate hello received", "host", registeredHost)
+			// TODO: Handle duplicate hello here
+			default:
+				// ignore other messages
 			}
 
 		case <-timer.C:
-			// wait ack timeout
+			// Differentiate timeout reasons based on state
 			if isPendingAck {
+				slog.Warn("ack timeout", "host", registeredHost)
 				return status.Error(codes.DeadlineExceeded, "timeout waiting for ACK")
 			}
-			// heartbeat timeout
+			slog.Warn("heartbeat timeout", "host", registeredHost)
 			return status.Error(codes.DeadlineExceeded, "heartbeat timeout")
 		}
 	}
 }
 
+// ReportTraffic placeholder
 func (s *AgentServer) ReportTraffic(stream pb.AgentService_ReportTrafficServer) error {
-	return nil
+	return status.Error(codes.Unimplemented, "not implemented yet")
 }
