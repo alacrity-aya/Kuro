@@ -8,6 +8,9 @@
 
 ## todo
 
+- manager
+    - the field manager in client should be an interface
+
 - rpc
     - use enum or something to describe client capabilities 
 

@@ -55,13 +55,11 @@ func NewDataClient(
 	capabilities []string,
 	ip string,
 
-	manager *loader.EbpfManager,
 	conn *grpc.ClientConn,
 ) *DataClient {
 	c := &DataClient{
-		info:       clientInfo{hostName, agentVersion, capabilities, ip},
-		bpfManager: manager,
-		client:     pb.NewAgentServiceClient(conn),
+		info:   clientInfo{hostName, agentVersion, capabilities, ip},
+		client: pb.NewAgentServiceClient(conn),
 	}
 
 	return c
@@ -75,6 +73,14 @@ func (c *DataClient) TearDown() {
 			slog.Error("Failed to tear down topology", "error", err)
 		}
 		c.topoManager = nil
+	}
+
+	if c.bpfManager != nil {
+		slog.Info("Clear bpf resource...")
+		if err := c.bpfManager.Close(); err != nil {
+			slog.Error("Failed to bpf resource", "error", err)
+		}
+		c.bpfManager = nil
 	}
 }
 
@@ -222,35 +228,38 @@ func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
 	}
 	c.topoManager = t
 
-	// optional debug print
-	c.topoManager.InspectTopology()
-
 	n := netem.NewNetemManager(specs.NetemSpecs)
 	err = n.Apply()
 	if err != nil {
-		panic(fmt.Sprintf("Set netem rules failed: %v", err))
+		return fmt.Errorf("set netem rules failed: %v", err)
 	}
-
 	c.netemManager = n
 
-	if err := c.bpfManager.Sync(specs.ProgramSpecs, specs.RouteSpecs); err != nil {
-		slog.Error("Failed to load eBPF programs and attachments", "error", err)
-		os.Exit(1)
+	l := loader.NewEbpfManager()
+	if err := l.Sync(specs.ProgramSpecs, specs.RouteSpecs); err != nil {
+		return fmt.Errorf("failed to load eBPF programs and attachments, err: %v", err)
 	}
 	slog.Info("eBPF programs loaded and attached successfully.")
 
+	c.bpfManager = l
+
+	// optional debug print
 	c.inspectMetadata()
 
 	return nil
 }
 
 func (c *DataClient) inspectMetadata() {
+	fmt.Println("\n===========  inspectMetadata  ===========")
+
 	c.bpfManager.InspectMetadata()
 	c.netemManager.Inspect()
 	c.topoManager.InspectTopology()
+
+	fmt.Println("\n=========================================")
 }
 
-func RunDataClient(target, hostName string, agentVersion string, capabilities []string, ip string, manager *loader.EbpfManager) error {
+func RunDataClient(target, hostName string, agentVersion string, capabilities []string, ip string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -278,7 +287,7 @@ func RunDataClient(target, hostName string, agentVersion string, capabilities []
 			}
 
 			slog.Info("Connected to data plane", "target", target)
-			dataClient := NewDataClient(hostName, agentVersion, capabilities, ip, manager, conn)
+			dataClient := NewDataClient(hostName, agentVersion, capabilities, ip, conn)
 
 			if err := dataClient.run(ctx); err != nil {
 				slog.Error("DataClient run error (reconnecting...)", "error", err)

@@ -324,18 +324,25 @@ func (m *EbpfManager) Close() error {
 
 	slog.Info("clear bpf resource...")
 
+	var errs []error
+
 	for name, prog := range m.programs {
 		if err := prog.Detach(); err != nil {
 			slog.Warn("Failed to detach program", "error", err)
+			errs = append(errs, err)
 		}
 		delete(m.programs, name)
 	}
 
 	if m.objs != nil {
 		if err := m.objs.Close(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 		m.objs = nil
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("close encountered multiple errors: %v", errs)
 	}
 
 	return nil

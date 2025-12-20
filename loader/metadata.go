@@ -3,7 +3,6 @@ package loader
 import (
 	"encoding/binary"
 	"fmt"
-	"log/slog"
 	"net"
 
 	"kuro/gen"
@@ -80,9 +79,9 @@ func (m *EbpfManager) GetMetadata() EbpfMetadata {
 
 func (m *EbpfManager) InspectMetadata() {
 	meta := m.GetMetadata()
-	slog.Info("--- eBPF Runtime Metadata Inspection ---")
+	fmt.Println("--- eBPF Runtime Metadata Inspection ---")
 
-	slog.Info("Attached Programs:")
+	fmt.Println("Attached Programs:")
 	for _, p := range meta.Programs {
 		status := "LOADED"
 		if !p.IsLoaded {
@@ -98,7 +97,7 @@ func (m *EbpfManager) InspectMetadata() {
 			p.IfaceName, p.IfaceIndex, status, limitStr)
 	}
 
-	slog.Info("Redirect Routes (L3):")
+	fmt.Println("Redirect Routes (L3):")
 	if len(meta.Routes) == 0 {
 		fmt.Println("  No redirect routes found in Map.")
 	}

@@ -4,6 +4,7 @@ package spec
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	pb "kuro/proto"
 	"kuro/utils"
@@ -29,8 +30,8 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 
 		// TopoSpec
 
-		slog.Debug("GetNodeType", "type", node.GetType().String())
-		topoNode := TopoNode{Name: node.GetName(), IP: node.GetIp(), Type: node.GetType().String()}
+		slog.Debug("GetNodeType", "type", strings.ToLower(node.GetType().String()))
+		topoNode := TopoNode{Name: node.GetName(), IP: node.GetIp(), Type: strings.ToLower(node.GetType().String())}
 
 		// TODO: support container
 		switch v := node.Runtime.(type) {
