@@ -80,7 +80,8 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 		}
 
 		// routeSpecs
-		routeSpec := RouteSpec{DestIP: node.Ip, TargetNode: node.Name}
+		// node.Ip is like '127.0.0.1/24'
+		routeSpec := RouteSpec{DestIP: strings.Split(node.Ip, "/")[0], TargetNode: node.Name}
 		routeSpecs = append(routeSpecs, routeSpec)
 
 	}
