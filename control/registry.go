@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	pb "kuro/proto"
@@ -15,6 +16,16 @@ type hostInfo struct {
 	ip           string
 	agentVersion string
 	capabilities []string
+}
+
+func (h hostInfo) String() string {
+	return fmt.Sprintf(
+		"Host[IP: %s, Online: %t, Version: %s, Capabilities: [%s]]",
+		h.ip,
+		h.online,
+		h.agentVersion,
+		strings.Join(h.capabilities, ", "),
+	)
 }
 
 type MemRegistry struct {
@@ -74,6 +85,8 @@ func (m *MemRegistry) UpdateHostState(ctx context.Context, hostName string, onli
 
 func (m *MemRegistry) GetInfo(hostName string) (hostInfo, bool) {
 	info, exist := m.info[hostName]
+	slog.Debug("info in MemRegistry", "info", info)
+
 	if !exist {
 		return hostInfo{}, false
 	}

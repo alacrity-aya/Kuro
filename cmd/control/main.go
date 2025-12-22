@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelWarn)
+	slog.SetLogLoggerLevel(slog.LevelInfo)
 
 	simCfg, nil := config.LoadConfig("config.toml")
 	config := config.BuildApplyNodeConfigs(simCfg)

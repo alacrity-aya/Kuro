@@ -4,6 +4,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -86,38 +87,54 @@ func (c *DataClient) TearDown() {
 }
 
 func (c *DataClient) startReporting(ctx context.Context) {
-	// attach hostname to metadata
-	ctx = metadata.AppendToOutgoingContext(ctx, "x-host-name", c.info.hostName)
-
-	stream, err := c.client.ReportTraffic(ctx)
-	if err != nil {
-		slog.Error("Failed to open ReportTraffic stream", "error", err)
-		return
-	}
+	const maxRetries = 3
+	retries := 0
 
 	slog.Info("Traffic reporting worker started")
 
-	ticker := time.NewTicker(1 * time.Second) // TODO: make it configurable
+	for retries < maxRetries {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		reportCtx := metadata.AppendToOutgoingContext(ctx, "x-host-name", c.info.hostName)
+		stream, err := c.client.ReportTraffic(reportCtx)
+		if err != nil {
+			slog.Error("Failed to open stream", "error", err, "retry", retries)
+			time.Sleep(2 * time.Second)
+			retries++
+			continue
+		}
+
+		// 2. 进入数据发送循环
+		err = c.uploadStats(ctx, stream)
+		if err != nil {
+			slog.Warn("Stream broken, will reconnect", "error", err, "retry", retries)
+			retries++
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// 如果 uploadStats 正常返回（说明是正常结束），则重置 retries 或直接退出
+		return
+	}
+	slog.Error("Traffic reporting stopped: max retries exceeded")
+}
+
+// uploadStats 负责在一个生命周期内的 stream 发送
+func (c *DataClient) uploadStats(ctx context.Context, stream pb.AgentService_ReportTrafficClient) error {
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			ack, err := stream.CloseAndRecv()
-			if err != nil {
-				slog.Error("Error closing traffic stream", "error", err)
-			} else {
-				slog.Info("Traffic stream closed by server", "ok", ack.Ok, "msg", ack.Message)
-			}
-			return
-
+			stream.CloseAndRecv()
+			return nil
 		case <-ticker.C:
-			if c.bpfManager == nil {
-				continue
-			}
-
 			ifaceStatsList := c.bpfManager.CollectStats()
-
 			for _, ifaceStat := range ifaceStatsList {
 				pbStat := &pb.TrafficStats{
 					NodeName:             c.info.hostName,
@@ -132,8 +149,12 @@ func (c *DataClient) startReporting(ctx context.Context) {
 				}
 
 				if err := stream.Send(pbStat); err != nil {
-					slog.Error("Failed to send traffic stats", "error", err)
-					return
+					// 遇到错误，把错误抛给上层去重新连 stream
+					if err == io.EOF {
+						_, recvErr := stream.CloseAndRecv()
+						return recvErr // 返回真正的 Server 错误
+					}
+					return err
 				}
 			}
 		}

@@ -29,6 +29,8 @@ func (s *AgentServer) ReportTraffic(stream pb.AgentService_ReportTrafficServer) 
 
 	info, exist := s.registry.GetInfo(hostName)
 
+	slog.Debug("GetInfo by hostName", "hostName", hostName, "info", info, "exist", exist)
+
 	if !exist || !info.online {
 		slog.Warn("traffic report rejected: host not online", "host", hostName)
 		return status.Errorf(codes.FailedPrecondition, "host %s is not online, please hello first", hostName)

@@ -23,6 +23,7 @@
 - rpc
     - use enum or something to describe client capabilities 
     - complete service: ReportTraffic
+    - offline state
 
 - control panel
     - RPC(across hosts)
