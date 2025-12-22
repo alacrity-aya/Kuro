@@ -14,26 +14,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// AgentServer handles gRPC connections from agents.
-type AgentServer struct {
-	pb.UnimplementedAgentServiceServer
-	registry *MemRegistry
-
-	heartbeatTimeout time.Duration
-	ackTimeout       time.Duration
-
-	// inject DB / aggregator / TSDB writer
-}
-
-// NewAgentServer creates a new server with default timeouts.
-func NewAgentServer(config map[string]*pb.ApplyNodeConfig) *AgentServer {
-	return &AgentServer{
-		registry:         NewMemRegistry(config),
-		heartbeatTimeout: 30 * time.Second, // Standard heartbeat interval
-		ackTimeout:       5 * time.Second,  // Time to wait for config ACK
-	}
-}
-
 // ControlStream handles the bidirectional stream for agent registration and heartbeats.
 // It acts as a state machine: Unregistered -> WaitingAck -> Online.
 func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) error {
@@ -182,9 +162,4 @@ func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) 
 			return status.Error(codes.DeadlineExceeded, "heartbeat timeout")
 		}
 	}
-}
-
-// ReportTraffic placeholder
-func (s *AgentServer) ReportTraffic(stream pb.AgentService_ReportTrafficServer) error {
-	return status.Error(codes.Unimplemented, "not implemented yet")
 }

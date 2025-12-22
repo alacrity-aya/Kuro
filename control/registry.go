@@ -31,7 +31,7 @@ func NewMemRegistry(configs map[string]*pb.ApplyNodeConfig) *MemRegistry {
 	return &MemRegistry{configs: configs, info: make(map[string]*hostInfo)}
 }
 
-// RegisterNode return hostname config
+// RegisterHost return hostname config
 func (m *MemRegistry) RegisterHost(ctx context.Context, hello *pb.Hello) (*pb.ApplyNodeConfig, error) {
 	hostName := hello.GetHostName()
 
