@@ -2,7 +2,6 @@
 package loader
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"log/slog"
@@ -176,9 +175,7 @@ func (m *EbpfManager) updateGlobalRedirect(dstIPStr string, targetIfaceName stri
 		return fmt.Errorf("not ipv4: %s", dstIPStr)
 	}
 
-	var ipKey uint32
-	// IpAddr -> be32
-	_ = binary.Read(bytes.NewReader(v4), binary.BigEndian, &ipKey)
+	ipKey := binary.NativeEndian.Uint32(v4)
 
 	targetIface, err := net.InterfaceByName(targetIfaceName)
 	if err != nil {

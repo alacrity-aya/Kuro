@@ -32,18 +32,22 @@ message ServerMessage {
 }
 
 message TrafficStats {
+  // metadata
   string node_name = 1;
   string iface_name = 2;
 
+  // flow
   uint64 total_accepted_bytes = 3;
   uint64 total_dropped_bytes = 4;
   uint64 total_accepted_packets = 5;
   uint64 total_dropped_packets = 6;
 
+  // rate
   double instant_rate_bps = 7;
   double smooth_rate_bps = 8;
 
-  uint64 timestamp = 9; // unix millis
+  // time point
+  uint64 timestamp = 9;
 }
 
 message ApplyNodeConfig {

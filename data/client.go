@@ -18,6 +18,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 type DataState int
@@ -84,11 +85,66 @@ func (c *DataClient) TearDown() {
 	}
 }
 
+func (c *DataClient) startReporting(ctx context.Context) {
+	// attach hostname to metadata
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-host-name", c.info.hostName)
+
+	stream, err := c.client.ReportTraffic(ctx)
+	if err != nil {
+		slog.Error("Failed to open ReportTraffic stream", "error", err)
+		return
+	}
+
+	slog.Info("Traffic reporting worker started")
+
+	ticker := time.NewTicker(1 * time.Second) // TODO: make it configurable
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			ack, err := stream.CloseAndRecv()
+			if err != nil {
+				slog.Error("Error closing traffic stream", "error", err)
+			} else {
+				slog.Info("Traffic stream closed by server", "ok", ack.Ok, "msg", ack.Message)
+			}
+			return
+
+		case <-ticker.C:
+			if c.bpfManager == nil {
+				continue
+			}
+
+			ifaceStatsList := c.bpfManager.CollectStats()
+
+			for _, ifaceStat := range ifaceStatsList {
+				pbStat := &pb.TrafficStats{
+					NodeName:             c.info.hostName,
+					IfaceName:            ifaceStat.IfaceName,
+					TotalAcceptedBytes:   ifaceStat.Stat.TotalAcceptedBytes,
+					TotalDroppedBytes:    ifaceStat.Stat.TotalDroppedBytes,
+					TotalAcceptedPackets: ifaceStat.Stat.TotalAcceptedPackets,
+					TotalDroppedPackets:  ifaceStat.Stat.TotalDroppedPackets,
+					InstantRateBps:       ifaceStat.Stat.InstantRateBps,
+					SmoothRateBps:        ifaceStat.Stat.SmoothRateBps,
+					Timestamp:            uint64(ifaceStat.Stat.TimeStamp.UnixMilli()),
+				}
+
+				if err := stream.Send(pbStat); err != nil {
+					slog.Error("Failed to send traffic stats", "error", err)
+					return
+				}
+			}
+		}
+	}
+}
+
 func (c *DataClient) run(ctx context.Context) error {
 	defer c.TearDown()
 
-	// Use the stream context to monitor connection state
-	stream, err := c.client.ControlStream(ctx)
+	// Use the ctrlStream context to monitor connection state
+	ctrlStream, err := c.client.ControlStream(ctx)
 	if err != nil {
 		return err
 	}
@@ -100,7 +156,7 @@ func (c *DataClient) run(ctx context.Context) error {
 	defer timer.Stop()
 
 	// Send Hello first
-	err = stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Hello{
+	err = ctrlStream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Hello{
 		Hello: &pb.Hello{HostName: c.info.hostName, Ip: c.info.ip, AgentVersion: c.info.agentVersion},
 	}})
 	if err != nil {
@@ -115,7 +171,7 @@ func (c *DataClient) run(ctx context.Context) error {
 	resChan := make(chan recvRes, 1)
 
 	go func() {
-		m, e := stream.Recv()
+		m, e := ctrlStream.Recv()
 		resChan <- recvRes{m, e}
 	}()
 
@@ -135,16 +191,20 @@ func (c *DataClient) run(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	// --- Stage 2: Apply Config & ACK ---
+	// --- Stage 2: Apply Config & ACK & Report flow ---
 	err = c.applyNodeConfig(messageConfig)
 	if err != nil {
-		stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{Ack: &pb.Ack{Ok: false, Message: err.Error()}}})
+		ctrlStream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{Ack: &pb.Ack{Ok: false, Message: err.Error()}}})
 		return err
 	}
 
-	if err := stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{Ack: &pb.Ack{Ok: true}}}); err != nil {
+	if err := ctrlStream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Ack{Ack: &pb.Ack{Ok: true}}}); err != nil {
 		return err
 	}
+
+	reportCtx, cancleReport := context.WithCancel(ctx)
+	defer cancleReport()
+	go c.startReporting(reportCtx)
 
 	// --- Stage 3: Heartbeat Loop with Receive Timeout ---
 	// If we don't receive a heartbeat response from the server, we consider it offline.
@@ -157,7 +217,7 @@ func (c *DataClient) run(ctx context.Context) error {
 	for {
 		// Launch receiver for heartbeat responses or async errors
 		go func() {
-			m, e := stream.Recv()
+			m, e := ctrlStream.Recv()
 			resChan <- recvRes{m, e}
 		}()
 
@@ -167,7 +227,7 @@ func (c *DataClient) run(ctx context.Context) error {
 		select {
 		case <-ticker.C:
 			// Send heartbeat to server
-			err := stream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Heartbeat{
+			err := ctrlStream.Send(&pb.ClientMessage{Payload: &pb.ClientMessage_Heartbeat{
 				Heartbeat: &pb.Heartbeat{Timestamp: time.Now().UnixMilli()},
 			}})
 			if err != nil {

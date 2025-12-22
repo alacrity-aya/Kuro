@@ -3,19 +3,49 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
-//      [TC ingress]
-//           |
-//           v
-//  lookup(limit_rule_map)
-//    |             |
-//    |no rule      |has rule
-//    v             v
-// redirect      call check_limit()
-//                  |
-//          drop? → return SHOT
-//                  |
-//                  v
-//               redirect
+// [TC Gress Entry (skb)]
+//                |
+//                v
+//     +-----------------------+
+//     |     check_limit()     | <--- 1. Token Bucket Rate Limiting
+//     +----------+------------+
+//                |
+//         +------+------+
+//         |             |
+//      [Drop]       [Accept]
+//         |             |
+//         v             v
+//    TC_ACT_SHOT   +---------------------------+
+//                  | Parse Ethernet Header     |
+//                  +-------------+-------------+
+//                                |
+//                 Branch by eth->h_proto
+//                 +--------------+--------------+
+//                 |                             |
+//           [ETH_P_ARP]                    [ETH_P_IP]
+//                 |                             |
+//                 v                             v
+//       +-------------------+         +-----------------------+
+//       |   handle_arp()    |         |  Parse IP Header      |
+//       +---------+---------+         +-----------+-----------+
+//                 |                             |
+//       Extract arp->ar_tip           Extract ip->daddr
+//       (Target IPv4)                 (Destination IPv4)
+//                 |                             |
+//                 +--------------+--------------+
+//                                |
+//                                v
+//                 +------------------------------+
+//                 | lookup(redirect_map, IP)     | <--- 2. Routing Lookup
+//                 +--------------+---------------+
+//                                |
+//                       +--------+--------+
+//                       |                 |
+//                   [Not Found]        [Found]
+//                       |                 |
+//                       v                 v
+//                  TC_ACT_OK      bpf_redirect_peer(ifindex)
+//               (Pass to stack)      (Redirect to Peer)
 
 #define ETH_P_IP 0x0800  /* Internet Protocol packet	*/
 #define ETH_P_ARP 0x0806 /* Address Resolution packet	*/
@@ -190,15 +220,16 @@ static __always_inline int handle_arp(struct __sk_buff *skb) {
     return TC_ACT_OK;
   }
 
-  __be32 target_ip = (arp->ar_tip);
+  __be32 target_ip = arp->ar_tip;
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &target_ip);
 
   if (!to_ifindex) {
-    kuro_debug("ARP target %x not found in map", target_ip);
+
+    kuro_debug("ARP target %pI4 not found in map", &target_ip);
     return TC_ACT_OK;
   }
 
-  kuro_debug("Redirecting ARP for %x to iface %d", target_ip, *to_ifindex);
+  kuro_debug("Redirecting ARP for %pI4 to iface %d", &target_ip, *to_ifindex);
   return bpf_redirect_peer(*to_ifindex, 0);
 
   return 0;
@@ -233,7 +264,7 @@ int gress(struct __sk_buff *skb) {
   if ((void *)(ip + 1) > data_end)
     return TC_ACT_OK;
 
-  __u32 dip = (ip->daddr); // maybe there is a bug here
+  __u32 dip = ip->daddr;
   print_ip_addr(dip);
 
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);

@@ -177,8 +177,6 @@ int xdp_prog(struct xdp_md *ctx) {
   if ((void *)(ip + 1) > data_end)
     return XDP_PASS;
 
-  // NOTE: endian
-
   __u32 dip = ip->daddr;
 
   __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);

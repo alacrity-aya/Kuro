@@ -11,9 +11,14 @@
 - bugs
     - 'ctrl + c' not works for server
     - server should keep alive when client shutdonw
+    - timestamp uint64/int64
 
 - manager
     - the field manager in client should be an interface
+
+- monitor
+    - VictoriaMetrics
+    - Grafana
 
 - rpc
     - use enum or something to describe client capabilities 
