@@ -108,7 +108,6 @@ func (c *DataClient) startReporting(ctx context.Context) {
 			continue
 		}
 
-		// 2. 进入数据发送循环
 		err = c.uploadStats(ctx, stream)
 		if err != nil {
 			slog.Warn("Stream broken, will reconnect", "error", err, "retry", retries)
@@ -117,13 +116,11 @@ func (c *DataClient) startReporting(ctx context.Context) {
 			continue
 		}
 
-		// 如果 uploadStats 正常返回（说明是正常结束），则重置 retries 或直接退出
 		return
 	}
 	slog.Error("Traffic reporting stopped: max retries exceeded")
 }
 
-// uploadStats 负责在一个生命周期内的 stream 发送
 func (c *DataClient) uploadStats(ctx context.Context, stream pb.AgentService_ReportTrafficClient) error {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -149,10 +146,9 @@ func (c *DataClient) uploadStats(ctx context.Context, stream pb.AgentService_Rep
 				}
 
 				if err := stream.Send(pbStat); err != nil {
-					// 遇到错误，把错误抛给上层去重新连 stream
 					if err == io.EOF {
 						_, recvErr := stream.CloseAndRecv()
-						return recvErr // 返回真正的 Server 错误
+						return recvErr
 					}
 					return err
 				}
