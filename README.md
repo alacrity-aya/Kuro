@@ -20,6 +20,9 @@
     - VictoriaMetrics
     - Grafana
 
+- victoria metrics
+    - learn how to use it
+
 - rpc
     - use enum or something to describe client capabilities 
     - complete service: ReportTraffic

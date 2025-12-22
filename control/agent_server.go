@@ -1,6 +1,7 @@
 package control
 
 import (
+	"sync"
 	"time"
 
 	pb "kuro/proto"
@@ -16,7 +17,8 @@ type AgentServer struct {
 
 	// channel to send traffic stats
 	statsChan chan *ReportedStat
-
+	// trace backgroup vm workers
+	wg sync.WaitGroup
 	// inject DB / aggregator / TSDB writer
 }
 
@@ -34,4 +36,9 @@ func NewAgentServer(config map[string]*pb.ApplyNodeConfig) *AgentServer {
 
 		statsChan: make(chan *ReportedStat, 10000),
 	}
+}
+
+func (s *AgentServer) Stop() {
+	close(s.statsChan)
+	s.wg.Wait() // wait for workers to send all batch data
 }

@@ -3,3 +3,4 @@ gen/*.o
 bpf/vmlinux.h
 /bin
 /proto/*.go
+/local-data

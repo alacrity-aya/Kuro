@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"log/slog"
 	"net"
@@ -16,14 +17,19 @@ import (
 )
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelInfo)
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	simCfg, nil := config.LoadConfig("config.toml")
 	config := config.BuildApplyNodeConfigs(simCfg)
 
 	grpcServer := grpc.NewServer()
-
 	controlServer := control.NewAgentServer(config)
+
+	ctx, cancle := context.WithCancel(context.Background())
+	defer cancle()
+
+	// port of victoriametrics
+	controlServer.StartVMWorker(ctx, "http://localhost:8428")
 	pb.RegisterAgentServiceServer(grpcServer, controlServer)
 
 	addr := ":50051"
@@ -35,16 +41,22 @@ func main() {
 
 	slog.Info("control panel listening", "addr", addr)
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
-		<-sigCh
-		slog.Info("shutting down control panel...")
-		grpcServer.GracefulStop()
+		slog.Info("control panel listening", "addr", addr)
+		if err := grpcServer.Serve(lis); err != nil {
+			slog.Error("grpc server failed", "err", err)
+		}
 	}()
 
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("grpc server failed: %v", err)
-	}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	<-sigCh
+
+	slog.Info("shutting down control panel...")
+	grpcServer.GracefulStop()
+
+	cancle()
+	controlServer.Stop()
+
+	slog.Info("Server exited gracefully")
 }
