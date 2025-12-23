@@ -1,0 +1,22 @@
+services:
+  # VictoriaMetrics database
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest
+    container_name: victoriametrics
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8428:8428"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--promscrape.config=/etc/prometheus/prometheus.yml"
+
+  # Grafana dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - victoriametrics

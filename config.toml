@@ -28,11 +28,13 @@ burst_bytes = 80_000_00
 [[host.node]]
 name = "node2"
 type = "exec"
-exec = "ping"
-args = ["127.0.0.1"]
+exec = "sleep"
+args = ["3"]
 cwd = "/home/alacrity"
 ip = "10.10.0.2/24"
 
+
+###############################
 
 [[host]]
 name = "hostB"

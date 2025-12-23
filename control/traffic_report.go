@@ -1,15 +1,13 @@
 package control
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
-	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -65,64 +63,88 @@ func (s *AgentServer) ReportTraffic(stream pb.AgentService_ReportTrafficServer) 
 	}
 }
 
-func (s *AgentServer) StartVMWorker(ctx context.Context, vmURL string) {
-	writeURL := fmt.Sprintf("%s/write", vmURL)
-	ticker := time.NewTicker(3 * time.Second)
-	var batch []string
-	const maxBatchSize = 1000
+var (
+	// flow - bytes
+	trafficAcceptedBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "traffic_accepted_bytes_total", Help: "Total accepted bytes",
+	}, []string{"host", "node", "iface"})
 
+	trafficDroppedBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "traffic_dropped_bytes_total", Help: "Total dropped bytes",
+	}, []string{"host", "node", "iface"})
+
+	// flow - packets
+	trafficAcceptedPackets = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "traffic_accepted_packets_total", Help: "Total accepted packets",
+	}, []string{"host", "node", "iface"})
+
+	trafficDroppedPackets = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "traffic_dropped_packets_total", Help: "Total dropped packets",
+	}, []string{"host", "node", "iface"})
+
+	// rate
+	trafficInstantRateBps = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "traffic_instant_rate_bps", Help: "Instantaneous rate in bps",
+	}, []string{"host", "node", "iface"})
+
+	trafficSmoothRateBps = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "traffic_smooth_rate_bps", Help: "Smoothed rate in bps",
+	}, []string{"host", "node", "iface"})
+)
+
+func init() {
+	prometheus.MustRegister(
+		trafficAcceptedBytes, trafficDroppedBytes,
+		trafficAcceptedPackets, trafficDroppedPackets,
+		trafficInstantRateBps, trafficSmoothRateBps,
+	)
+}
+
+func (s *AgentServer) StartMetricsServer(ctx context.Context, addr string) {
 	s.wg.Go(func() {
-		defer ticker.Stop()
-		slog.Info("VictoriaMetrics worker started", "url", writeURL)
+		slog.Info("Metrics worker started")
 		for {
 			select {
 			case stat, ok := <-s.statsChan:
 				if !ok {
-
-					if len(batch) > 0 {
-						s.sendToVM(writeURL, batch)
-					}
-					slog.Info("Worker: channel closed, final batch flushed")
 					return
 				}
-				line := fmt.Sprintf("traffic,host=%s,node=%s,iface=%s accepted_bytes=%di,dropped_bytes=%di,rate_bps=%f %d",
-					stat.HostName, stat.Stats.NodeName, stat.Stats.IfaceName,
-					stat.Stats.TotalAcceptedBytes, stat.Stats.TotalDroppedBytes,
-					stat.Stats.InstantRateBps, stat.Stats.Timestamp*1000000)
-				batch = append(batch, line)
 
-				if len(batch) >= maxBatchSize {
-					s.sendToVM(writeURL, batch)
-					batch = batch[:0]
+				// extract labels
+				lbls := prometheus.Labels{
+					"host":  stat.HostName,
+					"node":  stat.Stats.NodeName,
+					"iface": stat.Stats.IfaceName,
 				}
 
-			case <-ticker.C:
-				if len(batch) > 0 {
-					s.sendToVM(writeURL, batch)
-					batch = batch[:0]
-				}
+				// updata
+				trafficAcceptedBytes.With(lbls).Set(float64(stat.Stats.TotalAcceptedBytes))
+				trafficDroppedBytes.With(lbls).Set(float64(stat.Stats.TotalDroppedBytes))
+				trafficAcceptedPackets.With(lbls).Set(float64(stat.Stats.TotalAcceptedPackets))
+				trafficDroppedPackets.With(lbls).Set(float64(stat.Stats.TotalDroppedPackets))
+				trafficInstantRateBps.With(lbls).Set(stat.Stats.InstantRateBps)
+				trafficSmoothRateBps.With(lbls).Set(stat.Stats.SmoothRateBps)
 
 			case <-ctx.Done():
-				if len(batch) > 0 {
-					s.sendToVM(writeURL, batch)
-				}
-				slog.Info("Worker: context cancelled, flushing and exiting")
 				return
 			}
 		}
 	})
-}
 
-func (s *AgentServer) sendToVM(url string, lines []string) {
-	body := strings.Join(lines, "\n")
-	resp, err := http.Post(url, "text/plain", bytes.NewBufferString(body))
-	if err != nil {
-		slog.Error("failed to push data to VictoriaMetrics", "error", err)
-		return
-	}
-	defer resp.Body.Close()
+	// start http service
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	srv := &http.Server{Addr: addr, Handler: mux}
 
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		slog.Warn("VM returned unexpected status", "code", resp.StatusCode)
-	}
+	go func() {
+		slog.Info("Metrics HTTP server listening", "addr", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Metrics server failed", "err", err)
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		srv.Shutdown(context.Background())
+	}()
 }

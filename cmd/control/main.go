@@ -29,9 +29,10 @@ func main() {
 	defer cancle()
 
 	// port of victoriametrics
-	controlServer.StartVMWorker(ctx, "http://localhost:8428")
+	controlServer.StartMetricsServer(ctx, "http://localhost:5179")
 	pb.RegisterAgentServiceServer(grpcServer, controlServer)
 
+	// rpc port
 	addr := ":50051"
 
 	lis, err := net.Listen("tcp", addr)
