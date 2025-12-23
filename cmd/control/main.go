@@ -29,7 +29,7 @@ func main() {
 	defer cancle()
 
 	// port of victoriametrics
-	controlServer.StartMetricsServer(ctx, "http://localhost:5179")
+	controlServer.StartMetricsServer(ctx, ":5179")
 	pb.RegisterAgentServiceServer(grpcServer, controlServer)
 
 	// rpc port
