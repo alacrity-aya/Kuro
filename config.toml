@@ -19,11 +19,11 @@ ip = "10.10.0.1/24"
 rate_bps = 12_500_0    # bytes per second
 burst_bytes = 80_000_0
 
-# [host.node.netem]
-# loss = 0.1
-# jitter_ms = 100
-# delay_ms = 1000
-# limit = 10000
+[host.node.netem]
+loss = 0.1
+jitter_ms = 100
+delay_ms = 1000
+limit = 10000
 
 [[host.node]]
 name = "node2"

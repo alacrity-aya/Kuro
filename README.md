@@ -12,8 +12,14 @@
     - 'ctrl + c' not works for server
     - timestamp uint64/int64
 
+- control
+    - don't crash when client panic
+
 - manager
     - the field manager in client should be an interface
+
+- specs
+    - update NetemSpec, the field limit is useless
 
 - rpc
     - use enum or something to describe client capabilities 
@@ -38,9 +44,6 @@
 
 - sandbox
     - node - cgroup - netns
-
-- performance
-    - TC -> XDP
 
 - upstream(nelink bug)
     - create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 

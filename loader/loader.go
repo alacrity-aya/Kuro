@@ -133,6 +133,30 @@ func (p *EbpfProgram) Attach(ifaceName string) error {
 	return nil
 }
 
+func (p *EbpfProgram) UpdateNetem(delayMs, jitterMs, loss float64) error {
+	if !p.loaded {
+		return fmt.Errorf("program not loaded")
+	}
+
+	rule := gen.TcNetemRule{
+		Loss:     uint64(loss),
+		JitterMs: uint64(jitterMs),
+		DelayMs:  uint64(delayMs),
+	}
+
+	slog.Debug("Updating NetemRuleMap",
+		"ifaceIdx", p.ifaceIndex,
+		"delay", rule.DelayMs,
+		"jitter", rule.JitterMs,
+		"loss", rule.Loss)
+
+	if err := p.objs.NetemRuleMap.Update(p.ifaceIndex, rule, ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("failed to update netem map: %w", err)
+	}
+
+	return nil
+}
+
 func (p *EbpfProgram) UpdateRateLimit(rate, burst uint64) error {
 	if !p.loaded {
 		return fmt.Errorf("program not loaded")
@@ -149,14 +173,14 @@ func (p *EbpfProgram) UpdateRateLimit(rate, burst uint64) error {
 	}
 	slog.Debug("Initialized bucket state", "state", newState)
 
-	rule := gen.TcBucketRule{
+	rule := gen.TcTrafficRule{
 		RateBytes:  rate,
 		BurstBytes: burst,
 	}
 
 	slog.Debug("Updating BucketRuleMap", "ifaceIdx", p.ifaceIndex, "rate", rate, "burst", burst)
 
-	if err := p.objs.BucketRuleMap.Update(p.ifaceIndex, rule, ebpf.UpdateAny); err != nil {
+	if err := p.objs.TrafficRuleMap.Update(p.ifaceIndex, rule, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("failed to update rate limit map: %w", err)
 	}
 
@@ -265,7 +289,7 @@ func NewEbpfManager() *EbpfManager {
 	}
 }
 
-func (m *EbpfManager) Sync(specs []spec.ProgramSpec, routes []spec.RouteSpec) error {
+func (m *EbpfManager) Sync(programs []spec.ProgramSpec, routes []spec.RouteSpec, netems []spec.NetemSpec) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -279,8 +303,9 @@ func (m *EbpfManager) Sync(specs []spec.ProgramSpec, routes []spec.RouteSpec) er
 		slog.Debug("successed to load tc objects")
 	}
 
-	for _, spec := range specs {
-		if _, exists := m.programs[spec.IfaceName]; exists {
+	// Attach Tc and update rate limit rules
+	for _, program := range programs {
+		if _, exists := m.programs[program.IfaceName]; exists {
 			continue
 		}
 
@@ -290,21 +315,35 @@ func (m *EbpfManager) Sync(specs []spec.ProgramSpec, routes []spec.RouteSpec) er
 		slog.Debug("Attach tc hook...")
 
 		// Attach sets the p.ifaceIndex
-		if err := prog.Attach(spec.IfaceName); err != nil {
-			slog.Error("Failed to attach BPF program", "iface", spec.IfaceName, "error", err)
+		if err := prog.Attach(program.IfaceName); err != nil {
+			slog.Error("Failed to attach BPF program", "iface", program.IfaceName, "error", err)
 			prog.Detach()
 			continue
 		}
 
-		if spec.RateLimit != nil {
-			if err := prog.UpdateRateLimit(spec.RateLimit.RateBytes, spec.RateLimit.BurstBytes); err != nil {
-				slog.Error("Failed to update rate limit", "iface", spec.IfaceName, "error", err)
+		if program.RateLimit != nil {
+			if err := prog.UpdateRateLimit(program.RateLimit.RateBytes, program.RateLimit.BurstBytes); err != nil {
+				slog.Error("Failed to update rate limit", "iface", program.IfaceName, "error", err)
 				prog.Detach()
 				continue
 			}
 		}
 
-		m.programs[spec.IfaceName] = prog
+		m.programs[program.IfaceName] = prog
+	}
+
+	// Update netem rules
+	for _, netem := range netems {
+		// BUG: netem.IfaceName and program.IfaceName is different
+		prog, exists := m.programs[netem.IfaceName]
+		if !exists {
+			slog.Warn("Netem rule target interface not managed by eBPF, skipping", "iface", netem.IfaceName)
+			continue
+		}
+
+		if err := prog.UpdateNetem(netem.LatencyMs, netem.JitterMs, netem.LossPercent); err != nil {
+			slog.Error("Failed to update netem rule", "iface", netem.IfaceName, "error", err)
+		}
 	}
 
 	// Update Redirect Map

@@ -72,7 +72,7 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 				IfaceName:   utils.PeerEthName(node.Name),
 				LatencyMs:   node.Netem.DelayMs,
 				JitterMs:    node.Netem.JitterMs,
-				LossPercent: node.Netem.Loss,
+				LossPercent: node.Netem.Loss * 100,
 				Limit:       limit,
 			}
 

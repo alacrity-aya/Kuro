@@ -3,50 +3,6 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
-// [TC Gress Entry (skb)]
-//                |
-//                v
-//     +-----------------------+
-//     |     check_limit()     | <--- 1. Token Bucket Rate Limiting
-//     +----------+------------+
-//                |
-//         +------+------+
-//         |             |
-//      [Drop]       [Accept]
-//         |             |
-//         v             v
-//    TC_ACT_SHOT   +---------------------------+
-//                  | Parse Ethernet Header     |
-//                  +-------------+-------------+
-//                                |
-//                 Branch by eth->h_proto
-//                 +--------------+--------------+
-//                 |                             |
-//           [ETH_P_ARP]                    [ETH_P_IP]
-//                 |                             |
-//                 v                             v
-//       +-------------------+         +-----------------------+
-//       |   handle_arp()    |         |  Parse IP Header      |
-//       +---------+---------+         +-----------+-----------+
-//                 |                             |
-//       Extract arp->ar_tip           Extract ip->daddr
-//       (Target IPv4)                 (Destination IPv4)
-//                 |                             |
-//                 +--------------+--------------+
-//                                |
-//                                v
-//                 +------------------------------+
-//                 | lookup(redirect_map, IP)     | <--- 2. Routing Lookup
-//                 +--------------+---------------+
-//                                |
-//                       +--------+--------+
-//                       |                 |
-//                   [Not Found]        [Found]
-//                       |                 |
-//                       v                 v
-//                  TC_ACT_OK      bpf_redirect_peer(ifindex)
-//               (Pass to stack)      (Redirect to Peer)
-
 #define ETH_P_IP 0x0800  /* Internet Protocol packet	*/
 #define ETH_P_ARP 0x0806 /* Address Resolution packet	*/
 
@@ -59,9 +15,10 @@
 #define INGRESS 0
 #define EGRESS 1
 
-#define NANO_PER_SEC 1000000000ULL
+#define NSEC_PER_SEC 1000000000ULL
+#define NSEC_PER_MSEC 1000000ULL
 
-#define ENABLE_PRINT 0
+#define ENABLE_PRINT 1
 
 #if ENABLE_PRINT
 #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
@@ -71,8 +28,6 @@
 #define kuro_debug(fmt, ...)
 
 #endif /* ENABLE_PRINT */
-
-char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 static __always_inline void print_ip_addr(__be32 ip_addr) {
 
@@ -105,8 +60,22 @@ struct {
   __type(value, struct bucket_state);
 } bucket_state_map SEC(".maps"); // should be initialized in user-side
 
-// flow rule
-struct bucket_rule {
+// traffic rule
+struct netem_rule {
+  __u64 loss;
+  __u64 jitter_ms;
+  __u64 delay_ms;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, 1024);
+  __type(key, __u32); // iface_index
+  __type(value, struct netem_rule);
+} netem_rule_map SEC(".maps");
+
+// traffic rule
+struct traffic_rule {
   __u64 rate_bytes;
   __u64 burst_bytes;
 };
@@ -115,8 +84,8 @@ struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, 1024);
   __type(key, __u32); // iface_index
-  __type(value, struct bucket_rule);
-} bucket_rule_map SEC(".maps");
+  __type(value, struct traffic_rule);
+} traffic_rule_map SEC(".maps");
 
 // count flow
 struct flow_counter {
@@ -148,7 +117,7 @@ static __always_inline int check_limit(struct __sk_buff *skb) {
   if (bucket == NULL)
     return 0; // no limit → ok
 
-  struct bucket_rule *rule = bpf_map_lookup_elem(&bucket_rule_map, &key);
+  struct traffic_rule *rule = bpf_map_lookup_elem(&traffic_rule_map, &key);
   if (rule == NULL)
     return 0; // no limit → ok
 
@@ -162,7 +131,7 @@ static __always_inline int check_limit(struct __sk_buff *skb) {
 
   if (delta > 0) {
     __u64 max_tokens = rule->burst_bytes;
-    __u64 new_tokens = (delta * rule->rate_bytes) / NANO_PER_SEC;
+    __u64 new_tokens = (delta * rule->rate_bytes) / NSEC_PER_SEC;
 
     bucket->tokens += new_tokens;
 
@@ -235,6 +204,59 @@ static __always_inline int handle_arp(struct __sk_buff *skb) {
   return 0;
 }
 
+// Apply netem rule:
+// return 0 -> ok; return 1 -> drop this package;
+static __always_inline int apply_netem(struct __sk_buff *skb) {
+  __u32 key = skb->ifindex;
+  struct netem_rule *rule = bpf_map_lookup_elem(&netem_rule_map, &key);
+
+  if (rule == NULL) {
+    kuro_debug("rule == NULL, skip netem");
+    return 0;
+  }
+
+  if (rule->loss != 0) {
+    if ((bpf_get_prandom_u32() % 100) < rule->loss) {
+      kuro_debug("Packet lost due to netem rule.");
+      return 1;
+    }
+  }
+
+  __u64 base_delay_ns = rule->delay_ms * NSEC_PER_MSEC;
+  __u64 final_delay_ns = base_delay_ns;
+
+  if (rule->jitter_ms > 0) {
+    // [delay - jitter, delay + jitter]
+    __u64 range_ms = 2 * rule->jitter_ms;
+    __u64 rand_32 = bpf_get_prandom_u32();
+
+    __u64 jitter_offset_ms = (rand_32 * range_ms) >> 32;
+
+    // Handle underflow
+    __u64 total_ms = rule->delay_ms + jitter_offset_ms;
+    if (total_ms > rule->jitter_ms) {
+      final_delay_ns = (total_ms - rule->jitter_ms) * NSEC_PER_MSEC;
+    } else {
+      final_delay_ns = 0;
+    }
+  }
+
+  // Set EDT
+  if (final_delay_ns >= 0) {
+    __u64 now = bpf_ktime_get_ns();
+
+    __u64 t_arrival = skb->tstamp ? skb->tstamp : now;
+    __u64 target_tstamp = t_arrival + final_delay_ns;
+
+    if (target_tstamp < now)
+      target_tstamp = now;
+
+    bpf_skb_set_tstamp(skb, target_tstamp, BPF_SKB_TSTAMP_DELIVERY_MONO);
+  }
+
+  return 0;
+}
+
 // main entry
 SEC("tc")
 int gress(struct __sk_buff *skb) {
@@ -252,6 +274,10 @@ int gress(struct __sk_buff *skb) {
   struct ethhdr *eth = data;
   if ((void *)(eth + 1) > data_end)
     return TC_ACT_OK;
+
+  dropped = apply_netem(skb);
+  if (dropped == 1)
+    return TC_ACT_SHOT;
 
   if (eth->h_proto == bpf_htons(ETH_P_ARP)) {
     return handle_arp(skb);
@@ -273,11 +299,6 @@ int gress(struct __sk_buff *skb) {
     return TC_ACT_OK;
   }
 
-#define DELAY_NS 200000000ULL
-  __u64 now = bpf_ktime_get_ns();
-  bpf_skb_set_tstamp(skb, now + DELAY_NS, BPF_SKB_TSTAMP_DELIVERY_MONO);
-
-  // long ret = bpf_redirect_peer(*to_ifindex, 0);
   long ret = bpf_redirect(*to_ifindex, 0);
 
   print_ip_addr(dip);
@@ -287,3 +308,5 @@ int gress(struct __sk_buff *skb) {
 
   return ret;
 }
+
+char LICENSE[] SEC("license") = "Dual BSD/GPL";

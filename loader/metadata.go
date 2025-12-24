@@ -46,8 +46,8 @@ func (m *EbpfManager) GetMetadata() EbpfMetadata {
 			IsLoaded:   prog.loaded,
 		}
 
-		var rule gen.TcBucketRule
-		if m.objs != nil && m.objs.BucketRuleMap.Lookup(prog.ifaceIndex, &rule) == nil {
+		var rule gen.TcTrafficRule
+		if m.objs != nil && m.objs.TrafficRuleMap.Lookup(prog.ifaceIndex, &rule) == nil {
 			pMeta.RateLimit = &RateLimitMetadata{
 				RateBytes:  rule.RateBytes,
 				BurstBytes: rule.BurstBytes,

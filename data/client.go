@@ -305,15 +305,16 @@ func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
 	}
 	c.topoManager = t
 
-	n := netem.NewNetemManager(specs.NetemSpecs)
-	err = n.Apply()
-	if err != nil {
-		return fmt.Errorf("set netem rules failed: %v", err)
-	}
-	c.netemManager = n
+	// TODO: remove netemManager
+	_ = netem.NewNetemManager(specs.NetemSpecs)
+	// err = n.Apply()
+	// if err != nil {
+	// 	return fmt.Errorf("set netem rules failed: %v", err)
+	// }
+	// c.netemManager = n
 
 	l := loader.NewEbpfManager()
-	if err := l.Sync(specs.ProgramSpecs, specs.RouteSpecs); err != nil {
+	if err := l.Sync(specs.ProgramSpecs, specs.RouteSpecs, specs.NetemSpecs); err != nil {
 		return fmt.Errorf("failed to load eBPF programs and attachments, err: %v", err)
 	}
 	slog.Info("eBPF programs loaded and attached successfully.")
