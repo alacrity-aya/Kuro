@@ -10,23 +10,19 @@
 
 - bugs
     - 'ctrl + c' not works for server
-    - server should keep alive when client shutdonw
     - timestamp uint64/int64
 
 - manager
     - the field manager in client should be an interface
 
-- monitor
-    - VictoriaMetrics
-    - Grafana
-
-- victoria metrics
-    - learn how to use it
-
 - rpc
     - use enum or something to describe client capabilities 
     - complete service: ReportTraffic
     - offline state
+    - dynamic rule
+
+- victoria metrics
+    - upload config
 
 - control panel
     - RPC(across hosts)

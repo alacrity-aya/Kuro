@@ -61,7 +61,7 @@
 
 #define NANO_PER_SEC 1000000000ULL
 
-#define ENABLE_PRINT 1
+#define ENABLE_PRINT 0
 
 #if ENABLE_PRINT
 #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
@@ -273,7 +273,12 @@ int gress(struct __sk_buff *skb) {
     return TC_ACT_OK;
   }
 
-  long ret = bpf_redirect_peer(*to_ifindex, 0);
+#define DELAY_NS 200000000ULL
+  __u64 now = bpf_ktime_get_ns();
+  bpf_skb_set_tstamp(skb, now + DELAY_NS, BPF_SKB_TSTAMP_DELIVERY_MONO);
+
+  // long ret = bpf_redirect_peer(*to_ifindex, 0);
+  long ret = bpf_redirect(*to_ifindex, 0);
 
   print_ip_addr(dip);
   kuro_debug("[Success] src index = %u, dst index = %u, ret = [%ld-%s]",

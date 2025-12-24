@@ -15,7 +15,7 @@ import (
 	pb "kuro/proto"
 )
 
-// ReportTraffic placeholder
+// ReportTraffic receive traffic from client
 func (s *AgentServer) ReportTraffic(stream pb.AgentService_ReportTrafficServer) error {
 	ctx := stream.Context()
 
@@ -63,6 +63,7 @@ func (s *AgentServer) ReportTraffic(stream pb.AgentService_ReportTrafficServer) 
 	}
 }
 
+// define variables need to be uploaded to victoria metrics
 var (
 	// flow - bytes
 	trafficAcceptedBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -90,6 +91,12 @@ var (
 	trafficSmoothRateBps = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "traffic_smooth_rate_bps", Help: "Smoothed rate in bps",
 	}, []string{"host", "node", "iface"})
+
+	// 0: Offline, 1: Online
+	agentOnlineStatus = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "agent_online_status",
+		Help: "Online status of the agent (1 for online, 0 for offline)",
+	}, []string{"host"})
 )
 
 func init() {
@@ -97,6 +104,7 @@ func init() {
 		trafficAcceptedBytes, trafficDroppedBytes,
 		trafficAcceptedPackets, trafficDroppedPackets,
 		trafficInstantRateBps, trafficSmoothRateBps,
+		agentOnlineStatus,
 	)
 }
 

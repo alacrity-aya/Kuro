@@ -17,9 +17,9 @@ type AgentServer struct {
 
 	// channel to send traffic stats
 	statsChan chan *ReportedStat
+
 	// trace backgroup vm workers
 	wg sync.WaitGroup
-	// inject DB / aggregator / TSDB writer
 }
 
 type ReportedStat struct {

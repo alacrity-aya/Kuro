@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	pb "kuro/proto"
+	"kuro/spec"
 )
 
 type hostInfo struct {
@@ -40,6 +41,18 @@ type MemRegistry struct {
 
 func NewMemRegistry(configs map[string]*pb.ApplyNodeConfig) *MemRegistry {
 	return &MemRegistry{configs: configs, info: make(map[string]*hostInfo)}
+}
+
+func (m *MemRegistry) GetConfig(hostName string) spec.Specs {
+	m.mu.RLock()
+	defer m.mu.Unlock()
+
+	specs, err := spec.BuildSpecs(m.configs[hostName])
+	if err != nil {
+		slog.Error("BuildSpecs failed", "error", err, "host name", hostName)
+	}
+
+	return *specs
 }
 
 // RegisterHost return hostname config

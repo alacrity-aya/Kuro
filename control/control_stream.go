@@ -32,6 +32,9 @@ func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) 
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = s.registry.UpdateHostState(cleanupCtx, registeredHost, false)
+
+			// mark server offline for victoria metrics
+			agentOnlineStatus.WithLabelValues(registeredHost).Set(0)
 			slog.Info("agent connection closed", "host", registeredHost)
 		}
 	}()
@@ -126,6 +129,9 @@ func (s *AgentServer) ControlStream(stream pb.AgentService_ControlStreamServer) 
 				if err := s.registry.UpdateHostState(ctx, registeredHost, true); err != nil {
 					return status.Errorf(codes.Internal, "failed to update state: %v", err)
 				}
+
+				// mark server offline for victoria metrics
+				agentOnlineStatus.WithLabelValues(registeredHost).Set(1)
 
 				isPendingAck = false
 				// Timer was already reset to heartbeatTimeout at the start of select case
