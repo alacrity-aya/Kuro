@@ -15,20 +15,14 @@
 - bpf
     - combine treffic_rule and netem rule to improve performance
     - sync time
+    - mark flow passing by vxlan(traffic limit)
 
 - control
     - don't crash when client panic
-
-- manager
-    - the field manager in client should be an interface
-
-- specs
-    - update NetemSpec, the field limit is useless
+    - validate config file(like ip)
 
 - rpc
     - use enum or something to describe client capabilities 
-    - complete service: ReportTraffic
-    - offline state
     - dynamic rule
 
 - victoria metrics
