@@ -23,7 +23,6 @@ burst_bytes = 80_000_0
 loss = 0.1
 jitter_ms = 100
 delay_ms = 1000
-limit = 10000
 
 [[host.node]]
 name = "node2"

@@ -62,10 +62,6 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 
 		// netemSpecs
 		if node.Netem != nil {
-			limit := node.Netem.Limit
-			if limit == 0 {
-				limit = 1000
-			}
 
 			netemSpec := NetemSpec{
 				NsName:      utils.NetnsName(node.Name),
@@ -73,7 +69,6 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 				LatencyMs:   node.Netem.DelayMs,
 				JitterMs:    node.Netem.JitterMs,
 				LossPercent: node.Netem.Loss * 100,
-				Limit:       limit,
 			}
 
 			netemSpecs = append(netemSpecs, netemSpec)

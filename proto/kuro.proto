@@ -102,7 +102,6 @@ message Netem {
   double loss = 1;
   double jitter_ms = 2;
   double delay_ms = 3;
-  uint32 limit = 4;
 }
 
 //

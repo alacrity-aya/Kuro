@@ -58,5 +58,4 @@ type NetemSpec struct {
 	LatencyMs   float64
 	JitterMs    float64
 	LossPercent float64
-	Limit       uint32
 }

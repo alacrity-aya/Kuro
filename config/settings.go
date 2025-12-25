@@ -51,7 +51,6 @@ type Netem struct {
 	DelayMs  float64 `toml:"delay_ms,omitempty"`
 	JitterMs float64 `toml:"jitter_ms,omitempty"`
 	LossPct  float64 `toml:"loss,omitempty"`
-	Limit    uint32  `toml:"limit,omitempty"`
 }
 
 type RouteConfig struct {
@@ -180,7 +179,6 @@ func buildNodeConfig(n NodeConfig) *pb.NodeConfig {
 			Loss:     n.Netem.LossPct,
 			JitterMs: n.Netem.JitterMs,
 			DelayMs:  n.Netem.DelayMs,
-			Limit:    n.Netem.Limit,
 		}
 	}
 

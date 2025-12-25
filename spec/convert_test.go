@@ -32,7 +32,6 @@ func TestBuildSpecs(t *testing.T) {
 				},
 				Netem: &proto.Netem{
 					DelayMs: 20.5,
-					Limit:   500,
 				},
 			},
 		},
@@ -66,7 +65,7 @@ func TestBuildSpecs(t *testing.T) {
 	if len(res.NetemSpecs) != 1 {
 		t.Fatalf("expected 1 netem spec")
 	}
-	if res.NetemSpecs[0].LatencyMs != 20.5 || res.NetemSpecs[0].Limit != 500 {
+	if res.NetemSpecs[0].LatencyMs != 20.5 {
 		t.Errorf("netem spec values mismatch")
 	}
 
