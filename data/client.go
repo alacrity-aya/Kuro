@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"kuro/loader"
-	"kuro/netem"
 	pb "kuro/proto"
 	"kuro/spec"
 	"kuro/topo"
@@ -46,9 +45,6 @@ type DataClient struct {
 
 	// Keep track of the current topology to tear it down on shutdown/reconfig
 	topoManager *topo.RuntimeTopo
-
-	// Network netem manager
-	netemManager *netem.NetemManager
 }
 
 func NewDataClient(
@@ -305,14 +301,6 @@ func (c *DataClient) applyNodeConfig(config *pb.ApplyNodeConfig) error {
 	}
 	c.topoManager = t
 
-	// TODO: remove netemManager
-	_ = netem.NewNetemManager(specs.NetemSpecs)
-	// err = n.Apply()
-	// if err != nil {
-	// 	return fmt.Errorf("set netem rules failed: %v", err)
-	// }
-	// c.netemManager = n
-
 	l := loader.NewEbpfManager()
 	if err := l.Sync(specs.ProgramSpecs, specs.RouteSpecs, specs.NetemSpecs); err != nil {
 		return fmt.Errorf("failed to load eBPF programs and attachments, err: %v", err)
@@ -331,7 +319,6 @@ func (c *DataClient) inspectMetadata() {
 	fmt.Println("\n===========  inspectMetadata  ===========")
 
 	c.bpfManager.InspectMetadata()
-	c.netemManager.Inspect()
 	c.topoManager.InspectTopology()
 
 	fmt.Println("\n=========================================")

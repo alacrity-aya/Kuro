@@ -62,7 +62,7 @@ struct {
 
 // traffic rule
 struct netem_rule {
-  __u64 loss;
+  __u64 loss_threshold;
   __u64 jitter_ms;
   __u64 delay_ms;
 };
@@ -247,8 +247,8 @@ static __always_inline int apply_delay(struct __sk_buff *skb,
 // Apply netem rule:
 // return 0 -> ok; return 1 -> drop this package;
 static __always_inline int apply_loss(struct netem_rule *rule) {
-  if (rule != NULL && rule->loss != 0) {
-    if ((bpf_get_prandom_u32() % 100) < rule->loss) {
+  if (rule != NULL && rule->loss_threshold != 0) {
+    if (bpf_get_prandom_u32() < rule->loss_threshold) {
       kuro_debug("Packet lost due to netem rule.");
       return 1;
     }

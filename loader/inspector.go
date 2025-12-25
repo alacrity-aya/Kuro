@@ -13,11 +13,19 @@ type EbpfMetadata struct {
 	Routes   []RouteMetadata
 }
 
+type NetemMetadata struct {
+	DelayMs       uint64
+	JitterMs      uint64
+	LossThreshold uint64
+	Loss          float64
+}
+
 type ProgramMetadata struct {
 	IfaceName  string
 	IfaceIndex uint32
 	IsLoaded   bool
 	RateLimit  *RateLimitMetadata
+	Netem      *NetemMetadata
 }
 
 type RateLimitMetadata struct {
@@ -53,7 +61,19 @@ func (m *EbpfManager) GetMetadata() EbpfMetadata {
 				BurstBytes: rule.BurstBytes,
 			}
 		}
+
+		var netem gen.TcNetemRule
+		if m.objs != nil && m.objs.NetemRuleMap.Lookup(prog.ifaceIndex, &netem) == nil {
+			pMeta.Netem = &NetemMetadata{
+				DelayMs:       netem.DelayMs,
+				JitterMs:      netem.JitterMs,
+				LossThreshold: netem.LossThreshold,
+				Loss:          float64(netem.LossThreshold) / 4294967295.0,
+			}
+		}
+
 		metadata.Programs = append(metadata.Programs, pMeta)
+
 	}
 
 	if m.objs != nil && m.objs.RedirectMap != nil {
@@ -93,8 +113,14 @@ func (m *EbpfManager) InspectMetadata() {
 			limitStr = fmt.Sprintf("Rate:%d, Burst:%d", p.RateLimit.RateBytes, p.RateLimit.BurstBytes)
 		}
 
-		fmt.Printf("  [Iface: %-10s | Index: %-3d] Status: %-10s | TC-Limit: %s\n",
-			p.IfaceName, p.IfaceIndex, status, limitStr)
+		netemStr := "None"
+
+		if p.Netem != nil {
+			netemStr = fmt.Sprintf("DelayMs:%d, JissterMs:%d, LossThreshold:%x, Loss = %f", p.Netem.DelayMs, p.Netem.JitterMs, p.Netem.LossThreshold, p.Netem.Loss)
+		}
+
+		fmt.Printf("  [Iface: %-10s | Index: %-3d] Status: %-10s | TC-Limit: %s - Netem: %s\n",
+			p.IfaceName, p.IfaceIndex, status, limitStr, netemStr)
 	}
 
 	fmt.Println("Redirect Routes (L3):")
