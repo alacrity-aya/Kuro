@@ -18,7 +18,7 @@ func NodeNameFromNetns(netns string) (string, error) {
 	return netns[len(prefix):], nil
 }
 
-// EthName eth in host
+// EthName iface name in host
 func EthName(nodeName string) string {
 	return "v-" + nodeName
 }
@@ -31,7 +31,7 @@ func NodeNameFromEth(eth string) (string, error) {
 	return eth[len(prefix):], nil
 }
 
-// PeerEthName eth in node ns
+// PeerEthName iface name in node ns
 func PeerEthName(nodeName string) string {
 	return "p-" + nodeName
 }

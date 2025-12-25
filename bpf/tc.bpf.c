@@ -110,14 +110,14 @@ struct {
 } redirect_map SEC(".maps");
 
 // return 0 = ok, 1 = drop
-static __always_inline int check_limit(struct __sk_buff *skb) {
+static __always_inline int apply_limit(struct __sk_buff *skb,
+                                       struct traffic_rule *rule) {
 
   __u32 key = skb->ifindex;
   struct bucket_state *bucket = bpf_map_lookup_elem(&bucket_state_map, &key);
   if (bucket == NULL)
     return 0; // no limit → ok
 
-  struct traffic_rule *rule = bpf_map_lookup_elem(&traffic_rule_map, &key);
   if (rule == NULL)
     return 0; // no limit → ok
 
@@ -175,11 +175,8 @@ struct arp_eth_ipv4 { // arp header
   __be32 ar_tip;
 } __attribute__((packed));
 
-static __always_inline int handle_arp(struct __sk_buff *skb) {
-  void *data = (void *)(long)skb->data;
-  void *data_end = (void *)(long)skb->data_end;
-
-  struct ethhdr *eth = data;
+static __always_inline int handle_arp(struct __sk_buff *skb, struct ethhdr *eth,
+                                      void *data, void *data_end) {
   struct arp_eth_ipv4 *arp = data + sizeof(*eth);
 
   if ((void *)(arp + 1) > data_end)
@@ -206,33 +203,22 @@ static __always_inline int handle_arp(struct __sk_buff *skb) {
 
 // Apply netem rule:
 // return 0 -> ok; return 1 -> drop this package;
-static __always_inline int apply_netem(struct __sk_buff *skb) {
-  __u32 key = skb->ifindex;
-  struct netem_rule *rule = bpf_map_lookup_elem(&netem_rule_map, &key);
+static __always_inline int apply_delay(struct __sk_buff *skb,
+                                       struct netem_rule *rule) {
 
-  if (rule == NULL) {
-    kuro_debug("rule == NULL, skip netem");
+  if (!rule) {
     return 0;
   }
 
-  if (rule->loss != 0) {
-    if ((bpf_get_prandom_u32() % 100) < rule->loss) {
-      kuro_debug("Packet lost due to netem rule.");
-      return 1;
-    }
-  }
-
-  __u64 base_delay_ns = rule->delay_ms * NSEC_PER_MSEC;
-  __u64 final_delay_ns = base_delay_ns;
+  __u64 final_delay_ns = rule->delay_ms * NSEC_PER_MSEC;
 
   if (rule->jitter_ms > 0) {
-    // [delay - jitter, delay + jitter]
-    __u64 range_ms = 2 * rule->jitter_ms;
+    __u64 range_ms = 2ULL * rule->jitter_ms;
     __u64 rand_32 = bpf_get_prandom_u32();
 
+    // (rand_32 * range_ms) >> 32 == rand_32 % range_ms
     __u64 jitter_offset_ms = (rand_32 * range_ms) >> 32;
 
-    // Handle underflow
     __u64 total_ms = rule->delay_ms + jitter_offset_ms;
     if (total_ms > rule->jitter_ms) {
       final_delay_ns = (total_ms - rule->jitter_ms) * NSEC_PER_MSEC;
@@ -241,33 +227,58 @@ static __always_inline int apply_netem(struct __sk_buff *skb) {
     }
   }
 
-  // Set EDT
-  if (final_delay_ns >= 0) {
+  if (final_delay_ns > 0) {
     __u64 now = bpf_ktime_get_ns();
 
-    __u64 t_arrival = skb->tstamp ? skb->tstamp : now;
-    __u64 target_tstamp = t_arrival + final_delay_ns;
+    __u64 target_tstamp = now + final_delay_ns;
 
     if (target_tstamp < now)
       target_tstamp = now;
 
     bpf_skb_set_tstamp(skb, target_tstamp, BPF_SKB_TSTAMP_DELIVERY_MONO);
+
+    kuro_debug("Netem fix: now %llu, target %llu, delay %llu", now,
+               target_tstamp, final_delay_ns);
   }
 
+  return 0;
+}
+
+// Apply netem rule:
+// return 0 -> ok; return 1 -> drop this package;
+static __always_inline int apply_loss(struct netem_rule *rule) {
+  if (rule != NULL && rule->loss != 0) {
+    if ((bpf_get_prandom_u32() % 100) < rule->loss) {
+      kuro_debug("Packet lost due to netem rule.");
+      return 1;
+    }
+  }
   return 0;
 }
 
 // main entry
 SEC("tc")
 int gress(struct __sk_buff *skb) {
-  __u32 in_ifindex = skb->ifindex;
 
-  // check if there's rate limiting
-  int dropped = check_limit(skb);
-  if (dropped == 1)
+  __u32 key = skb->ifindex;
+  struct netem_rule *netem_rule = bpf_map_lookup_elem(&netem_rule_map, &key);
+
+  // Apply packet loss
+  if (apply_loss(netem_rule) == 1)
     return TC_ACT_SHOT;
 
-  // redirect according to dst ip
+  // Check if there's rate limiting
+  struct traffic_rule *traffic_rule =
+      bpf_map_lookup_elem(&traffic_rule_map, &key);
+
+  if (apply_limit(skb, traffic_rule) == 1)
+    return TC_ACT_SHOT;
+
+  // Apply delay and jitter
+  if (apply_delay(skb, netem_rule) == 1)
+    return TC_ACT_SHOT;
+
+  // Redirect packets
   void *data = (void *)(long)skb->data;
   void *data_end = (void *)(long)skb->data_end;
 
@@ -275,12 +286,8 @@ int gress(struct __sk_buff *skb) {
   if ((void *)(eth + 1) > data_end)
     return TC_ACT_OK;
 
-  dropped = apply_netem(skb);
-  if (dropped == 1)
-    return TC_ACT_SHOT;
-
   if (eth->h_proto == bpf_htons(ETH_P_ARP)) {
-    return handle_arp(skb);
+    return handle_arp(skb, eth, data, data_end);
   }
 
   if (eth->h_proto != bpf_htons(ETH_P_IP))
@@ -302,9 +309,8 @@ int gress(struct __sk_buff *skb) {
   long ret = bpf_redirect(*to_ifindex, 0);
 
   print_ip_addr(dip);
-  kuro_debug("[Success] src index = %u, dst index = %u, ret = [%ld-%s]",
-             skb->ifindex, to_ifindex, ret,
-             ret == TCX_REDIRECT ? "REDIRECT" : "SHOT");
+  kuro_debug("[Success] src index = %u, dst index = %u, ret = %s", skb->ifindex,
+             *to_ifindex, ret, ret == TCX_REDIRECT ? "REDIRECT" : "SHOT");
 
   return ret;
 }

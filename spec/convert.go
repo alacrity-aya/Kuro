@@ -69,7 +69,7 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 
 			netemSpec := NetemSpec{
 				NsName:      utils.NetnsName(node.Name),
-				IfaceName:   utils.PeerEthName(node.Name),
+				IfaceName:   utils.EthName(node.Name),
 				LatencyMs:   node.Netem.DelayMs,
 				JitterMs:    node.Netem.JitterMs,
 				LossPercent: node.Netem.Loss * 100,

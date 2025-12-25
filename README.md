@@ -12,6 +12,10 @@
     - 'ctrl + c' not works for server
     - timestamp uint64/int64
 
+- bpf
+    - combine treffic_rule and netem rule to improve performance
+    - sync time
+
 - control
     - don't crash when client panic
 
@@ -41,6 +45,7 @@
 - config file
     - python sdk to write config file
     - gui(Tauri: Typescript + rust)
+
 
 - sandbox
     - node - cgroup - netns

@@ -330,11 +330,11 @@ func (m *EbpfManager) Sync(programs []spec.ProgramSpec, routes []spec.RouteSpec,
 		}
 
 		m.programs[program.IfaceName] = prog
+
 	}
 
 	// Update netem rules
 	for _, netem := range netems {
-		// BUG: netem.IfaceName and program.IfaceName is different
 		prog, exists := m.programs[netem.IfaceName]
 		if !exists {
 			slog.Warn("Netem rule target interface not managed by eBPF, skipping", "iface", netem.IfaceName)

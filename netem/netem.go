@@ -99,16 +99,18 @@ func applySingle(spec spec.NetemSpec) error {
 
 // Inspect queries the current qdisc information from the OS and prints it.
 func (m *NetemManager) Inspect() {
-	fmt.Println("\n--- Netem Runtime Inspection ---")
+	// fmt.Println("\n--- Netem Runtime Inspection ---")
+	//
+	// for _, s := range m.specs {
+	// 	info, err := m.getLiveQdiscInfo(s)
+	// 	if err != nil {
+	// 		slog.Error("Failed to inspect interface", "ns", s.NsName, "iface", s.IfaceName, "error", err)
+	// 		continue
+	// 	}
+	// 	fmt.Printf("[NS: %s | Iface: %s] %s\n", s.NsName, s.IfaceName, info)
+	// }
 
-	for _, s := range m.specs {
-		info, err := m.getLiveQdiscInfo(s)
-		if err != nil {
-			slog.Error("Failed to inspect interface", "ns", s.NsName, "iface", s.IfaceName, "error", err)
-			continue
-		}
-		fmt.Printf("[NS: %s | Iface: %s] %s\n", s.NsName, s.IfaceName, info)
-	}
+	slog.Warn("module netem should be removed")
 }
 
 func (m *NetemManager) getLiveQdiscInfo(s spec.NetemSpec) (string, error) {
