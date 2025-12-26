@@ -21,6 +21,10 @@
     - don't crash when client panic
     - validate config file(like ip)
 
+- config
+    - add vxlan.SrcAddr
+    - check node.ip is valid or have contradiction
+
 - rpc
     - use enum or something to describe client capabilities 
     - dynamic rule

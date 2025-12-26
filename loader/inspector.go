@@ -85,7 +85,7 @@ func (m *EbpfManager) GetMetadata() EbpfMetadata {
 		for cursor.Next(&key, &val) {
 			// be32 -> ip string
 			ip := make(net.IP, 4)
-			binary.BigEndian.PutUint32(ip, key)
+			binary.NativeEndian.PutUint32(ip, key)
 
 			metadata.Routes = append(metadata.Routes, RouteMetadata{
 				DestIP:      ip.String(),
@@ -119,7 +119,7 @@ func (m *EbpfManager) InspectMetadata() {
 			netemStr = fmt.Sprintf("DelayMs:%d, JissterMs:%d, LossThreshold:%x, Loss = %f", p.Netem.DelayMs, p.Netem.JitterMs, p.Netem.LossThreshold, p.Netem.Loss)
 		}
 
-		fmt.Printf("  [Iface: %-10s | Index: %-3d] Status: %-10s | TC-Limit: %s - Netem: %s\n",
+		fmt.Printf("  [Iface: %-10s | Index: %-3d] Status: %-10s:\n    TC-Limit: %s - Netem: %s\n",
 			p.IfaceName, p.IfaceIndex, status, limitStr, netemStr)
 	}
 

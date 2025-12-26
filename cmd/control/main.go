@@ -19,7 +19,11 @@ import (
 func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
-	simCfg, nil := config.LoadConfig("config.toml")
+	simCfg, err := config.LoadConfig("config.toml")
+	if err != nil {
+		slog.Error("LoadConfig failed", "error", err)
+		return
+	}
 	config := config.BuildApplyNodeConfigs(simCfg)
 
 	grpcServer := grpc.NewServer()

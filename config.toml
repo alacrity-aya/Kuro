@@ -5,7 +5,7 @@ name = "hostA"
 id = 42              #VNI
 iface = "wlp0s20f3"
 port = 4789
-remote = "127.0.0.1" # remote host for vxlan fallback
+remote = "224.0.0.1" # group ip
 
 [[host.node]]
 name = "node1"
@@ -42,7 +42,7 @@ name = "hostB"
 id = 42              #VNI
 iface = "wlp0s20f3"
 port = 4789
-remote = "127.0.0.1" # remote host for vxlan fallback
+remote = "224.0.0.1" # remote host for vxlan fallback
 
 [[host.node]]
 name = "node1"

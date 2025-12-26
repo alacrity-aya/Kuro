@@ -218,19 +218,23 @@ func (topo *RuntimeTopo) createVxlan() error {
 	vx := &netlink.Vxlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: vxlanName,
+			MTU:  parentLink.Attrs().MTU - 50, // UDP + VXLAN + Outer IP + Ethernet = 50
 		},
 		VxlanId:      int(topo.Vxlan.ID),
 		VtepDevIndex: parentLink.Attrs().Index,
 		Port:         int(topo.Vxlan.Port),
+		Learning:     true,
 	}
 
-	// If Remote is set, treat it as the group/multicast/remote endpoint.
-	if topo.Vxlan.Remote != "" {
-		ip := net.ParseIP(topo.Vxlan.Remote)
-		if ip != nil {
-			vx.Group = ip
-		}
+	ip := net.ParseIP(topo.Vxlan.Remote)
+
+	if ip == nil || !ip.IsMulticast() {
+		return fmt.Errorf("ip == nil || !ip.IsMulticast(). ip address shoule be checked in config module")
 	}
+	vx.Group = ip
+
+	// TODO: add vx.SrcAddr
+	vx.SrcAddr = net.ParseIP("10.20.0.1")
 
 	err = netlink.LinkAdd(vx)
 	if err != nil {
@@ -295,13 +299,13 @@ func (topo *RuntimeTopo) TearDown() error {
 	return nil
 }
 
-func (topo *RuntimeTopo) InspectTopology() {
+func (topo *RuntimeTopo) InspectTopology(hostName string) {
 	fmt.Println("\n--- Network Topology ---")
 
 	if topo.Vxlan != nil {
 		vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
-		fmt.Printf("[Host] --- (VXLAN: %s, VNI: %d, Remote: %s) ---> External\n",
-			vxlanName, topo.Vxlan.ID, topo.Vxlan.Remote)
+		fmt.Printf("[%s] --- (VXLAN: %s, VNI: %d, Remote: %s) ---> External\n",
+			hostName, vxlanName, topo.Vxlan.ID, topo.Vxlan.Remote)
 
 		fmt.Println("------------------------------")
 	}
@@ -312,9 +316,9 @@ func (topo *RuntimeTopo) InspectTopology() {
 		peerEth := utils.PeerEthName(node.Name())
 		nsName := utils.NetnsName(node.Name())
 
-		fmt.Printf("[Host] %s: %s\n", node.Name(), node.Info())
-		fmt.Printf("[Host] %s <===> [Netns: %s] %s (IP: %s)\n",
-			hostEth, nsName, peerEth, node.IP())
+		fmt.Printf("[%s] %s: %s\n", hostName, node.Name(), node.Info())
+		fmt.Printf("[%s] %s <===> [Netns: %s] %s (IP: %s)\n",
+			hostName, hostEth, nsName, peerEth, node.IP())
 
 		fmt.Println("------------------------------")
 

@@ -1,8 +1,10 @@
+// Package config is used to parsed config file
 package config
 
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"unicode"
 
@@ -69,12 +71,18 @@ func LoadConfig(path string) (*SimulationConfig, error) {
 		return nil, fmt.Errorf("failed to parse TOML: %w", err)
 	}
 
+	for i, host := range simCfg.Hosts {
+		if err := host.validateHost(); err != nil {
+			return nil, fmt.Errorf("host[%d] error: %w", i, err)
+		}
+	}
+
 	slog.Debug("LoadConfig", "simulation config", simCfg)
 
 	return &simCfg, nil
 }
 
-func ValidateNodeName(name string) error {
+func validateNodeName(name string) error {
 	if len(name) == 0 {
 		return fmt.Errorf("node name cannot be empty")
 	}
@@ -96,15 +104,36 @@ func (h *HostConfig) validateHost() error {
 		if h.Vxlan.Iface == "" {
 			return fmt.Errorf("vxlan.iface cannot be empty")
 		}
+
+		if h.Vxlan.Remote == "" {
+			return fmt.Errorf("vxlan.remote cannot be empty")
+		}
+
+		if ip := net.ParseIP(h.Vxlan.Remote); ip == nil || !ip.IsMulticast() {
+			return fmt.Errorf("vxlan.remote should be valid multicast ip: %s", h.Vxlan.Remote)
+		}
 	}
 
+	usedIPs := make(map[string]string)
 	for i, n := range h.Nodes {
-		if err := ValidateNodeName(n.Name); err != nil {
+		if err := validateNodeName(n.Name); err != nil {
 			return err
 		}
 		if n.IP == "" {
 			return fmt.Errorf("node[%d] (%s) IP cannot be empty", i, n.Name)
 		}
+
+		ip, _, err := net.ParseCIDR(n.IP)
+		if err != nil {
+			return fmt.Errorf("node[%d] (%s) has invalid CIDR format: %s (example: 192.168.1.1/24)", i, n.Name, n.IP)
+		}
+
+		ipStr := ip.String()
+		if existingNode, found := usedIPs[ipStr]; found {
+			return fmt.Errorf("IP conflict: node '%s' and node '%s' both use the same IP %s", existingNode, n.Name, ipStr)
+		}
+
+		usedIPs[ipStr] = n.Name
 	}
 	return nil
 }

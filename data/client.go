@@ -319,7 +319,7 @@ func (c *DataClient) inspectMetadata() {
 	fmt.Println("\n===========  inspectMetadata  ===========")
 
 	c.bpfManager.InspectMetadata()
-	c.topoManager.InspectTopology()
+	c.topoManager.InspectTopology(c.info.hostName)
 
 	fmt.Println("\n=========================================")
 }
