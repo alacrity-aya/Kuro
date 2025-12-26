@@ -24,6 +24,7 @@
 - config
     - add vxlan.SrcAddr
     - check node.ip is valid or have contradiction
+    - vxlan should be update
 
 - rpc
     - use enum or something to describe client capabilities 

@@ -213,7 +213,7 @@ func (topo *RuntimeTopo) createVxlan() error {
 	}
 
 	vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
-	slog.Info("Setting up VXLAN", "name", vxlanName, "id", topo.Vxlan.ID, "remote", topo.Vxlan.Remote)
+	slog.Info("Setting up VXLAN", "name", vxlanName, "id", topo.Vxlan.ID, "remote", topo.Vxlan.Group)
 
 	vx := &netlink.Vxlan{
 		LinkAttrs: netlink.LinkAttrs{
@@ -226,16 +226,34 @@ func (topo *RuntimeTopo) createVxlan() error {
 		Learning:     true,
 	}
 
-	ip := net.ParseIP(topo.Vxlan.Remote)
+	ip := net.ParseIP(topo.Vxlan.Group)
 
+	// vxlan.Group
 	if ip == nil || !ip.IsMulticast() {
-		return fmt.Errorf("ip == nil || !ip.IsMulticast(). ip address shoule be checked in config module")
+		return fmt.Errorf("parse topo.vxlan.group failed. ip address shoule be checked in config module")
 	}
 	vx.Group = ip
 
-	// TODO: add vx.SrcAddr
-	vx.SrcAddr = net.ParseIP("10.20.0.1")
+	ip = net.ParseIP(topo.Vxlan.Src)
 
+	// vxlan.SrcAddr
+	if ip == nil {
+		return fmt.Errorf("parse vxlan.src failed")
+	}
+	addrs, _ := net.InterfaceAddrs()
+	found := false
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.Equal(ip) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("SrcAddr %s not found on any local interface", topo.Vxlan.Src)
+	}
+	vx.SrcAddr = ip
+
+	// add vxlan device
 	err = netlink.LinkAdd(vx)
 	if err != nil {
 		return fmt.Errorf("failed to create vxlan interface: %w", err)
@@ -305,7 +323,7 @@ func (topo *RuntimeTopo) InspectTopology(hostName string) {
 	if topo.Vxlan != nil {
 		vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
 		fmt.Printf("[%s] --- (VXLAN: %s, VNI: %d, Remote: %s) ---> External\n",
-			hostName, vxlanName, topo.Vxlan.ID, topo.Vxlan.Remote)
+			hostName, vxlanName, topo.Vxlan.ID, topo.Vxlan.Group)
 
 		fmt.Println("------------------------------")
 	}

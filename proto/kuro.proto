@@ -60,7 +60,8 @@ message VxlanConfig {
   uint32 vni = 1;
   uint32 port = 2;
   string iface = 3;
-  string remote_ip = 4;
+  string group_ip = 4;
+  string src = 5;
 }
 
 message NodeConfig {

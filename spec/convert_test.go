@@ -10,10 +10,10 @@ import (
 func TestBuildSpecs(t *testing.T) {
 	config := &proto.ApplyNodeConfig{
 		Vxlan: &proto.VxlanConfig{
-			Vni:      100,
-			Port:     4789,
-			Iface:    "eth0",
-			RemoteIp: "192.168.1.1",
+			Vni:     100,
+			Port:    4789,
+			Iface:   "eth0",
+			GroupIp: "192.168.1.1",
 		},
 		Nodes: []*proto.NodeConfig{
 			{

@@ -25,10 +25,11 @@ type HostConfig struct {
 }
 
 type VxlanConfig struct {
-	ID     uint32 `toml:"id"`
-	Iface  string `toml:"iface"`
-	Port   uint32 `toml:"port"`
-	Remote string `toml:"remote"`
+	ID    uint32 `toml:"vni"`
+	Iface string `toml:"iface"`
+	Port  uint32 `toml:"port"`
+	Group string `toml:"group"`
+	Src   string `toml:"src"`
 }
 
 type NodeConfig struct {
@@ -105,12 +106,16 @@ func (h *HostConfig) validateHost() error {
 			return fmt.Errorf("vxlan.iface cannot be empty")
 		}
 
-		if h.Vxlan.Remote == "" {
+		if h.Vxlan.Group == "" {
 			return fmt.Errorf("vxlan.remote cannot be empty")
 		}
 
-		if ip := net.ParseIP(h.Vxlan.Remote); ip == nil || !ip.IsMulticast() {
-			return fmt.Errorf("vxlan.remote should be valid multicast ip: %s", h.Vxlan.Remote)
+		if ip := net.ParseIP(h.Vxlan.Group); ip == nil || !ip.IsMulticast() {
+			return fmt.Errorf("vxlan.group should be valid multicast ip: %s", h.Vxlan.Group)
+		}
+
+		if ip := net.ParseIP(h.Vxlan.Src); ip == nil {
+			return fmt.Errorf("vxlan.src should be valid: %s", h.Vxlan.Src)
 		}
 	}
 
@@ -148,10 +153,11 @@ func BuildApplyNodeConfigs(cfg *SimulationConfig) map[string]*pb.ApplyNodeConfig
 
 		if host.Vxlan != nil {
 			req.Vxlan = &pb.VxlanConfig{
-				Vni:      uint32(host.Vxlan.ID),
-				Port:     uint32(host.Vxlan.Port),
-				Iface:    host.Vxlan.Iface,
-				RemoteIp: host.Vxlan.Remote,
+				Vni:     uint32(host.Vxlan.ID),
+				Port:    uint32(host.Vxlan.Port),
+				Iface:   host.Vxlan.Iface,
+				GroupIp: host.Vxlan.Group,
+				Src:     host.Vxlan.Src,
 			}
 		}
 

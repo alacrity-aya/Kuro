@@ -19,10 +19,11 @@ func BuildSpecs(config *pb.ApplyNodeConfig) (*Specs, error) {
 
 	if config.Vxlan != nil {
 		topoSpec.Vxlan = &Vxlan{
-			ID:     config.Vxlan.GetVni(),
-			Iface:  config.Vxlan.GetIface(),
-			Port:   config.Vxlan.GetPort(),
-			Remote: config.Vxlan.GetRemoteIp(),
+			ID:    config.Vxlan.GetVni(),
+			Iface: config.Vxlan.GetIface(),
+			Port:  config.Vxlan.GetPort(),
+			Group: config.Vxlan.GetGroupIp(),
+			Src:   config.Vxlan.GetSrc(),
 		}
 	}
 

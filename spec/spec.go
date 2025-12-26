@@ -26,10 +26,11 @@ type RouteSpec struct {
 }
 
 type Vxlan struct {
-	ID     uint32
-	Iface  string
-	Port   uint32
-	Remote string
+	ID    uint32
+	Iface string
+	Port  uint32
+	Group string
+	Src   string
 }
 
 type TopoNode struct {

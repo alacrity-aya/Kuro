@@ -15,10 +15,11 @@ func TestValidateHost(t *testing.T) {
 			host: HostConfig{
 				Name: "host1",
 				Vxlan: &VxlanConfig{
-					ID:     100,
-					Iface:  "eth0",
-					Remote: "239.1.1.1",
-					Port:   4789,
+					ID:    100,
+					Iface: "eth0",
+					Group: "239.1.1.1",
+					Port:  4789,
+					Src:   "127.0.0.1",
 				},
 				Nodes: []NodeConfig{
 					{Name: "n1", IP: "10.0.0.1/24"},
@@ -31,8 +32,8 @@ func TestValidateHost(t *testing.T) {
 			name: "Invalid VXLAN Remote (not multicast)",
 			host: HostConfig{
 				Vxlan: &VxlanConfig{
-					Iface:  "eth0",
-					Remote: "1.1.1.1",
+					Iface: "eth0",
+					Group: "1.1.1.1",
 				},
 			},
 			wantErr: true,
@@ -101,9 +102,9 @@ func TestBuildApplyNodeConfigs(t *testing.T) {
 			{
 				Name: "h1",
 				Vxlan: &VxlanConfig{
-					ID:     42,
-					Remote: "239.1.1.1",
-					Iface:  "eth0",
+					ID:    42,
+					Group: "239.1.1.1",
+					Iface: "eth0",
 				},
 				Nodes: []NodeConfig{
 					{Name: "n1", IP: "192.168.1.1/24", Type: "exec", Exec: "ls"},
@@ -131,4 +132,3 @@ func TestBuildApplyNodeConfigs(t *testing.T) {
 		t.Errorf("expected 1 node, got %d", len(h1.Nodes))
 	}
 }
-
