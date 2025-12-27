@@ -322,8 +322,8 @@ func (topo *RuntimeTopo) InspectTopology(hostName string) {
 
 	if topo.Vxlan != nil {
 		vxlanName := fmt.Sprintf("vxlan%d", topo.Vxlan.ID)
-		fmt.Printf("[%s] --- (VXLAN: %s, VNI: %d, Remote: %s) ---> External\n",
-			hostName, vxlanName, topo.Vxlan.ID, topo.Vxlan.Group)
+		fmt.Printf("[%s] --- (VXLAN: %s, VNI: %d, Group: %s, Src: %s) ---> External\n",
+			hostName, vxlanName, topo.Vxlan.ID, topo.Vxlan.Group, topo.Vxlan.Src)
 
 		fmt.Println("------------------------------")
 	}

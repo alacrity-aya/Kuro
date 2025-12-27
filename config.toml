@@ -3,17 +3,17 @@ name = "hostA"
 
 [host.vxlan]
 vni = 42            #VNI
-iface = "lo"
+iface = "eth0"
 port = 4789
 group = "224.0.0.1" # group ip
-src = "127.0.0.1"
+src = "172.18.0.2"
 
 [[host.node]]
 name = "node1"
 type = "exec"
-exec = "iperf3"
-args = ["-s"]
-cwd = "/home/alacrity"
+exec = "sleep"
+args = ["1"]
+cwd = "/app"
 ip = "10.10.0.1/24"
 
 [host.node.traffic_shaping]
@@ -29,8 +29,8 @@ delay_ms = 1000
 name = "node2"
 type = "exec"
 exec = "sleep"
-args = ["3"]
-cwd = "/home/alacrity"
+args = ["1"]
+cwd = "/app"
 ip = "10.10.0.2/24"
 
 

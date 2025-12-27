@@ -22,9 +22,10 @@
     - validate config file(like ip)
 
 - config
-    - add vxlan.SrcAddr
+    - client target should be configurable
     - check node.ip is valid or have contradiction
     - vxlan should be update
+
 
 - rpc
     - use enum or something to describe client capabilities 
