@@ -8,6 +8,10 @@
 
 ## todo
 
+- important
+    - vxlan across host
+    - CNI
+
 - bugs
     - 'ctrl + c' not works for server
     - timestamp uint64/int64
