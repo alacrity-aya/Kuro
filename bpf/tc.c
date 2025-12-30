@@ -1,0 +1,213 @@
+#include "map.h"
+#include "vmlinux.h"
+#include <bpf/bpf_endian.h>
+#include <bpf/bpf_helpers.h>
+
+// return 0 = ok, 1 = drop
+static __always_inline int apply_limit(struct __sk_buff *skb,
+                                       struct traffic_rule *rule) {
+
+  __u32 key = skb->ifindex;
+  struct bucket_state *bucket = bpf_map_lookup_elem(&bucket_state_map, &key);
+  if (bucket == NULL)
+    return 0; // no limit → ok
+
+  if (rule == NULL)
+    return 0; // no limit → ok
+
+  __u64 now = bpf_ktime_get_ns();
+  __u32 skb_len = skb->len;
+  int dropped = 1;
+
+  bpf_spin_lock(&bucket->lock);
+
+  __u64 delta = now - bucket->last_ns;
+
+  if (delta > 0) {
+    __u64 max_tokens = rule->burst_bytes;
+    __u64 new_tokens = (delta * rule->rate_bytes) / NSEC_PER_SEC;
+
+    bucket->tokens += new_tokens;
+
+    if (bucket->tokens > max_tokens)
+      bucket->tokens = max_tokens;
+
+    bucket->last_ns = now;
+  }
+
+  if (bucket->tokens >= skb_len) {
+    bucket->tokens -= skb_len;
+    dropped = 0;
+  }
+
+  bpf_spin_unlock(&bucket->lock);
+
+  // counter
+  struct flow_counter *cnt = bpf_map_lookup_elem(&flow_counter_map, &key);
+  if (cnt) {
+    if (dropped == 0) {
+      cnt->accepted_packets++;
+      cnt->accepted_bytes += skb_len;
+    } else {
+      cnt->dropped_packets++;
+      cnt->dropped_bytes += skb_len;
+    }
+  }
+
+  return dropped;
+}
+
+// arp header
+struct arp_eth_ipv4 {
+  __be16 ar_hrd;
+  __be16 ar_pro;
+  __u8 ar_hln;
+  __u8 ar_pln;
+  __be16 ar_op;
+  unsigned char ar_sha[6];
+  __be32 ar_sip;
+  unsigned char ar_tha[6];
+  __be32 ar_tip;
+} __attribute__((packed));
+
+static __always_inline int handle_arp(struct __sk_buff *skb, struct ethhdr *eth,
+                                      void *data, void *data_end) {
+  struct arp_eth_ipv4 *arp = data + sizeof(*eth);
+
+  if ((void *)(arp + 1) > data_end)
+    return TC_ACT_OK;
+
+  if (arp->ar_pro != bpf_htons(ETH_P_IP) || arp->ar_pln != 4) {
+    return TC_ACT_OK;
+  }
+
+  __be32 target_ip = arp->ar_tip;
+  __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &target_ip);
+
+  if (!to_ifindex) {
+
+    kuro_debug("ARP target %pI4 not found in map", &target_ip);
+    return TC_ACT_OK;
+  }
+
+  kuro_debug("Redirecting ARP for %pI4 to iface %d", &target_ip, *to_ifindex);
+  return bpf_redirect_peer(*to_ifindex, 0);
+
+  return 0;
+}
+
+// Apply netem rule:
+// return 0 -> ok; return 1 -> drop this package;
+static __always_inline int apply_delay(struct __sk_buff *skb,
+                                       struct netem_rule *rule) {
+
+  if (!rule) {
+    return 0;
+  }
+
+  __u64 final_delay_ns = rule->delay_ms * NSEC_PER_MSEC;
+
+  if (rule->jitter_ms > 0) {
+    __u64 range_ms = 2ULL * rule->jitter_ms;
+    __u64 rand_32 = bpf_get_prandom_u32();
+
+    // (rand_32 * range_ms) >> 32 == rand_32 % range_ms
+    __u64 jitter_offset_ms = (rand_32 * range_ms) >> 32;
+
+    __u64 total_ms = rule->delay_ms + jitter_offset_ms;
+    if (total_ms > rule->jitter_ms) {
+      final_delay_ns = (total_ms - rule->jitter_ms) * NSEC_PER_MSEC;
+    } else {
+      final_delay_ns = 0;
+    }
+  }
+
+  if (final_delay_ns > 0) {
+    __u64 now = bpf_ktime_get_ns();
+
+    __u64 target_tstamp = now + final_delay_ns;
+
+    if (target_tstamp < now)
+      target_tstamp = now;
+
+    bpf_skb_set_tstamp(skb, target_tstamp, BPF_SKB_TSTAMP_DELIVERY_MONO);
+
+    kuro_debug("Netem fix: now %llu, target %llu, delay %llu", now,
+               target_tstamp, final_delay_ns);
+  }
+
+  return 0;
+}
+
+// Apply netem rule:
+// return 0 -> ok; return 1 -> drop this package;
+static __always_inline int apply_loss(struct netem_rule *rule) {
+  if (rule != NULL && rule->loss_threshold != 0) {
+    if (bpf_get_prandom_u32() < rule->loss_threshold) {
+      kuro_debug("Packet lost due to netem rule.");
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// main entry
+SEC("tc")
+int gress(struct __sk_buff *skb) {
+
+  __u32 key = skb->ifindex;
+  struct netem_rule *netem_rule = bpf_map_lookup_elem(&netem_rule_map, &key);
+
+  // Apply packet loss
+  if (apply_loss(netem_rule) == 1)
+    return TC_ACT_SHOT;
+
+  // Check if there's rate limiting
+  struct traffic_rule *traffic_rule =
+      bpf_map_lookup_elem(&traffic_rule_map, &key);
+
+  if (apply_limit(skb, traffic_rule) == 1)
+    return TC_ACT_SHOT;
+
+  // Apply delay and jitter
+  if (apply_delay(skb, netem_rule) == 1)
+    return TC_ACT_SHOT;
+
+  // Parse skb
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
+
+  struct ethhdr *eth = data;
+  if ((void *)(eth + 1) > data_end)
+    return TC_ACT_OK;
+
+  if (eth->h_proto == bpf_htons(ETH_P_ARP)) {
+    return handle_arp(skb, eth, data, data_end);
+  }
+
+  if (eth->h_proto != bpf_htons(ETH_P_IP))
+    return TC_ACT_OK;
+
+  struct iphdr *ip = data + sizeof(*eth);
+
+  if ((void *)(ip + 1) > data_end)
+    return TC_ACT_OK;
+
+  __u32 dip = ip->daddr;
+
+  print_ip_addr(dip);
+
+  __u32 *to_ifindex = bpf_map_lookup_elem(&redirect_map, &dip);
+  if (!to_ifindex) {
+    kuro_debug("[Failed] found to_ifindex");
+    return TC_ACT_OK;
+  }
+
+  long ret = bpf_redirect(*to_ifindex, 0);
+
+  print_ip_addr(dip);
+  kuro_debug("[Success] src index = %u, dst index = %u, ret = %s", skb->ifindex,
+             *to_ifindex, ret, ret == TCX_REDIRECT ? "REDIRECT" : "SHOT");
+
+  return ret;
+}
