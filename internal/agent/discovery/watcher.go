@@ -1,4 +1,7 @@
+// Package discovery send pods information to agent
 package discovery
+
+// TODO: migrate watcher to informer
 
 import (
 	"context"
@@ -14,16 +17,23 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
+const ContainerIface = "eth0"
+
 type TargetPod struct {
 	PodName     string
-	Namespace   string
 	ExpID       string
 	HostIfIndex int
-	NetnsInode  uint64
+	NetnsHandle netns.NsHandle
+}
+
+type Event struct {
+	Type   watch.EventType
+	Target TargetPod
 }
 
 type PodWatcher struct {
@@ -54,8 +64,8 @@ func (w *PodWatcher) Close() {
 	}
 }
 
-func (w *PodWatcher) Watch(ctx context.Context) <-chan TargetPod {
-	out := make(chan TargetPod)
+func (w *PodWatcher) Watch(ctx context.Context) <-chan Event {
+	out := make(chan Event)
 
 	go func() {
 		defer close(out)
@@ -65,8 +75,19 @@ func (w *PodWatcher) Watch(ctx context.Context) <-chan TargetPod {
 
 		for event := range watcher.ResultChan() {
 			pod, ok := event.Object.(*v1.Pod)
-			if !ok || event.Type == "DELETED" {
-				// TODO: handle DELETED
+
+			if !ok {
+				continue
+			}
+
+			// inform agent remove pod
+			if event.Type == watch.Deleted {
+				out <- Event{
+					Type: watch.Deleted,
+					Target: TargetPod{
+						PodName: pod.Name,
+					},
+				}
 				continue
 			}
 
@@ -80,7 +101,7 @@ func (w *PodWatcher) Watch(ctx context.Context) <-chan TargetPod {
 	return out
 }
 
-func (w *PodWatcher) probePod(pod *v1.Pod, out chan<- TargetPod) {
+func (w *PodWatcher) probePod(pod *v1.Pod, out chan<- Event) {
 	var cID string
 	for _, s := range pod.Status.ContainerStatuses {
 		if s.ContainerID != "" && s.State.Running != nil {
@@ -112,21 +133,23 @@ func (w *PodWatcher) probePod(pod *v1.Pod, out chan<- TargetPod) {
 		return
 	}
 
-	hostIdx, inode, err := w.getNetworkMetadata(pid)
+	hostIdx, handle, err := w.getNetworkMetadata(pid)
 	if err != nil {
 		return
 	}
 
-	out <- TargetPod{
-		PodName:     pod.Name,
-		Namespace:   pod.Namespace,
-		ExpID:       pod.Labels[w.labelKey],
-		HostIfIndex: hostIdx,
-		NetnsInode:  inode,
+	out <- Event{
+		Type: watch.Added,
+		Target: TargetPod{
+			PodName:     pod.Name,
+			ExpID:       pod.Labels[w.labelKey],
+			HostIfIndex: hostIdx,
+			NetnsHandle: handle,
+		},
 	}
 }
 
-func (w *PodWatcher) getNetworkMetadata(pid int) (int, uint64, error) {
+func (w *PodWatcher) getNetworkMetadata(pid int) (int, netns.NsHandle, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -137,22 +160,14 @@ func (w *PodWatcher) getNetworkMetadata(pid int) (int, uint64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer cNS.Close()
-
-	// get netns inode
-	var inode uint64
-	nsFile, err := netns.GetFromPid(pid)
-	if err == nil {
-		// TODO: get inode by os.Stat
-		nsFile.Close()
-	}
 
 	netns.Set(cNS)
 	link, err := netlink.LinkByName("eth0")
 	netns.Set(hNS)
 
 	if err != nil {
+		cNS.Close()
 		return 0, 0, err
 	}
-	return link.Attrs().ParentIndex, uint64(inode), nil
+	return link.Attrs().ParentIndex, cNS, nil
 }

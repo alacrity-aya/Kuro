@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/alacrity-aya/Kuro/internal/agent/discovery"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 type ContainerAgent struct {
@@ -15,12 +16,15 @@ type ContainerAgent struct {
 	// key: HostIfIndex
 	mu      sync.RWMutex
 	targets map[int]discovery.TargetPod
+	// key: podname
+	podToIfIndex map[string]int
 }
 
 func NewContainerAgent(watcher *discovery.PodWatcher) *ContainerAgent {
 	return &ContainerAgent{
-		watcher: watcher,
-		targets: make(map[int]discovery.TargetPod),
+		watcher:      watcher,
+		targets:      make(map[int]discovery.TargetPod),
+		podToIfIndex: make(map[string]int),
 	}
 }
 
@@ -28,30 +32,63 @@ func (a *ContainerAgent) Run(ctx context.Context) {
 	// start watcher
 	events := a.watcher.Watch(ctx)
 
-	for target := range events {
-		a.handleEvent(target)
+	for event := range events {
+		a.handleEvent(event)
 	}
 }
 
-func (a *ContainerAgent) handleEvent(target discovery.TargetPod) {
+func (a *ContainerAgent) handleEvent(event discovery.Event) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	podKey := event.Target.PodName
+	switch event.Type {
 
-	oldTarget, exists := a.targets[target.HostIfIndex]
-	if exists {
-		if oldTarget.ExpID == target.ExpID {
-			slog.Debug("target already up-to-date", "pod", target.PodName)
+	case watch.Added:
+		if oldIdx, ok := a.podToIfIndex[podKey]; ok {
+			if oldIdx == event.Target.HostIfIndex {
+				if a.targets[oldIdx].ExpID == event.Target.ExpID {
+					return
+				}
+			} else {
+				a.cleanUp(oldIdx)
+			}
+		}
+
+		a.targets[event.Target.HostIfIndex] = event.Target
+		a.podToIfIndex[podKey] = event.Target.HostIfIndex
+
+		// TODO: put this out of mutex
+		a.deployEBPF(event.Target.HostIfIndex, event.Target.ExpID)
+
+	case watch.Deleted:
+		ifIndex, exists := a.podToIfIndex[podKey]
+		if !exists {
 			return
 		}
-		slog.Info("updating experiment rule", "pod", target.PodName, "oldID", oldTarget.ExpID, "newID", target.ExpID)
+
+		a.cleanUp(ifIndex)
+
+		delete(a.targets, ifIndex)
+		delete(a.podToIfIndex, podKey)
+
+		slog.Debug("delete targets entry", "pod", podKey, "ifIndex", ifIndex)
 	}
 
-	a.targets[target.HostIfIndex] = target
+	slog.Debug("handleEvent", "targets", a.targets, "podToIfIndex", a.podToIfIndex)
+}
 
-	// TODO: attach ebpf program
-	slog.Debug("handle target", "pod", target.PodName, "experiment-id", target.ExpID, "iface-index", target.HostIfIndex)
+func (a *ContainerAgent) cleanUp(ifIndex int) {
+	t, ok := a.targets[ifIndex]
+	if !ok {
+		return
+	}
 
-	a.deployEBPF(target.HostIfIndex, target.ExpID)
+	// TODO: detach eBPF safely
+	slog.Info("Removing eBPF rules", "ifIndex", ifIndex)
+
+	if t.NetnsHandle.IsOpen() {
+		t.NetnsHandle.Close()
+	}
 }
 
 func (a *ContainerAgent) deployEBPF(ifIndex int, expID string) {
