@@ -3,14 +3,18 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 
+	pb "github.com/alacrity-aya/Kuro/api/proto/v1"
 	"github.com/alacrity-aya/Kuro/internal/agent/discovery"
 	"github.com/alacrity-aya/Kuro/internal/agent/manager"
 	"github.com/alacrity-aya/Kuro/internal/agent/syncer"
 	"github.com/alacrity-aya/Kuro/internal/spec"
 	"github.com/vishvananda/netns"
+	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/watch"
 )
 
@@ -47,16 +51,41 @@ func NewContainerAgent(watcher *discovery.PodWatcher, manager *manager.BpfManage
 	return agent
 }
 
-func (a *ContainerAgent) Run(ctx context.Context) {
-	// TODO: run syncer
+func (a *ContainerAgent) Run(ctx context.Context, grpcAddr string) error {
+	lis, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", grpcAddr, err)
+	}
+
+	grpcServer := grpc.NewServer()
+	pb.RegisterAgentServiceServer(grpcServer, a.syncer)
+
+	go func() {
+		slog.Info("Syncer gRPC server listening", "addr", grpcAddr)
+		if err := grpcServer.Serve(lis); err != nil {
+			slog.Error("gRPC server failed", "error", err)
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		slog.Info("Stopping Syncer gRPC server...")
+		grpcServer.GracefulStop()
+	}()
+
+	slog.Info("Starting Pod watcher loop")
 	events := a.watcher.Watch(ctx)
 	for event := range events {
 		a.handleEvent(event)
 	}
+
+	return nil
 }
 
 // handleEvent update targets and podToIfIndex by message from watcher
 func (a *ContainerAgent) handleEvent(event discovery.Event) {
+	slog.Debug("handleEvent", "event", event)
+
 	a.mu.Lock()
 	podKey := event.Target.PodName
 
@@ -123,5 +152,9 @@ func (a *ContainerAgent) ApplyRules(specs []spec.Spec) error {
 }
 
 func (a *ContainerAgent) CollectAllStats() []manager.TrafficStats {
-	return nil
+	return a.manager.CollectStats()
+}
+
+func (a *ContainerAgent) Close() error {
+	return fmt.Errorf("not implemented")
 }

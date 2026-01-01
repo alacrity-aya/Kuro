@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,8 +21,8 @@ const (
 )
 
 func main() {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	kubeconfig := os.Getenv("KUBECONFIG")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
@@ -39,18 +40,20 @@ func main() {
 	}
 	defer watcher.Close()
 
-	manager := &manager.BpfManager{}
+	manager := manager.NewBpfManager()
 
 	containerAgent := agent.NewContainerAgent(watcher, manager)
+	defer containerAgent.Close()
 
 	go func() {
 		log.Println("🚀 Agent started, watching for pods...")
-		containerAgent.Run(ctx)
+		containerAgent.Run(ctx, ":50051")
 	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
+	cancel()
 
 	log.Println("Shutting down...")
 }

@@ -3,6 +3,7 @@ package manager
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/alacrity-aya/Kuro/internal/spec"
@@ -35,6 +36,8 @@ func (m *BpfManager) CleanUp(ifaceIndex ...int) error {
 
 // Apply is used to update or load traffic control rule
 func (m *BpfManager) Apply(specs ...spec.Spec) error {
+	slog.Debug("BpfManager Apply", "specs", specs)
+
 	var errs []error
 
 	for _, spec := range specs {

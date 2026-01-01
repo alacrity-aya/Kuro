@@ -30,7 +30,7 @@ bpf:
 
 ## build-agent: Compile the Agent binary
 .PHONY: build-agent
-build-agent: proto generate
+build-agent: proto bpf
 	@mkdir -p $(BINARY_DIR)
 	go build -o $(BINARY_DIR)/agent ./cmd/agent/main.go
 

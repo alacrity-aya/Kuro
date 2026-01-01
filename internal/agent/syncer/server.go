@@ -4,6 +4,7 @@ package syncer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	pb "github.com/alacrity-aya/Kuro/api/proto/v1"
 	"github.com/alacrity-aya/Kuro/internal/spec"
@@ -25,8 +26,9 @@ func (s *SyncerServer) ApplyEmulation(ctx context.Context, req *pb.EmulationRequ
 	var results []*pb.WorkloadApplyResult
 
 	for _, wl := range req.Workloads {
-		ifIndex, NsHandle, exists := s.executor.GetPodMetadata(wl.PodName)
-		if !exists {
+		ifIndex, NsHandle, exist := s.executor.GetPodMetadata(wl.PodName)
+		slog.Debug("GetPodMetadata", "ifIndex", ifIndex, "NsHandle", NsHandle, "exists", exist)
+		if !exist {
 			results = append(results, &pb.WorkloadApplyResult{
 				PodName:      wl.PodName,
 				Success:      false,
