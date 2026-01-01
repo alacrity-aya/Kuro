@@ -3,3 +3,4 @@
 /bin
 /api/proto/v1/*.go
 todo.md
+/bpf/include/vmlinux.h
