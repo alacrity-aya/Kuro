@@ -1,24 +1,42 @@
+# ebpf
 BPF_DIR = ./bpf
 INTERNAL_EBPF_DIR = ./internal/ebpf
 BINARY_DIR = bin
 
+# protobuf
+PROTO_SRC_DIR = api/proto/v1
+PROTO_OUT_DIR = .
+PROTO_FILE = $(PROTO_SRC_DIR)/control.proto
+
 .DEFAULT_GOAL := help
 
-## generate: Generate eBPF Go bindings using bpf2go
-.PHONY: generate
-generate:
-	bpftool btf dump file /sys/kernel/btf/vmlinux format c > $(BPF_DIR)/include/vmlinux.h
+## proto: Compile protobuf files for Go
+.PHONY: proto
+proto:
+	@echo "Compiling proto files..."
+	protoc -I . \
+	       -I $(PROTO_SRC_DIR) \
+	       --go_out=. --go_opt=paths=source_relative \
+	       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+	       $(PROTO_FILE)
+
+## bpf: Generate eBPF Go bindings using bpf2go
+.PHONY: bpf
+bpf:
+	@if [ ! -f $(BPF_DIR)/include/vmlinux.h ]; then \
+		bpftool btf dump file /sys/kernel/btf/vmlinux format c > $(BPF_DIR)/include/vmlinux.h; \
+	fi
 	go generate ./...
 
 ## build-agent: Compile the Agent binary
 .PHONY: build-agent
-build-agent: generate
+build-agent: proto generate
 	@mkdir -p $(BINARY_DIR)
 	go build -o $(BINARY_DIR)/agent ./cmd/agent/main.go
 
 ## build-controller: Compile the Controller binary
 .PHONY: build-controller
-build-controller:
+build-controller: proto
 	@mkdir -p $(BINARY_DIR)
 	go build -o $(BINARY_DIR)/controller ./cmd/controller/main.go
 
@@ -32,6 +50,7 @@ clean:
 	rm -rf $(INTERNAL_EBPF_DIR)/*bpf*.go
 	rm -rf $(INTERNAL_EBPF_DIR)/*.o
 	rm -rf $(BINARY_DIR)/
+	@find . -name "*.pb.go" -delete
 
 ## help: Show this help message
 .PHONY: help

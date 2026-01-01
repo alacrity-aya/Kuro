@@ -1,0 +1,213 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "pb/v1;pb";
+
+import "google/protobuf/timestamp.proto";
+
+// AgentService defines the control-plane contract between Controller and Agent.
+service AgentService {
+
+  // Apply or update emulation rules on the Agent.
+  // The Agent is responsible for translating rules into tc/eBPF/cgroup
+  // operations.
+  rpc ApplyEmulation(EmulationRequest) returns (EmulationResponse);
+
+  // Periodic status and observation report from Agent to Controller.
+  rpc ReportStatus(StatusReport) returns (StatusResponse);
+}
+
+//
+// =========================
+// 1. Emulation Configuration
+// =========================
+//
+
+message EmulationRequest {
+  // Unique request identifier for tracing and idempotency.
+  string request_id = 1;
+
+  // Version or hash of the desired configuration.
+  // Used for consistency validation and reconciliation.
+  string config_version = 2;
+
+  // Emulation rules per workload (Pod).
+  repeated WorkloadEmulation workloads = 3;
+}
+
+message WorkloadEmulation {
+  // Kubernetes Pod name.
+  string pod_name = 1;
+
+  // Network interface inside the Pod namespace to be emulated (e.g. veth).
+  string iface_name = 2;
+
+  // Traffic shaping parameters (HTB / TBF).
+  RateLimit rate_limit = 3;
+
+  // Network impairment parameters (netem).
+  Netem netem = 4;
+}
+
+message RateLimit {
+  // Target rate in bits per second.
+  uint64 rate_bps = 1;
+
+  // Maximum burst size in bytes.
+  uint64 burst_bytes = 2;
+}
+
+message Netem {
+  // Packet loss rate in parts-per-million.
+  // Example: 100000 = 10% loss.
+  uint32 loss_ppm = 1;
+
+  // Packet delay in milliseconds.
+  uint32 delay_ms = 2;
+
+  // Packet jitter in milliseconds.
+  uint32 jitter_ms = 3;
+}
+
+message EmulationResponse {
+  string request_id = 1;
+
+  enum ApplyStatus {
+    APPLY_STATUS_UNSPECIFIED = 0;
+    APPLY_SUCCESS = 1;
+    APPLY_PARTIAL_SUCCESS = 2;
+    APPLY_FAILED = 3;
+  }
+
+  ApplyStatus status = 2;
+
+  // Per-workload apply result.
+  repeated WorkloadApplyResult results = 3;
+
+  // Human-readable error or diagnostic message.
+  string message = 4;
+}
+
+message WorkloadApplyResult {
+  string pod_name = 1;
+  bool success = 2;
+
+  enum ErrorCode {
+    ERROR_NONE = 0;
+    ERROR_INVALID_RULE = 1;
+    ERROR_TC_FAILED = 2;
+    ERROR_EBPF_FAILED = 3;
+  }
+
+  ErrorCode error_code = 3;
+  string error_message = 4;
+}
+
+//
+// =========================
+// 2. Observation & Status Reporting
+// =========================
+//
+
+message StatusReport {
+  // Unique identifier of the Agent instance.
+  string agent_id = 1;
+
+  // Report generation timestamp.
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Current active workloads on this Agent.
+  repeated ActiveWorkload workloads = 3;
+}
+
+message ActiveWorkload {
+  // Kubernetes Pod name.
+  string pod_name = 1;
+
+  // Network interface being emulated.
+  string iface_name = 2;
+
+  // Configuration version currently applied on the Agent.
+  string applied_config_version = 3;
+
+  // Snapshot of the applied emulation rule.
+  WorkloadEmulation applied_emulation = 4;
+
+  // Traffic statistics collected from tc/eBPF.
+  TrafficStats traffic_stats = 5;
+
+  // Observation channels collected by the Agent.
+  repeated ObservationChannel observations = 6;
+}
+
+//
+// =========================
+// 3. Traffic Statistics (Emulated Traffic Only)
+// =========================
+//
+
+message TrafficStats {
+  // Timestamp of the statistics snapshot.
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Total bytes successfully transmitted.
+  uint64 total_accepted_bytes = 2;
+
+  // Total bytes dropped by emulation.
+  uint64 total_dropped_bytes = 3;
+
+  // Total packets successfully transmitted.
+  uint64 total_accepted_packets = 4;
+
+  // Total packets dropped by emulation.
+  uint64 total_dropped_packets = 5;
+
+  // Instantaneous transmission rate.
+  double instant_rate_bps = 6;
+
+  // Smoothed transmission rate (e.g. EWMA).
+  double smooth_rate_bps = 7;
+}
+
+//
+// =========================
+// 4. Observation Channels (Out-of-Band)
+// =========================
+//
+
+message ObservationChannel {
+  // Logical name of the observation stream.
+  // Example: "stdout", "metrics", "snapshot", "audio_sample".
+  string name = 1;
+
+  enum ObservationType {
+    OBSERVATION_UNSPECIFIED = 0;
+    OBSERVATION_LOG = 1;
+    OBSERVATION_METRICS = 2;
+    OBSERVATION_MEDIA_SAMPLE = 3;
+  }
+
+  ObservationType type = 2;
+
+  // Human-readable description of what is being observed.
+  string description = 3;
+}
+
+message StatusResponse {
+
+  enum SyncAction {
+    SYNC_ACTION_UNSPECIFIED = 0;
+
+    // Agent state is consistent with Controller expectation.
+    SYNC_ACTION_NONE = 1;
+
+    // Re-apply the current configuration without full cleanup.
+    SYNC_ACTION_REAPPLY = 2;
+
+    // Fully tear down and re-sync all emulation state.
+    SYNC_ACTION_FULL_RESYNC = 3;
+  }
+
+  SyncAction action = 1;
+}

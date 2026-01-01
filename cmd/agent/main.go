@@ -9,6 +9,7 @@ import (
 
 	"github.com/alacrity-aya/Kuro/internal/agent"
 	"github.com/alacrity-aya/Kuro/internal/agent/discovery"
+	"github.com/alacrity-aya/Kuro/internal/agent/manager"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -38,7 +39,9 @@ func main() {
 	}
 	defer watcher.Close() // 确保程序退出时关闭连接
 
-	containerAgent := agent.NewContainerAgent(watcher)
+	manager := &manager.BpfManager{}
+
+	containerAgent := agent.NewContainerAgent(watcher, manager)
 
 	go func() {
 		log.Println("🚀 Agent started, watching for pods...")
