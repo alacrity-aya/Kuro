@@ -10,6 +10,7 @@ import (
 	"github.com/alacrity-aya/Kuro/internal/agent/manager"
 	"github.com/alacrity-aya/Kuro/internal/agent/syncer"
 	"github.com/alacrity-aya/Kuro/internal/spec"
+	"github.com/vishvananda/netns"
 	"k8s.io/apimachinery/pkg/watch"
 )
 
@@ -29,42 +30,32 @@ type ContainerAgent struct {
 	targets map[int]discovery.TargetPod
 	// podname -> HostIfIndex
 	podToIfIndex map[string]int
-
-	deployChan chan discovery.TargetPod
 }
 
 func NewContainerAgent(watcher *discovery.PodWatcher, manager *manager.BpfManager) *ContainerAgent {
-	return &ContainerAgent{
+	agent := &ContainerAgent{
 		watcher: watcher,
 		manager: manager,
 
 		targets:      make(map[int]discovery.TargetPod),
 		podToIfIndex: make(map[string]int),
-		deployChan:   make(chan discovery.TargetPod, 100),
 	}
+
+	syncer := syncer.NewSyncerServer(agent)
+	agent.syncer = syncer
+
+	return agent
 }
 
 func (a *ContainerAgent) Run(ctx context.Context) {
-	go a.worker(ctx)
-
+	// TODO: run syncer
 	events := a.watcher.Watch(ctx)
 	for event := range events {
 		a.handleEvent(event)
 	}
 }
 
-func (a *ContainerAgent) worker(ctx context.Context) {
-	slog.Info("eBPF deployment worker started")
-	for {
-		select {
-		case target := <-a.deployChan:
-			a.attachBpfprogram(target.HostIfIndex, target.PodName)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
+// handleEvent update targets and podToIfIndex by message from watcher
 func (a *ContainerAgent) handleEvent(event discovery.Event) {
 	a.mu.Lock()
 	podKey := event.Target.PodName
@@ -86,11 +77,6 @@ func (a *ContainerAgent) handleEvent(event discovery.Event) {
 			a.targets[event.Target.HostIfIndex] = event.Target
 			a.podToIfIndex[podKey] = event.Target.HostIfIndex
 
-			select {
-			case a.deployChan <- event.Target:
-			default:
-				slog.Error("Deploy channel full, dropping event", "pod", podKey)
-			}
 		}
 
 	case watch.Deleted:
@@ -121,18 +107,21 @@ func (a *ContainerAgent) cleanUp(ifIndex int) {
 	}
 }
 
-func (a *ContainerAgent) attachBpfprogram(ifIndex int, podName string) {
-	slog.Info("deploying ebpf program", "ifIndex", ifIndex, "podName", podName)
-
-	err := a.manager.Attach(ifIndex)
-	if err != nil {
-		slog.Error("Attach ebpf program error", "ifIndex", ifIndex, "error", err)
-	}
-}
-
-func (a *ContainerAgent) GetTarget(ifIndex int) (discovery.TargetPod, bool) {
+func (a *ContainerAgent) GetPodMetadata(podName string) (int, netns.NsHandle, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	t, ok := a.targets[ifIndex]
-	return t, ok
+	idx, ok := a.podToIfIndex[podName]
+	if !ok {
+		return 0, -1, false
+	}
+	target := a.targets[idx]
+	return idx, target.NetnsHandle, true
+}
+
+func (a *ContainerAgent) ApplyRules(specs []spec.Spec) error {
+	return a.manager.Apply(specs...)
+}
+
+func (a *ContainerAgent) CollectAllStats() []manager.TrafficStats {
+	return nil
 }

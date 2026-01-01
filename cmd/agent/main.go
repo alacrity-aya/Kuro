@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create pod watcher: %v", err)
 	}
-	defer watcher.Close() // 确保程序退出时关闭连接
+	defer watcher.Close()
 
 	manager := &manager.BpfManager{}
 
