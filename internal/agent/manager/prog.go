@@ -68,6 +68,15 @@ func (p *BpfProgram) apply(sp spec.Spec) error {
 		return fmt.Errorf("failed to update netem rule map: %w", err)
 	}
 
+	// bucketState := bpf.TcBucketState{
+	// 	Tokens: sp.RateLimit.BurstBytes,
+	// 	LastNs: uint64(time.Now().UnixNano()),
+	// }
+	//
+	// if err := p.objs.BucketStateMap.Put(p.ifaceIndex, bucketState); err != nil {
+	// 	return fmt.Errorf("failed to init bucket state map: %w", err)
+	// }
+
 	if len(p.links) == 0 {
 
 		l, err := link.AttachTCX(link.TCXOptions{

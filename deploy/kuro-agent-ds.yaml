@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kuro-agent-sa
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kuro-agent-role
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"] 
+- apiGroups: [""]
+  resources: ["nodes"] 
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kuro-agent-binding
+subjects:
+- kind: ServiceAccount
+  name: kuro-agent-sa
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kuro-agent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Agent DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kuro-agent
+  labels:
+    app: kuro-agent
+spec:
+  selector:
+    matchLabels:
+      app: kuro-agent
+  template:
+    metadata:
+      labels:
+        app: kuro-agent
+    spec:
+      serviceAccountName: kuro-agent-sa
+      hostPID: true
+      
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+      containers:
+      - name: agent
+        image: kuro-agent:dev
+        imagePullPolicy: Never
+        command: ["/usr/local/bin/agent"]
+        
+        securityContext:
+          privileged: true
+          
+        env:
+        - name: KUBECONFIG
+          value: "" 
+          
+        volumeMounts:
+        - name: containerd-sock
+          mountPath: /run/containerd/containerd.sock
+        - name: bpf-fs
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
+          
+      volumes:
+      - name: containerd-sock
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
+      - name: bpf-fs
+        hostPath:
+          path: /sys/fs/bpf
+          type: Directory
