@@ -13,7 +13,6 @@ PROTO_FILE = $(PROTO_SRC_DIR)/control.proto
 ## proto: Compile protobuf files for Go
 .PHONY: proto
 proto:
-	@echo "Compiling proto files..."
 	protoc -I . \
 	       -I $(PROTO_SRC_DIR) \
 	       --go_out=. --go_opt=paths=source_relative \
@@ -32,13 +31,18 @@ bpf:
 .PHONY: build-agent
 build-agent: proto bpf
 	@mkdir -p $(BINARY_DIR)
-	go build -o $(BINARY_DIR)/agent ./cmd/agent/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/agent ./cmd/agent/main.go
 
 ## build-controller: Compile the Controller binary
 .PHONY: build-controller
 build-controller: proto
 	@mkdir -p $(BINARY_DIR)
-	go build -o $(BINARY_DIR)/controller ./cmd/controller/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/controller ./cmd/controller/main.go
+
+## image: Build agent image
+.PHONY: image
+image: build-agent
+	docker build -t kuro-agent:dev .
 
 ## build : Build both Agent and Controller
 .PHONY: build

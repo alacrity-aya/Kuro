@@ -12,6 +12,7 @@ import (
 	"github.com/alacrity-aya/Kuro/internal/agent/discovery"
 	"github.com/alacrity-aya/Kuro/internal/agent/manager"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -25,9 +26,21 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	kubeconfig := os.Getenv("KUBECONFIG")
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		log.Fatalf("Error building kubeconfig: %v", err)
+	var config *rest.Config
+	var err error
+
+	if kubeconfig != "" {
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			log.Printf("Error building kubeconfig from file: %v, trying in-cluster config", err)
+		}
+	}
+
+	if config == nil {
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			log.Fatalf("Error building kubernetes client config: %v", err)
+		}
 	}
 	k8sClient, err := kubernetes.NewForConfig(config)
 	if err != nil {

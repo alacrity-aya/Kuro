@@ -40,6 +40,7 @@ func (s *SyncerServer) ApplyEmulation(ctx context.Context, req *pb.EmulationRequ
 		sItem := spec.Spec{
 			IfaceIndex: ifIndex,
 			NsHandle:   NsHandle,
+			PodName:    wl.GetPodName(),
 		}
 
 		if wl.RateLimit != nil {
@@ -53,7 +54,7 @@ func (s *SyncerServer) ApplyEmulation(ctx context.Context, req *pb.EmulationRequ
 			sItem.Netem = spec.NetemSpec{
 				LatencyMs:   float64(wl.Netem.DelayMs),
 				JitterMs:    float64(wl.Netem.JitterMs),
-				LossPercent: float64(wl.Netem.LossPpm) / 10000.0,
+				LossPercent: float64(wl.Netem.LossPpm) / 10000.0, // ppm -> percent
 			}
 		}
 

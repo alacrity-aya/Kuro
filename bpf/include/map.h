@@ -65,7 +65,7 @@ struct {
 
 // traffic rule
 struct netem_rule {
-  __u64 loss_threshold;
+  __u32 loss_threshold;
   __u64 jitter_ms;
   __u64 delay_ms;
 };

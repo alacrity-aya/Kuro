@@ -9,6 +9,7 @@ type Spec struct {
 
 	NsHandle   netns.NsHandle
 	IfaceIndex int
+	PodName    string
 }
 
 type RateLimitSpec struct {

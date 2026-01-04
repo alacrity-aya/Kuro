@@ -1,12 +1,10 @@
-// Package discovery send pods information to agent
 package discovery
-
-// TODO: migrate watcher to informer
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"strings"
 	"time"
@@ -44,7 +42,6 @@ type PodWatcher struct {
 }
 
 func NewPodWatcher(k *kubernetes.Clientset, criSocketPath string, label string) (*PodWatcher, error) {
-	// establish rpc connection
 	conn, err := grpc.NewClient(criSocketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to CRI socket %s: %w", criSocketPath, err)
@@ -69,31 +66,42 @@ func (w *PodWatcher) Watch(ctx context.Context) <-chan Event {
 
 	go func() {
 		defer close(out)
-		watcher, _ := w.k8sClient.CoreV1().Pods("").Watch(ctx, metav1.ListOptions{
+
+		slog.Info("Starting K8s Watch", "selector", w.labelKey)
+		watcher, err := w.k8sClient.CoreV1().Pods("").Watch(ctx, metav1.ListOptions{
 			LabelSelector: w.labelKey,
 		})
+		if err != nil {
+			slog.Error("K8s Watch failed", "error", err)
+			return
+		}
 
 		for event := range watcher.ResultChan() {
 			pod, ok := event.Object.(*v1.Pod)
-
 			if !ok {
 				continue
 			}
 
+			slog.Debug("Watch Event Received",
+				"type", event.Type,
+				"pod", pod.Name,
+				"phase", pod.Status.Phase,
+				"hasIP", pod.Status.PodIP != "")
+
 			// inform agent remove pod
 			if event.Type == watch.Deleted {
 				out <- Event{
-					Type: watch.Deleted,
-					Target: TargetPod{
-						PodName: pod.Name,
-					},
+					Type:   watch.Deleted,
+					Target: TargetPod{PodName: pod.Name},
 				}
 				continue
 			}
 
-			// only handle running pod with assigned ip
 			if pod.Status.Phase == v1.PodRunning && pod.Status.PodIP != "" {
+				slog.Debug("Pod is ready, starting probe", "pod", pod.Name)
 				go w.probePod(pod, out)
+			} else {
+				slog.Debug("Ignoring Pod (not ready)", "pod", pod.Name, "phase", pod.Status.Phase)
 			}
 		}
 	}()
@@ -109,7 +117,9 @@ func (w *PodWatcher) probePod(pod *v1.Pod, out chan<- Event) {
 			break
 		}
 	}
+
 	if cID == "" {
+		slog.Warn("Probe failed: No running container ID found", "pod", pod.Name)
 		return
 	}
 
@@ -123,20 +133,32 @@ func (w *PodWatcher) probePod(pod *v1.Pod, out chan<- Event) {
 			var info struct {
 				Pid int `json:"pid"`
 			}
-			json.Unmarshal([]byte(resp.Info["info"]), &info)
-			pid = info.Pid
-			break
+			if parseErr := json.Unmarshal([]byte(resp.Info["info"]), &info); parseErr != nil {
+				slog.Warn("CRI Info parse error", "pod", pod.Name, "err", parseErr)
+			} else {
+				pid = info.Pid
+				if pid != 0 {
+					break
+				}
+			}
+		} else {
+			slog.Debug("CRI Lookup retry", "pod", pod.Name, "attempt", i, "err", err)
 		}
 		time.Sleep(time.Duration(i+1) * 200 * time.Millisecond)
 	}
+
 	if pid == 0 {
+		slog.Error("Probe failed: Could not resolve PID from CRI", "pod", pod.Name, "cid", cID)
 		return
 	}
 
 	hostIdx, handle, err := w.getNetworkMetadata(pid)
 	if err != nil {
+		slog.Error("Probe failed: Netns lookup error", "pod", pod.Name, "pid", pid, "err", err)
 		return
 	}
+
+	slog.Info("✅ Pod Discovered", "pod", pod.Name, "ifIndex", hostIdx, "expID", pod.Labels[w.labelKey])
 
 	out <- Event{
 		Type: watch.Added,
@@ -158,16 +180,21 @@ func (w *PodWatcher) getNetworkMetadata(pid int) (int, netns.NsHandle, error) {
 
 	cNS, err := netns.GetFromPid(pid)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("failed to get ns from pid %d: %w", pid, err)
 	}
 
-	netns.Set(cNS)
+	if err := netns.Set(cNS); err != nil {
+		cNS.Close()
+		return 0, 0, fmt.Errorf("failed to enter netns: %w", err)
+	}
+
 	link, err := netlink.LinkByName("eth0")
 	netns.Set(hNS)
 
 	if err != nil {
 		cNS.Close()
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("failed to find eth0: %w", err)
 	}
+
 	return link.Attrs().ParentIndex, cNS, nil
 }
