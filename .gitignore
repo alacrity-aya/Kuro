@@ -1,5 +1,5 @@
-/internal/ebpf/*.o
-/internal/ebpf/*bpf*.go
+/internal/bpf/*.o
+/internal/bpf/*bpf*.go
 /bin
 /api/proto/v1/*.go
 todo.md
