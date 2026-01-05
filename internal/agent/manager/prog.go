@@ -12,6 +12,7 @@ import (
 	"github.com/alacrity-aya/Kuro/internal/spec"
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+	"github.com/vishvananda/netlink"
 )
 
 type BpfProgram struct {
@@ -68,15 +69,31 @@ func (p *BpfProgram) apply(sp spec.Spec) error {
 		return fmt.Errorf("failed to update netem rule map: %w", err)
 	}
 
-	// bucketState := bpf.TcBucketState{
-	// 	Tokens: sp.RateLimit.BurstBytes,
-	// 	LastNs: uint64(time.Now().UnixNano()),
-	// }
-	//
-	// if err := p.objs.BucketStateMap.Put(p.ifaceIndex, bucketState); err != nil {
-	// 	return fmt.Errorf("failed to init bucket state map: %w", err)
-	// }
+	// initialze bucket state
+	bucketState := bpf.TcBucketState{
+		Tokens: sp.RateLimit.BurstBytes,
+		LastNs: uint64(time.Now().UnixNano()),
+	}
 
+	if err := p.objs.BucketStateMap.Update(p.ifaceIndex, bucketState, ebpf.UpdateNoExist); err != nil {
+		return fmt.Errorf("init bucket state map failed: %w", err)
+	}
+
+	// initialze flow counter
+	var counterVals []bpf.TcFlowCounter
+	key := p.ifaceIndex
+	if err := p.objs.FlowCounterMap.Update(key, counterVals, ebpf.UpdateNoExist); err != nil {
+		return fmt.Errorf("init flow counter failed: %w", err)
+	}
+	slog.Debug("Initialized flow counter entry", "ifaceIdx", key)
+
+	err := p.ensureFQ()
+	if err != nil {
+		return fmt.Errorf("add fq queue failed: %w", err)
+	}
+	slog.Debug("Fq queue added", "ifaceIdx", p.ifaceIndex)
+
+	// attach tc hook
 	if len(p.links) == 0 {
 
 		l, err := link.AttachTCX(link.TCXOptions{
@@ -89,9 +106,48 @@ func (p *BpfProgram) apply(sp spec.Spec) error {
 		}
 		p.links = append(p.links, l)
 
+		// TODO: remove this
+		l, err = link.AttachTCX(link.TCXOptions{
+			Program:   p.objs.Gress,
+			Interface: int(p.ifaceIndex),
+			Attach:    ebpf.AttachTCXEgress,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to attach tc egress: %w", err)
+		}
+		p.links = append(p.links, l)
+		slog.Debug("Attached TC Egress", "iface", p.ifaceIndex)
+
 	}
 
 	return nil
+}
+
+func (p *BpfProgram) ensureFQ() error {
+	link, err := netlink.LinkByIndex(int(p.ifaceIndex))
+	if err != nil {
+		return err
+	}
+
+	qdisc, err := netlink.QdiscList(link)
+	if err != nil {
+		return err
+	}
+
+	for _, q := range qdisc {
+		if q.Type() == "fq" {
+			slog.Info("qdisc 'fq' has existed", "ifaceIndex", p.ifaceIndex)
+			return nil
+		}
+	}
+
+	fq := netlink.NewFq(netlink.QdiscAttrs{
+		LinkIndex: link.Attrs().Index,
+		Handle:    netlink.MakeHandle(1, 0),
+		Parent:    netlink.HANDLE_ROOT,
+	})
+
+	return netlink.QdiscAdd(fq)
 }
 
 func (p *BpfProgram) cleanUp() error {

@@ -30,7 +30,7 @@ func main() {
 				Netem: &pb.Netem{
 					DelayMs:  50,
 					JitterMs: 10,
-					LossPpm:  1000,
+					LossPpm:  10000,
 				},
 			},
 		},
