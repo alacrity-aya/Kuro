@@ -25,6 +25,12 @@ func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
+	slog.SetDefault(logger)
+
 	kubeconfig := os.Getenv("KUBECONFIG")
 	var config *rest.Config
 	var err error

@@ -1,0 +1,13 @@
+target_agent_addr: "localhost:50051"
+
+config_version: "v1.0.1"
+
+workloads:
+  - pod_name: "test-pod-nginx"
+    rate_limit:
+      rate_bps: 10000000    # 10 Mbps 
+      burst_bytes: 30000    
+    netem:
+      delay_ms: 50          
+      jitter_ms: 10        
+      loss_ppm: 100000      # 10% (100000 ppm)

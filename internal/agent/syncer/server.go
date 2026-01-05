@@ -29,6 +29,7 @@ func (s *SyncerServer) ApplyEmulation(ctx context.Context, req *pb.EmulationRequ
 		ifIndex, NsHandle, exist := s.executor.GetPodMetadata(wl.PodName)
 		slog.Debug("GetPodMetadata", "ifIndex", ifIndex, "NsHandle", NsHandle, "exists", exist)
 		if !exist {
+			slog.Warn("failed to find pod, skip it", "podName", wl.PodName)
 			results = append(results, &pb.WorkloadApplyResult{
 				PodName:      wl.PodName,
 				Success:      false,

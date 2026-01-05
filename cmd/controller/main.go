@@ -2,51 +2,71 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"os"
 
-	pb "github.com/alacrity-aya/Kuro/api/proto/v1"
 	"github.com/alacrity-aya/Kuro/internal/controller"
-	"github.com/google/uuid"
+	"github.com/alacrity-aya/Kuro/internal/controller/config"
 )
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
-	mgr := controller.NewControllerManager()
-	defer mgr.Close()
+	configPath := flag.String("config", "configs/kuro-emulation.yaml", "Path to the emulation configuration file")
+	verbose := flag.Bool("verbose", true, "Enable debug logging")
+	flag.Parse()
 
-	targetAgentAddr := "localhost:50051"
-
-	req := &pb.EmulationRequest{
-		RequestId:     uuid.New().String(),
-		ConfigVersion: "v1.0.0",
-		Workloads: []*pb.WorkloadEmulation{
-			{
-				PodName: "test-pod-nginx",
-				RateLimit: &pb.RateLimit{
-					RateBps:    10 * 1000 * 1000,
-					BurstBytes: 1500 * 10,
-				},
-				Netem: &pb.Netem{
-					DelayMs:  50,
-					JitterMs: 10,
-					LossPpm:  10000,
-				},
-			},
-		},
+	logLevel := slog.LevelInfo
+	if *verbose {
+		logLevel = slog.LevelDebug
 	}
+	opts := &slog.HandlerOptions{
+		Level: logLevel,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
+	slog.SetDefault(logger)
 
-	resp, err := mgr.ApplyEmulationToAgent(context.Background(), targetAgentAddr, req)
+	slog.Info("Loading configuration", "path", *configPath)
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		slog.Error("Failed to apply emulation", "error", err)
+		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
 
-	slog.Info("Response from agent",
+	mgr := controller.NewControllerManager()
+	defer mgr.Close()
+
+	slog.Info("Applying configuration to agent", "agent_addr", cfg.TargetAgentAddr)
+
+	resp, err := mgr.ApplyConfig(context.Background(), cfg)
+	if err != nil {
+		slog.Error("Failed to apply emulation config", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("Agent response received",
 		"status", resp.Status.String(),
+		"request_id", resp.RequestId,
 		"message", resp.Message,
 	)
+
+	hasError := false
 	for _, res := range resp.Results {
-		slog.Info("Workload result", "pod", res.PodName, "success", res.Success, "error", res.ErrorMessage)
+		if res.Success {
+			slog.Info("Workload applied successfully", "pod", res.PodName)
+		} else {
+			slog.Error("Workload failed",
+				"pod", res.PodName,
+				"code", res.ErrorCode,
+				"msg", res.ErrorMessage,
+			)
+			hasError = true
+		}
 	}
+
+	if hasError {
+		slog.Warn("Some workloads failed to apply")
+		os.Exit(1)
+	}
+
+	slog.Info("All workloads applied successfully ✅")
 }

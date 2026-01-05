@@ -8,6 +8,13 @@
 
 ## todo
 
+- agent
+    - agent restart
+    - pin bpf map
+
+- controller
+    - connection pool
+
 - upstream(nelink bug)
     - create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 
 

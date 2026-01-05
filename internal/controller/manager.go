@@ -9,6 +9,8 @@ import (
 	"time"
 
 	pb "github.com/alacrity-aya/Kuro/api/proto/v1"
+	"github.com/alacrity-aya/Kuro/internal/controller/config"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -40,6 +42,7 @@ func (m *ControllerManager) getOrConnectAgent(addr string) (*AgentClient, error)
 		return client, nil
 	}
 
+	slog.Debug("Creating new connection to agent", "addr", addr)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("did not connect to agent %s: %v", addr, err)
@@ -54,14 +57,20 @@ func (m *ControllerManager) getOrConnectAgent(addr string) (*AgentClient, error)
 	return client, nil
 }
 
-// ApplyEmulationToAgent sends emulation command to agent
-func (m *ControllerManager) ApplyEmulationToAgent(ctx context.Context, agentAddr string, req *pb.EmulationRequest) (*pb.EmulationResponse, error) {
+func (m *ControllerManager) ApplyConfig(ctx context.Context, cfg *config.EmulationConfig) (*pb.EmulationResponse, error) {
+	req := m.buildRequest(cfg)
+
+	return m.applyEmulationToAgent(ctx, cfg.TargetAgentAddr, req)
+}
+
+// applyEmulationToAgent sends emulation command to agent
+func (m *ControllerManager) applyEmulationToAgent(ctx context.Context, agentAddr string, req *pb.EmulationRequest) (*pb.EmulationResponse, error) {
 	client, err := m.getOrConnectAgent(agentAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Info("Sending EmulationRequest to agent", "agent", agentAddr, "request_id", req.RequestId)
+	slog.Info("Sending EmulationRequest to agent", "agent", agentAddr, "request_id", req.RequestId, "workloads_count", len(req.Workloads))
 
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -72,7 +81,42 @@ func (m *ControllerManager) ApplyEmulationToAgent(ctx context.Context, agentAddr
 func (m *ControllerManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, a := range m.agents {
+	for addr, a := range m.agents {
+		slog.Debug("Closing connection", "addr", addr)
 		a.conn.Close()
 	}
+}
+
+// buildRequest yaml -> protobuf
+func (m *ControllerManager) buildRequest(cfg *config.EmulationConfig) *pb.EmulationRequest {
+	req := &pb.EmulationRequest{
+		RequestId:     uuid.New().String(),
+		ConfigVersion: cfg.ConfigVersion,
+		Workloads:     make([]*pb.WorkloadEmulation, 0, len(cfg.Workloads)),
+	}
+
+	for _, w := range cfg.Workloads {
+		pbWorkload := &pb.WorkloadEmulation{
+			PodName: w.PodName,
+		}
+
+		if w.RateLimit != nil {
+			pbWorkload.RateLimit = &pb.RateLimit{
+				RateBps:    w.RateLimit.RateBps,
+				BurstBytes: w.RateLimit.BurstBytes,
+			}
+		}
+
+		if w.Netem != nil {
+			pbWorkload.Netem = &pb.Netem{
+				DelayMs:  w.Netem.DelayMs,
+				JitterMs: w.Netem.JitterMs,
+				LossPpm:  w.Netem.LossPpm,
+			}
+		}
+
+		req.Workloads = append(req.Workloads, pbWorkload)
+	}
+
+	return req
 }
