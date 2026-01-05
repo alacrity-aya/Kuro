@@ -56,7 +56,6 @@ func main() {
 	manager := manager.NewBpfManager()
 
 	containerAgent := agent.NewContainerAgent(watcher, manager)
-	defer containerAgent.Close()
 
 	go func() {
 		log.Println("🚀 Agent started, watching for pods...")
@@ -68,5 +67,8 @@ func main() {
 	<-sigCh
 	cancel()
 
-	log.Println("Shutting down...")
+	err = containerAgent.Close()
+	if err != nil {
+		slog.Error("close container agent failed", "error", err)
+	}
 }

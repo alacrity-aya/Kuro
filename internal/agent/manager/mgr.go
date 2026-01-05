@@ -89,3 +89,24 @@ func (m *BpfManager) CollectStats() []TrafficStats {
 
 	return stats
 }
+
+func (m *BpfManager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	slog.Info("Shutting down BpfManager, cleaning up all rules...")
+
+	var errs []error
+	for ifIndex, prog := range m.programs {
+		if err := prog.cleanUp(); err != nil {
+			slog.Error("Failed to clean up program", "ifIndex", ifIndex, "err", err)
+			errs = append(errs, err)
+		}
+		delete(m.programs, ifIndex)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during manager shutdown: %v", errs)
+	}
+	return nil
+}

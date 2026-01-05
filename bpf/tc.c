@@ -40,6 +40,7 @@ static __always_inline int apply_limit(struct __sk_buff* skb, struct traffic_rul
     }
 
     bpf_spin_unlock(&bucket->lock);
+    kuro_debug("drop = %s", dropped == 0 ? "ok" : "drop");
 
     // counter
     struct flow_counter* cnt = bpf_map_lookup_elem(&flow_counter_map, &key);
@@ -56,10 +57,9 @@ static __always_inline int apply_limit(struct __sk_buff* skb, struct traffic_rul
     return dropped;
 }
 
-// Apply netem rule:
-static __always_inline int apply_delay(struct __sk_buff* skb, struct netem_rule* rule) {
+static __always_inline void apply_delay(struct __sk_buff* skb, struct netem_rule* rule) {
     if (!rule) {
-        return 0;
+        return;
     }
 
     __u64 final_delay_ns = rule->delay_ms * NSEC_PER_MSEC;
@@ -90,39 +90,50 @@ static __always_inline int apply_delay(struct __sk_buff* skb, struct netem_rule*
         bpf_skb_set_tstamp(skb, target_tstamp, BPF_SKB_TSTAMP_DELIVERY_MONO);
     }
 
-    return 0;
+    return;
 }
 
 // Apply netem rule:
 static __always_inline int apply_loss(struct netem_rule* rule) {
     if (rule != NULL && rule->loss_threshold != 0) {
         if (bpf_get_prandom_u32() < rule->loss_threshold) {
-            // kuro_debug("Packet lost due to netem rule.");
+            kuro_debug("Packet lost due to netem rule.");
             return 1;
         }
     }
+    kuro_debug("Packet passed");
     return 0;
 }
 
-// Main Entry Point
 SEC("tc")
-int gress(struct __sk_buff* skb) {
+int ingress(struct __sk_buff* skb) {
     __u32 key = skb->ifindex;
 
-    // 1. NetEm: Packet Loss
+    // NetEm: Packet Loss
     struct netem_rule* netem_rule = bpf_map_lookup_elem(&netem_rule_map, &key);
+
+    kuro_debug("[ingress]: key = %d, netem_rule = %p", key, netem_rule);
     if (apply_loss(netem_rule) == 1)
         return TC_ACT_SHOT;
 
-    // 2. Traffic Shaping: Rate Limiting
+    // Traffic Shaping
     struct traffic_rule* traffic_rule = bpf_map_lookup_elem(&traffic_rule_map, &key);
+
+    kuro_debug("[ingress]: key = %d, traffic_rule = %p", key, traffic_rule);
     if (apply_limit(skb, traffic_rule) == 1)
         return TC_ACT_SHOT;
 
-    // 3. NetEm: Latency & Jitter
-    if (apply_delay(skb, netem_rule) == 1)
-        return TC_ACT_SHOT;
+    return TC_ACT_OK;
+}
 
-    // 4. Pass to Kernel Stack
+SEC("tc")
+int egress(struct __sk_buff* skb) {
+    __u32 key = skb->ifindex;
+
+    // NetEm: Packet Loss
+    struct netem_rule* netem_rule = bpf_map_lookup_elem(&netem_rule_map, &key);
+    kuro_debug("[egress]: key = %d, netem_rule = %p", key, netem_rule);
+
+    apply_delay(skb, netem_rule);
     return TC_ACT_OK;
 }

@@ -156,5 +156,30 @@ func (a *ContainerAgent) CollectAllStats() []manager.TrafficStats {
 }
 
 func (a *ContainerAgent) Close() error {
-	return fmt.Errorf("not implemented")
+	slog.Info("Stopping ContainerAgent...")
+	var errs []error
+
+	if a.watcher != nil {
+		slog.Debug("Closing PodWatcher")
+		a.watcher.Close()
+	}
+
+	if a.manager != nil {
+		slog.Debug("Closing BpfManager")
+		if err := a.manager.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close manager: %w", err))
+		}
+	}
+
+	a.mu.Lock()
+	a.targets = nil
+	a.podToIfIndex = nil
+	a.mu.Unlock()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("agent close errors: %v", errs)
+	}
+
+	slog.Info("ContainerAgent stopped successfully")
+	return nil
 }

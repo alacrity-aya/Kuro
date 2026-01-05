@@ -18,8 +18,9 @@ import (
 type BpfProgram struct {
 	podName string
 
-	links []link.Link
-	objs  *bpf.TcObjects
+	ingressLink link.Link
+	egressLink  link.Link
+	objs        *bpf.TcObjects
 
 	loaded bool
 
@@ -94,50 +95,54 @@ func (p *BpfProgram) apply(sp spec.Spec) error {
 	slog.Debug("Fq queue added", "ifaceIdx", p.ifaceIndex)
 
 	// attach tc hook
-	if len(p.links) == 0 {
-
+	if p.ingressLink == nil {
 		l, err := link.AttachTCX(link.TCXOptions{
-			Program:   p.objs.Gress,
+			Program:   p.objs.Ingress,
 			Interface: int(p.ifaceIndex),
 			Attach:    ebpf.AttachTCXIngress,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to attach tc ingress: %w", err)
 		}
-		p.links = append(p.links, l)
+		p.ingressLink = l
+		slog.Debug("Attached TC Ingress (Limiter)", "iface", p.ifaceIndex)
+	}
 
-		// TODO: remove this
-		l, err = link.AttachTCX(link.TCXOptions{
-			Program:   p.objs.Gress,
+	if p.egressLink == nil {
+		l, err := link.AttachTCX(link.TCXOptions{
+			Program:   p.objs.Egress,
 			Interface: int(p.ifaceIndex),
 			Attach:    ebpf.AttachTCXEgress,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to attach tc egress: %w", err)
 		}
-		p.links = append(p.links, l)
-		slog.Debug("Attached TC Egress", "iface", p.ifaceIndex)
-
+		p.egressLink = l
+		slog.Debug("Attached TC Egress (Latency)", "iface", p.ifaceIndex)
 	}
 
 	return nil
 }
 
 func (p *BpfProgram) ensureFQ() error {
+	// TODO: set limit
 	link, err := netlink.LinkByIndex(int(p.ifaceIndex))
 	if err != nil {
 		return err
 	}
 
-	qdisc, err := netlink.QdiscList(link)
+	qdiscs, err := netlink.QdiscList(link)
 	if err != nil {
 		return err
 	}
 
-	for _, q := range qdisc {
-		if q.Type() == "fq" {
-			slog.Info("qdisc 'fq' has existed", "ifaceIndex", p.ifaceIndex)
-			return nil
+	for _, q := range qdiscs {
+		if q.Attrs().Parent == netlink.HANDLE_ROOT {
+			if q.Type() == "fq" {
+				slog.Info("qdisc 'fq' has existed", "ifaceIndex", p.ifaceIndex)
+				return nil
+			}
+			break
 		}
 	}
 
@@ -156,36 +161,55 @@ func (p *BpfProgram) cleanUp() error {
 	}
 
 	var errs []error
+	slog.Info("Cleaning up BPF program", "pod", p.podName, "iface", p.ifaceIndex)
 
-	// close links
-	for _, l := range p.links {
-		if err := l.Close(); err != nil {
-			errs = append(errs, err)
+	if p.ingressLink != nil {
+		if err := p.ingressLink.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close ingress link: %w", err))
 		}
+		p.ingressLink = nil
 	}
-	p.links = nil
 
-	// delete map entries
+	if p.egressLink != nil {
+		if err := p.egressLink.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close egress link: %w", err))
+		}
+		p.egressLink = nil
+	}
+
 	if p.objs != nil {
-		key := p.ifaceIndex
-		_ = p.objs.TrafficRuleMap.Delete(key)
-		_ = p.objs.NetemRuleMap.Delete(key)
-		_ = p.objs.BucketStateMap.Delete(key)
-		_ = p.objs.FlowCounterMap.Delete(key)
-
-		// close fd
 		if err := p.objs.Close(); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("close bpf objects: %w", err))
 		}
+		p.objs = nil
 	}
 
-	p.objs = nil
+	if err := p.removeFQ(); err != nil {
+		slog.Warn("Failed to remove FQ qdisc (might be already deleted)", "err", err)
+	}
+
 	p.loaded = false
 
 	if len(errs) > 0 {
 		return fmt.Errorf("cleanup errors: %v", errs)
 	}
 	return nil
+}
+
+func (p *BpfProgram) removeFQ() error {
+	_, err := netlink.LinkByIndex(int(p.ifaceIndex))
+	if err != nil {
+		return err
+	}
+
+	qdisc := &netlink.GenericQdisc{
+		QdiscAttrs: netlink.QdiscAttrs{
+			LinkIndex: int(p.ifaceIndex),
+			Parent:    netlink.HANDLE_ROOT,
+		},
+	}
+
+	return netlink.QdiscDel(qdisc)
 }
 
 func (p *BpfProgram) getStats() TrafficStats {
