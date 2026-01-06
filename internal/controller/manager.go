@@ -120,3 +120,34 @@ func (m *ControllerManager) buildRequest(cfg *config.EmulationConfig) *pb.Emulat
 
 	return req
 }
+
+func (m *ControllerManager) MonitorAgent(ctx context.Context, agentAddr string) error {
+	client, err := m.getOrConnectAgent(agentAddr)
+	if err != nil {
+		return err
+	}
+
+	stream, err := client.WatchStatus(ctx, &pb.WatchStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to start watch: %w", err)
+	}
+
+	go func() {
+		for {
+			report, err := stream.Recv()
+			if err != nil {
+				slog.Error("Stream disconnected", "agent", agentAddr, "error", err)
+				return
+			}
+
+			for _, wl := range report.Workloads {
+				slog.Info("Stats Received",
+					"agent", agentAddr,
+					"pod", wl.PodName,
+					"rate", wl.TrafficStats.SmoothRateBps)
+			}
+		}
+	}()
+
+	return nil
+}

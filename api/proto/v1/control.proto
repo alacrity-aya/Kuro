@@ -15,7 +15,7 @@ service AgentService {
   rpc ApplyEmulation(EmulationRequest) returns (EmulationResponse);
 
   // Periodic status and observation report from Agent to Controller.
-  rpc ReportStatus(StatusReport) returns (StatusResponse);
+  rpc WatchStatus(WatchStatusRequest) returns (stream StatusReport);
 }
 
 //
@@ -112,15 +112,16 @@ message WorkloadApplyResult {
 // =========================
 //
 
-message StatusReport {
-  // Unique identifier of the Agent instance.
-  string agent_id = 1;
+message WatchStatusRequest {
+  bool include_metrics = 1; // place holder
+}
 
+message StatusReport {
   // Report generation timestamp.
-  google.protobuf.Timestamp timestamp = 2;
+  google.protobuf.Timestamp timestamp = 1;
 
   // Current active workloads on this Agent.
-  repeated ActiveWorkload workloads = 3;
+  repeated ActiveWorkload workloads = 2;
 }
 
 message ActiveWorkload {

@@ -5,6 +5,8 @@ import (
 	"flag"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/alacrity-aya/Kuro/internal/controller"
 	"github.com/alacrity-aya/Kuro/internal/controller/config"
@@ -37,7 +39,8 @@ func main() {
 
 	slog.Info("Applying configuration to agent", "agent_addr", cfg.TargetAgentAddr)
 
-	resp, err := mgr.ApplyConfig(context.Background(), cfg)
+	applyCtx := context.Background()
+	resp, err := mgr.ApplyConfig(applyCtx, cfg)
 	if err != nil {
 		slog.Error("Failed to apply emulation config", "error", err)
 		os.Exit(1)
@@ -69,4 +72,22 @@ func main() {
 	}
 
 	slog.Info("All workloads applied successfully ✅")
+
+	monitorCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	slog.Info("Starting real-time monitoring", "agent_addr", cfg.TargetAgentAddr)
+
+	if err := mgr.MonitorAgent(monitorCtx, cfg.TargetAgentAddr); err != nil {
+		slog.Error("Failed to start monitoring stream", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("Controller is running. Waiting for agent stats... (Press Ctrl+C to stop)")
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	sig := <-sigCh
+	slog.Info("Received signal, shutting down...", "signal", sig)
 }

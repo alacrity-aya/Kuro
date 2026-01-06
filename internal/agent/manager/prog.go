@@ -221,18 +221,20 @@ func (p *BpfProgram) getStats() TrafficStats {
 		return stats
 	}
 
-	var counter bpf.TcFlowCounter
-	if err := p.objs.FlowCounterMap.Lookup(p.ifaceIndex, &counter); err != nil {
+	var counters []bpf.TcFlowCounter
+	if err := p.objs.FlowCounterMap.Lookup(p.ifaceIndex, &counters); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			slog.Error("failed to lookup flow stats", "err", err)
 		}
 		return stats
 	}
 
-	stats.TotalAcceptedBytes = counter.AcceptedBytes
-	stats.TotalDroppedBytes = counter.DroppedBytes
-	stats.TotalAcceptedPackets = counter.AcceptedPackets
-	stats.TotalDroppedPackets = counter.DroppedPackets
+	for _, counter := range counters {
+		stats.TotalAcceptedBytes += counter.AcceptedBytes
+		stats.TotalDroppedBytes += counter.DroppedBytes
+		stats.TotalAcceptedPackets += counter.AcceptedPackets
+		stats.TotalDroppedPackets += counter.DroppedPackets
+	}
 
 	now := time.Now()
 	if !p.lastCheckTime.IsZero() {

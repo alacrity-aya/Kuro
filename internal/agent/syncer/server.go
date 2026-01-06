@@ -3,7 +3,6 @@ package syncer
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	pb "github.com/alacrity-aya/Kuro/api/proto/v1"
@@ -76,6 +75,6 @@ func (s *SyncerServer) ApplyEmulation(ctx context.Context, req *pb.EmulationRequ
 	}, nil
 }
 
-func (s *SyncerServer) ReportStatus(context.Context, *pb.StatusReport) (*pb.StatusResponse, error) {
-	return nil, fmt.Errorf("method ReportStatus not implemented on Agent Server-side")
+func (s *SyncerServer) WatchStatus(_ *pb.WatchStatusRequest, stream pb.AgentService_WatchStatusServer) error {
+	return StreamHandler(s.executor, stream)
 }
