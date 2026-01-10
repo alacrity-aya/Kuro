@@ -1,3 +1,4 @@
+// Package discovery discovers pod adding and pod deleting
 package discovery
 
 import (
@@ -5,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -35,23 +37,27 @@ type Event struct {
 }
 
 type PodWatcher struct {
-	k8sClient *kubernetes.Clientset
-	criClient runtimeapi.RuntimeServiceClient
-	criConn   *grpc.ClientConn
-	labelKey  string
+	k8sClient    *kubernetes.Clientset
+	criClient    runtimeapi.RuntimeServiceClient
+	criConn      *grpc.ClientConn
+	k8sNamespace string
 }
 
-func NewPodWatcher(k *kubernetes.Clientset, criSocketPath string, label string) (*PodWatcher, error) {
+func NewPodWatcher(k *kubernetes.Clientset, criSocketPath string, k8sNamespace string) (*PodWatcher, error) {
 	conn, err := grpc.NewClient(criSocketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to CRI socket %s: %w", criSocketPath, err)
 	}
 
+	if k8sNamespace == "" {
+		slog.Warn("watcher: k8sNamespace is empty, watch all namespaces")
+	}
+
 	return &PodWatcher{
-		k8sClient: k,
-		criClient: runtimeapi.NewRuntimeServiceClient(conn),
-		criConn:   conn,
-		labelKey:  label,
+		k8sClient:    k,
+		criClient:    runtimeapi.NewRuntimeServiceClient(conn),
+		criConn:      conn,
+		k8sNamespace: k8sNamespace,
 	}, nil
 }
 
@@ -67,10 +73,13 @@ func (w *PodWatcher) Watch(ctx context.Context) <-chan Event {
 	go func() {
 		defer close(out)
 
-		slog.Info("Starting K8s Watch", "selector", w.labelKey)
-		watcher, err := w.k8sClient.CoreV1().Pods("").Watch(ctx, metav1.ListOptions{
-			LabelSelector: w.labelKey,
-		})
+		nodeName := os.Getenv("NODE_NAME")
+		opts := metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+		}
+
+		slog.Info("Starting K8s Watch", "selector: nodeName", nodeName, "selector: namespace", w.k8sNamespace)
+		watcher, err := w.k8sClient.CoreV1().Pods(w.k8sNamespace).Watch(ctx, opts)
 		if err != nil {
 			slog.Error("K8s Watch failed", "error", err)
 			return
@@ -82,11 +91,16 @@ func (w *PodWatcher) Watch(ctx context.Context) <-chan Event {
 				continue
 			}
 
+			if pod.Namespace == "kube-system" || pod.Namespace == "kuro-system" {
+				continue
+			}
+
 			slog.Debug("Watch Event Received",
 				"type", event.Type,
 				"pod", pod.Name,
 				"phase", pod.Status.Phase,
-				"hasIP", pod.Status.PodIP != "")
+				"hasIP", pod.Status.PodIP != "",
+				"namespace", pod.Namespace)
 
 			// inform agent remove pod
 			if event.Type == watch.Deleted {
@@ -158,13 +172,13 @@ func (w *PodWatcher) probePod(pod *v1.Pod, out chan<- Event) {
 		return
 	}
 
-	slog.Info("Pod Discovered", "pod", pod.Name, "ifIndex", hostIdx, "expID", pod.Labels[w.labelKey])
+	slog.Info("Pod Discovered", "pod", pod.Name, "ifIndex", hostIdx, "expID", pod.Namespace)
 
 	out <- Event{
 		Type: watch.Added,
 		Target: TargetPod{
 			PodName:     pod.Name,
-			ExpID:       pod.Labels[w.labelKey],
+			ExpID:       pod.Namespace,
 			HostIfIndex: hostIdx,
 			NetnsHandle: handle,
 		},
@@ -183,7 +197,7 @@ func (w *PodWatcher) getNetworkMetadata(pid int) (int, netns.NsHandle, error) {
 		return 0, 0, fmt.Errorf("failed to get ns from pid %d: %w", pid, err)
 	}
 
-	if err := netns.Set(cNS); err != nil {
+	if err = netns.Set(cNS); err != nil {
 		cNS.Close()
 		return 0, 0, fmt.Errorf("failed to enter netns: %w", err)
 	}

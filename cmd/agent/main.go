@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	criSocketPath = "unix:///run/containerd/containerd.sock"
-	targetLabel   = "experiment-id"
+	criSocketPath   = "unix:///run/containerd/containerd.sock"
+	targetNamespace = "kuro-experiment"
 )
 
 func main() {
@@ -53,7 +53,7 @@ func main() {
 		log.Fatalf("Error building kubernetes client: %v", err)
 	}
 
-	watcher, err := discovery.NewPodWatcher(k8sClient, criSocketPath, targetLabel)
+	watcher, err := discovery.NewPodWatcher(k8sClient, criSocketPath, targetNamespace)
 	if err != nil {
 		log.Fatalf("Failed to create pod watcher: %v", err)
 	}

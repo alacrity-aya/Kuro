@@ -16,9 +16,8 @@ import (
 func main() {
 	configPath := flag.String("config", "configs/kuro-emulation.yaml", "Path to emulation config")
 	kubeconfig := flag.String("kubeconfig", "", "Path to kubeconfig file (optional)")
-	agentLabel := flag.String("agent-label", "app=kuro-agent", "Label selector to find agents")
-	namespace := flag.String("namespace", "default", "Namespace where agents run")
-	verbose := flag.Bool("verbose", true, "Enable debug logging")
+	namespace := flag.String("namespace", "kuro-system", "Namespace where agents run")
+	verbose := flag.Bool("verbose", false, "Enable debug logging")
 	flag.Parse()
 
 	logLevel := slog.LevelInfo
@@ -44,7 +43,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err = mgr.StartDiscovery(ctx, *namespace, *agentLabel); err != nil {
+	if err = mgr.StartDiscovery(ctx, *namespace); err != nil {
 		slog.Error("Failed to start discovery", "error", err)
 		os.Exit(1)
 	}

@@ -83,12 +83,10 @@ func NewControllerManager(kubeconfigPath string) (*ControllerManager, error) {
 }
 
 // StartDiscovery starts to watch pod, maintain connection pool
-func (m *ControllerManager) StartDiscovery(ctx context.Context, namespace string, labelSelector string) error {
-	slog.Info("Starting K8s discovery", "ns", namespace, "selector", labelSelector)
+func (m *ControllerManager) StartDiscovery(ctx context.Context, namespace string) error {
+	slog.Info("Starting K8s discovery", "ns", namespace)
 
-	watcher, err := m.k8sClient.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+	watcher, err := m.k8sClient.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to watch pods: %w", err)
 	}
