@@ -3,7 +3,6 @@ package syncer
 
 import (
 	"context"
-	"log/slog"
 
 	pb "github.com/alacrity-aya/Kuro/api/proto/v1"
 	"github.com/alacrity-aya/Kuro/internal/spec"
@@ -19,53 +18,25 @@ func NewSyncerServer(e TaskExecutor) *SyncerServer {
 }
 
 func (s *SyncerServer) ApplyEmulation(ctx context.Context, req *pb.EmulationRequest) (*pb.EmulationResponse, error) {
-	// construct specs from req and executor
-
-	var specs []spec.Spec
 	var results []*pb.WorkloadApplyResult
 
 	for _, wl := range req.Workloads {
-		ifIndex, NsHandle, exist := s.executor.GetPodMetadata(wl.PodName)
-		slog.Debug("GetPodMetadata", "ifIndex", ifIndex, "NsHandle", NsHandle, "exists", exist)
-		if !exist {
-			slog.Warn("failed to find pod, skip it", "podName", wl.PodName)
-			results = append(results, &pb.WorkloadApplyResult{
-				PodName:      wl.PodName,
-				Success:      false,
-				ErrorMessage: "Pod meta not found",
-				ErrorCode:    pb.WorkloadApplyResult_ERROR_POD_NOT_FOUND,
-			})
-			continue
-		}
-		sItem := spec.Spec{
-			IfaceIndex: ifIndex,
-			NsHandle:   NsHandle,
-			PodName:    wl.GetPodName(),
+		sItem := s.buildSpec(wl)
+
+		err := s.executor.UpdateSpec(wl.PodName, sItem)
+
+		res := &pb.WorkloadApplyResult{
+			PodName: wl.PodName,
 		}
 
-		if wl.RateLimit != nil {
-			sItem.RateLimit = spec.RateLimitSpec{
-				RateBytes:  wl.RateLimit.RateBps / 8,
-				BurstBytes: wl.RateLimit.BurstBytes,
-			}
+		if err != nil {
+			res.Success = false
+			res.ErrorMessage = err.Error()
+			res.ErrorCode = pb.WorkloadApplyResult_ERROR_EBPF_FAILED
+		} else {
+			res.Success = true
 		}
-
-		if wl.Netem != nil {
-			sItem.Netem = spec.NetemSpec{
-				LatencyMs:   float64(wl.Netem.DelayMs),
-				JitterMs:    float64(wl.Netem.JitterMs),
-				LossPercent: float64(wl.Netem.LossPpm) / 10000.0, // ppm -> percent
-			}
-		}
-
-		specs = append(specs, sItem)
-		results = append(results, &pb.WorkloadApplyResult{PodName: wl.PodName, Success: true})
-	}
-
-	// TODO: results should be updated if err occurs
-	// async here?
-	if err := s.executor.ApplyRules(specs); err != nil {
-		return &pb.EmulationResponse{Status: pb.EmulationResponse_APPLY_FAILED}, err
+		results = append(results, res)
 	}
 
 	return &pb.EmulationResponse{
@@ -73,6 +44,26 @@ func (s *SyncerServer) ApplyEmulation(ctx context.Context, req *pb.EmulationRequ
 		Status:    pb.EmulationResponse_APPLY_SUCCESS,
 		Results:   results,
 	}, nil
+}
+
+func (s *SyncerServer) buildSpec(wl *pb.WorkloadEmulation) spec.Spec {
+	sItem := spec.Spec{
+		PodName: wl.GetPodName(),
+	}
+	if wl.RateLimit != nil {
+		sItem.RateLimit = spec.RateLimitSpec{
+			RateBytes:  wl.RateLimit.RateBps / 8,
+			BurstBytes: wl.RateLimit.BurstBytes,
+		}
+	}
+	if wl.Netem != nil {
+		sItem.Netem = spec.NetemSpec{
+			LatencyMs:   float64(wl.Netem.DelayMs),
+			JitterMs:    float64(wl.Netem.JitterMs),
+			LossPercent: float64(wl.Netem.LossPpm) / 10000.0,
+		}
+	}
+	return sItem
 }
 
 func (s *SyncerServer) WatchStatus(_ *pb.WatchStatusRequest, stream pb.AgentService_WatchStatusServer) error {

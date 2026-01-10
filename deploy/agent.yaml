@@ -1,3 +1,4 @@
+# 02-agent.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -9,12 +10,13 @@ kind: ClusterRole
 metadata:
   name: kuro-agent-role
 rules:
+# Agent 需要查询本节点的 Pod 信息以获取 Container ID 和 veth
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch"] 
-- apiGroups: [""]
-  resources: ["nodes"] 
   verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -29,13 +31,13 @@ roleRef:
   name: kuro-agent-role
   apiGroup: rbac.authorization.k8s.io
 ---
-# Agent DaemonSet
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: kuro-agent
+  namespace: default
   labels:
-    app: kuro-agent
+    app: kuro-agent # Controller 将通过此 Label 发现 Agent
 spec:
   selector:
     matchLabels:
@@ -46,9 +48,8 @@ spec:
         app: kuro-agent
     spec:
       serviceAccountName: kuro-agent-sa
-      hostPID: true
-      
-      hostNetwork: true
+      hostNetwork: true # 必须：Agent 需要操作宿主机网络栈 (TC hooks)
+      hostPID: true     # 必须：Agent 需要进入容器进程的 Namespace
       dnsPolicy: ClusterFirstWithHostNet
       
       tolerations:
@@ -62,22 +63,36 @@ spec:
       containers:
       - name: agent
         image: kuro-agent:dev
-        imagePullPolicy: Never
-        command: ["/usr/local/bin/agent"]
+        imagePullPolicy: IfNotPresent # 本地开发建议用 IfNotPresent 或 Never
+        command: ["/app/agent"] # 确保二进制路径正确
+        args: ["--port=50051"]  # 如果你的 agent 支持参数配置端口
         
         securityContext:
-          privileged: true
+          privileged: true # 必须：加载 eBPF map 和程序
           
         env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         - name: KUBECONFIG
-          value: "" 
+          value: "" # 显式置空，强制使用 In-Cluster Config
           
         volumeMounts:
+        # 用于与运行时通信 (CRI) 获取容器信息
         - name: containerd-sock
           mountPath: /run/containerd/containerd.sock
+        # BPF 文件系统 (Map Pinning)
         - name: bpf-fs
           mountPath: /sys/fs/bpf
           mountPropagation: Bidirectional
+        # [新增] 内核模块，CO-RE 需要读取 /lib/modules/$(uname -r)/build/vmlinux
+        - name: lib-modules
+          mountPath: /lib/modules
+          readOnly: true
+        # [新增] DebugFS，查看 tracepipe 日志
+        - name: debug-fs
+          mountPath: /sys/kernel/debug
           
       volumes:
       - name: containerd-sock
@@ -87,4 +102,10 @@ spec:
       - name: bpf-fs
         hostPath:
           path: /sys/fs/bpf
-          type: Directory
+          type: DirectoryOrCreate
+      - name: lib-modules
+        hostPath:
+          path: /lib/modules
+      - name: debug-fs
+        hostPath:
+          path: /sys/kernel/debug

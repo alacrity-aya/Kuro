@@ -158,7 +158,7 @@ func (w *PodWatcher) probePod(pod *v1.Pod, out chan<- Event) {
 		return
 	}
 
-	slog.Info("✅ Pod Discovered", "pod", pod.Name, "ifIndex", hostIdx, "expID", pod.Labels[w.labelKey])
+	slog.Info("Pod Discovered", "pod", pod.Name, "ifIndex", hostIdx, "expID", pod.Labels[w.labelKey])
 
 	out <- Event{
 		Type: watch.Added,

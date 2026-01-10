@@ -8,6 +8,7 @@ import (
 
 type TaskExecutor interface {
 	GetPodMetadata(podName string) (ifIndex int, handle netns.NsHandle, exists bool)
-	ApplyRules(specs []spec.Spec) error
 	CollectAllStats() []manager.TrafficStats
+
+	UpdateSpec(podName string, s spec.Spec) error
 }

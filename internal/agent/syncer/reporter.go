@@ -14,6 +14,8 @@ type StatusStream interface {
 	Context() context.Context
 }
 
+// StreamHandler report traffic stats
+// TODO: StreamHandler should report rules. If rules is not same with controller's expection, controller should send rule again
 func StreamHandler(executor TaskExecutor, stream StatusStream) error {
 	slog.Info("Client connected to WatchStatus stream")
 

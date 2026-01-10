@@ -39,10 +39,11 @@ build-controller: proto
 	@mkdir -p $(BINARY_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/controller ./cmd/controller/main.go
 
-## image: Build agent image
-.PHONY: image
-image: build-agent
-	docker build -t kuro-agent:dev .
+## images: Build images
+.PHONY: images
+images: build-agent build-controller
+	docker build -f docker/Dockerfile.agent -t kuro-agent:dev .
+	docker build -f docker/Dockerfile.controller -t kuro-controller:dev .
 
 ## build : Build both Agent and Controller
 .PHONY: build

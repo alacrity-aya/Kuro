@@ -9,9 +9,8 @@ import (
 )
 
 type EmulationConfig struct {
-	TargetAgentAddr string            `yaml:"target_agent_addr"`
-	ConfigVersion   string            `yaml:"config_version"`
-	Workloads       []*WorkloadConfig `yaml:"workloads"`
+	ConfigVersion string            `yaml:"config_version"`
+	Workloads     []*WorkloadConfig `yaml:"workloads"`
 }
 
 type WorkloadConfig struct {
@@ -44,11 +43,6 @@ func LoadConfig(path string) (*EmulationConfig, error) {
 	var cfg EmulationConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse yaml: %w", err)
-	}
-
-	// 简单的校验
-	if cfg.TargetAgentAddr == "" {
-		return nil, fmt.Errorf("target_agent_addr is required")
 	}
 
 	return &cfg, nil

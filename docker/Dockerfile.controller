@@ -1,0 +1,4 @@
+FROM alpine:latest
+COPY bin/controller /app/controller
+RUN apk add --no-cache iproute2
+CMD ["controller"]

@@ -7,13 +7,17 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/alacrity-aya/Kuro/internal/controller"
 	"github.com/alacrity-aya/Kuro/internal/controller/config"
 )
 
 func main() {
-	configPath := flag.String("config", "configs/kuro-emulation.yaml", "Path to the emulation configuration file")
+	configPath := flag.String("config", "configs/kuro-emulation.yaml", "Path to emulation config")
+	kubeconfig := flag.String("kubeconfig", "", "Path to kubeconfig file (optional)")
+	agentLabel := flag.String("agent-label", "app=kuro-agent", "Label selector to find agents")
+	namespace := flag.String("namespace", "default", "Namespace where agents run")
 	verbose := flag.Bool("verbose", true, "Enable debug logging")
 	flag.Parse()
 
@@ -21,73 +25,73 @@ func main() {
 	if *verbose {
 		logLevel = slog.LevelDebug
 	}
-	opts := &slog.HandlerOptions{
-		Level: logLevel,
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
-	slog.SetDefault(logger)
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
 
-	slog.Info("Loading configuration", "path", *configPath)
+	slog.Info("Loading emulation configuration", "path", *configPath)
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
 
-	mgr := controller.NewControllerManager()
+	mgr, err := controller.NewControllerManager(*kubeconfig)
+	if err != nil {
+		slog.Error("Failed to init controller manager", "error", err)
+		os.Exit(1)
+	}
 	defer mgr.Close()
 
-	slog.Info("Applying configuration to agent", "agent_addr", cfg.TargetAgentAddr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	applyCtx := context.Background()
-	resp, err := mgr.ApplyConfig(applyCtx, cfg)
-	if err != nil {
-		slog.Error("Failed to apply emulation config", "error", err)
+	if err = mgr.StartDiscovery(ctx, *namespace, *agentLabel); err != nil {
+		slog.Error("Failed to start discovery", "error", err)
 		os.Exit(1)
 	}
 
-	slog.Info("Agent response received",
-		"status", resp.Status.String(),
-		"request_id", resp.RequestId,
-		"message", resp.Message,
-	)
+	statusCh, err := mgr.MonitorAgents(ctx)
+	if err != nil {
+		slog.Error("Failed to start monitoring", "error", err)
+		os.Exit(1)
+	}
 
-	hasError := false
-	for _, res := range resp.Results {
-		if res.Success {
-			slog.Info("Workload applied successfully", "pod", res.PodName)
+	go func() {
+		for event := range statusCh {
+			if event.Error != nil {
+				slog.Debug("Agent monitor error", "agent", event.AgentAddr, "err", event.Error)
+				continue
+			}
+			for _, wl := range event.Report.Workloads {
+				slog.Info("Stats",
+					"agent", event.AgentAddr,
+					"pod", wl.PodName,
+					"rate_bps", wl.TrafficStats.SmoothRateBps,
+				)
+			}
+		}
+	}()
+
+	slog.Info("Waiting for agents to be discovered...")
+	time.Sleep(3 * time.Second)
+
+	slog.Info("Applying configuration to discovered agents")
+	applyResults, err := mgr.ApplyConfig(ctx, cfg)
+	if err != nil {
+		slog.Error("Apply process failed", "error", err)
+	}
+
+	for addr, res := range applyResults {
+		if res.Error != nil {
+			slog.Error("Agent apply failed", "agent", addr, "error", res.Error)
 		} else {
-			slog.Error("Workload failed",
-				"pod", res.PodName,
-				"code", res.ErrorCode,
-				"msg", res.ErrorMessage,
-			)
-			hasError = true
+			slog.Info("Agent apply success", "agent", addr, "status", res.Response.Status)
 		}
 	}
 
-	if hasError {
-		slog.Warn("Some workloads failed to apply")
-		os.Exit(1)
-	}
-
-	slog.Info("All workloads applied successfully ✅")
-
-	monitorCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	slog.Info("Starting real-time monitoring", "agent_addr", cfg.TargetAgentAddr)
-
-	if err := mgr.MonitorAgent(monitorCtx, cfg.TargetAgentAddr); err != nil {
-		slog.Error("Failed to start monitoring stream", "error", err)
-		os.Exit(1)
-	}
-
-	slog.Info("Controller is running. Waiting for agent stats... (Press Ctrl+C to stop)")
+	slog.Info("Controller running. Press Ctrl+C to stop.")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	sig := <-sigCh
-	slog.Info("Received signal, shutting down...", "signal", sig)
+	<-sigCh
+	slog.Info("Shutting down...")
 }

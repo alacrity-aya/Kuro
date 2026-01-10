@@ -18,7 +18,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 )
 
-var _ syncer.TaskExecutor = (*ContainerAgent)(nil) // check
+// Ensure ContainerAgent implements syncer.TaskExecutor
+var _ syncer.TaskExecutor = (*ContainerAgent)(nil)
 
 type ContainerAgent struct {
 	watcher *discovery.PodWatcher
@@ -34,6 +35,8 @@ type ContainerAgent struct {
 	targets map[int]discovery.TargetPod
 	// podname -> HostIfIndex
 	podToIfIndex map[string]int
+	// pods not applied rules yet
+	desiredSpecs map[string]spec.Spec
 }
 
 func NewContainerAgent(watcher *discovery.PodWatcher, manager *manager.BpfManager) *ContainerAgent {
@@ -43,6 +46,7 @@ func NewContainerAgent(watcher *discovery.PodWatcher, manager *manager.BpfManage
 
 		targets:      make(map[int]discovery.TargetPod),
 		podToIfIndex: make(map[string]int),
+		desiredSpecs: make(map[string]spec.Spec),
 	}
 
 	syncer := syncer.NewSyncerServer(agent)
@@ -87,11 +91,14 @@ func (a *ContainerAgent) handleEvent(event discovery.Event) {
 	slog.Debug("handleEvent", "event", event)
 
 	a.mu.Lock()
+
+	defer a.mu.Unlock()
 	podKey := event.Target.PodName
 
 	switch event.Type {
 	case watch.Added:
-		shouldDeploy := true
+
+		shouldDeploy := true // TODO: what is the function of the following code snippet?
 		if oldIdx, ok := a.podToIfIndex[podKey]; ok {
 			if oldIdx == event.Target.HostIfIndex {
 				if a.targets[oldIdx].ExpID == event.Target.ExpID {
@@ -102,9 +109,26 @@ func (a *ContainerAgent) handleEvent(event discovery.Event) {
 			}
 		}
 
+		slog.Debug("handleEvent type", "type", event.Type, "shouldDeploy", shouldDeploy)
+
 		if shouldDeploy {
 			a.targets[event.Target.HostIfIndex] = event.Target
 			a.podToIfIndex[podKey] = event.Target.HostIfIndex
+
+			if specItem, ok := a.desiredSpecs[podKey]; ok {
+				slog.Info("Applying desired rule for discovered pod", "pod", podKey)
+
+				specItem.IfaceIndex = event.Target.HostIfIndex
+				specItem.NsHandle = event.Target.NetnsHandle
+
+				go func(s spec.Spec) {
+					if err := a.ApplyRules([]spec.Spec{s}); err != nil {
+						slog.Error("Failed to apply desired rule", "pod", s.PodName, "error", err)
+					} else {
+						slog.Info("Successfully applied desired rule", "pod", s.PodName)
+					}
+				}(specItem)
+			}
 
 		}
 
@@ -116,7 +140,6 @@ func (a *ContainerAgent) handleEvent(event discovery.Event) {
 			delete(a.podToIfIndex, podKey)
 		}
 	}
-	a.mu.Unlock()
 }
 
 func (a *ContainerAgent) cleanUp(ifIndex int) {
@@ -181,5 +204,36 @@ func (a *ContainerAgent) Close() error {
 	}
 
 	slog.Info("ContainerAgent stopped successfully")
+	return nil
+}
+
+func (a *ContainerAgent) UpdateSpec(podName string, s spec.Spec) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.desiredSpecs == nil {
+		a.desiredSpecs = make(map[string]spec.Spec)
+	}
+	a.desiredSpecs[podName] = s
+	slog.Info("Spec stored in pending desired", "pod", podName)
+
+	ifIndex, ok := a.podToIfIndex[podName]
+	if !ok {
+		// Case A: Pod not exists
+		slog.Info("Spec saved, waiting for pod to appear", "pod", podName)
+		return nil
+	}
+
+	// Case B: Pod exist
+	target := a.targets[ifIndex]
+
+	s.IfaceIndex = ifIndex
+	s.NsHandle = target.NetnsHandle
+
+	slog.Info("Pod is active, applying rule immediately", "pod", podName)
+	if err := a.manager.Apply(s); err != nil {
+		return err
+	}
+
 	return nil
 }

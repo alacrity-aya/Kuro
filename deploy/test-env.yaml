@@ -1,0 +1,28 @@
+# 01-test-env.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-server
+  labels:
+    app: test-workload
+    role: server
+    experiment-id: "5"
+spec:
+  containers:
+  - name: iperf-server
+    image: nicolaka/netshoot  
+    command: ["iperf3", "-s"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-client
+  labels:
+    app: test-workload
+    role: client
+    experiment-id: "5"
+spec:
+  containers:
+  - name: iperf-client
+    image: nicolaka/netshoot
+    command: ["sleep", "infinity"]
