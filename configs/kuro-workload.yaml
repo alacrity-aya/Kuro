@@ -1,0 +1,49 @@
+# ==========================================
+# Kuro Experiment Workload Definition
+# 文件名: 01-workload.yaml
+# ==========================================
+apiVersion: kuro.io/v1alpha1
+kind: ExperimentWorkload
+metadata:
+  name: "drone-cluster-infra"
+  namespace: "kuro-experiment-a" 
+spec:
+  components:
+    # ----------------------------------------
+    # 组件 1: 编队领机 (Leader) -> drone-leader-0
+    # ----------------------------------------
+    - name: "drone-leader"
+      replicas: 1
+      image: "nicolaka/netshoot:latest"
+      command: ["sleep", "infinity"]
+      resources:
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+    # ----------------------------------------
+    # 组件 2: 编队僚机 (Follower) -> drone-follower-0
+    # ----------------------------------------
+    - name: "drone-follower"
+      replicas: 1
+      image: "nicolaka/netshoot:latest"
+      command: ["sleep", "infinity"]
+      # 即使是 netshoot，我们也可以注入环境变量模拟业务配置
+      env:
+        LEADER_ADDR: "drone-leader-0.drone-leader" 
+      resources:
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+    # ----------------------------------------
+    # 组件 3: 地面站 (Ground Station) -> ground-station-0
+    # ----------------------------------------
+    - name: "ground-station"
+      replicas: 1
+      image: "nicolaka/netshoot:latest"
+      command: ["sleep", "infinity"]
+      resources:
+        limits:
+          cpu: "1000m"
+          memory: "1Gi"

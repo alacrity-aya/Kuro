@@ -1,11 +1,84 @@
-config_version: "v1.0.1"
+# ==========================================
+# Kuro Network Topology Definition v2.1
+# 文件名: 02-topology.yaml
+# ==========================================
+apiVersion: kuro.io/v1alpha1
+kind: NetworkTopology
+metadata:
+  # [需求1] 实验标识
+  name: "experiment-drone-cluster-01"
+  namespace: "kuro-experiment-A" 
 
-workloads:
-  - pod_name: "test-pod-nginx"
-    rate_limit:
-      rate_bps: 10000000    # 10 Mbps 
-      burst_bytes: 30000    
-    netem:
-      delay_ms: 50          
-      jitter_ms: 10        
-      loss_ppm: 100000      # 10% (100000 ppm)
+spec:
+  # ==========================================
+  # 1. 全局默认配置 (Global Defaults)
+  # [需求2] 定义基准水位
+  # ==========================================
+  defaults:
+    physical_capacity: "1000Mbps"
+    
+    # 默认背景流量策略 (未命中任何 Link 规则的流量)
+    background_rate: "900Mbps"
+    background_burst: "100KB"
+
+  # ==========================================
+  # 2. 节点清单 (Nodes & Overrides)
+  # [需求3 & 4] 定义参与实验的 Pod 真实名称
+  # 注意：这里必须写 Pod 的全名 (Workload组件名 + 序号)
+  # ==========================================
+  nodes:
+    # 对应 Workload 中的 "drone-follower" 组件的第 0 号节点
+    - name: "drone-follower-0" 
+
+    # 对应 Workload 中的 "drone-leader" 组件 (副本数1)
+    - name: "drone-leader-0"
+      config:
+        # 特殊节点配置覆盖
+        physical_capacity: "10Gbps" 
+        background_rate: "5Gbps"
+
+    # 对应 Workload 中的 "ground-station" 组件
+    - name: "ground-station-0"
+
+  # ==========================================
+  # 3. 链路拓扑 (Links)
+  # [需求5] 流量识别与 QoS
+  # ==========================================
+  links:
+    # ----------------------------------------
+    # 场景 A: 自动拓扑感知模式
+    # ----------------------------------------
+    - source: "drone-leader-0"
+      target: "drone-follower-0"
+      
+      selector:
+        # 自动模式：根据源IP和目的IP自动匹配
+        mode: "topology_aware" 
+
+      qos:
+        # [新增] 突发大小 (Burst)
+        burst: "200KB" 
+        
+        # [新增] 流控算法类型
+        shaping_type: "tbf"
+        
+        bandwidth: "20Mbps"
+        latency: "10ms"
+        loss: "0.1%"
+
+    # ----------------------------------------
+    # 场景 B: 精细化手动模式
+    # ----------------------------------------
+    - source: "drone-follower-0"
+      target: "ground-station-0"
+      
+      selector:
+        mode: "manual"
+        protocol: "UDP"
+        dest_port: 8080
+      
+      qos:
+        bandwidth: "5Mbps"
+        # 即使是手动模式，建议也配置 burst
+        burst: "50KB" 
+        latency: "100ms"
