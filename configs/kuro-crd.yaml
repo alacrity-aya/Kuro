@@ -66,3 +66,85 @@ spec:
     kind: ExperimentWorkload
     shortNames:
       - ew
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: networktopologies.kuro.io
+spec:
+  group: kuro.io
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                defaults:
+                  type: object
+                  properties:
+                    physical_capacity:
+                      type: string
+                    background_rate:
+                      type: string
+                    background_burst:
+                      type: string
+                nodes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      config:
+                        type: object
+                        properties:
+                          physical_capacity:
+                            type: string
+                          background_rate:
+                            type: string
+                links:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      source:
+                        type: string
+                      target:
+                        type: string
+                      selector:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                          protocol:
+                            type: string
+                          dest_port:
+                            type: integer
+                      qos:
+                        type: object
+                        properties:
+                          bandwidth:
+                            type: string
+                          burst:
+                            type: string
+                          latency:
+                            type: string
+                          jitter:
+                            type: string
+                          loss:
+                            type: string
+                          shaping_type:
+                            type: string
+  scope: Namespaced
+  names:
+    plural: networktopologies
+    singular: networktopology
+    kind: NetworkTopology
+    shortNames:
+      - nt

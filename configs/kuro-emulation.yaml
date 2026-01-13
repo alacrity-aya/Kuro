@@ -7,7 +7,7 @@ kind: NetworkTopology
 metadata:
   # [需求1] 实验标识
   name: "experiment-drone-cluster-01"
-  namespace: "kuro-experiment-A" 
+  namespace: "kuro-experiment-a" 
 
 spec:
   # ==========================================

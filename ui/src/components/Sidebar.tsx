@@ -2,12 +2,10 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import {
     Download, Plus, Server, Network, LayoutTemplate,
-    Copy, Check, FileText, Settings, Cpu, Terminal, Shield, AlertTriangle
+    Copy, Check, FileText, Settings, Cpu, Terminal, Shield
 } from 'lucide-react';
 import yaml from 'js-yaml';
 import { Modal } from './Modal';
-
-
 
 export const Sidebar = () => {
     const store = useStore();
@@ -216,8 +214,6 @@ export const Sidebar = () => {
 
                     {/* --- COMPONENT EDITOR --- */}
                     {selectedComponent && (
-
-
                         <div key={selectedComponent.id} className="animate-in slide-in-from-right-4 space-y-4">
                             <div className="flex justify-between items-center border-b border-gray-700 pb-2">
                                 <span className="font-bold text-blue-400 text-sm flex items-center gap-2">
@@ -254,7 +250,6 @@ export const Sidebar = () => {
                             <div className="space-y-2">
                                 <div>
                                     <label className="text-xs text-gray-500 flex items-center gap-1"><Terminal size={10} /> Command (JSON Array)</label>
-                                    {/* 这里 key 已经有了，配合父容器 key 更稳健 */}
                                     <input
                                         key={`${selectedComponent.id}-command`}
                                         className="w-full bg-black/30 rounded px-2 py-1 text-xs text-green-400 font-mono border border-gray-600 placeholder-gray-600"
@@ -319,8 +314,6 @@ export const Sidebar = () => {
 
                     {/* --- LINK QoS EDITOR --- */}
                     {selectedLink && (
-
-
                         <div key={selectedLink.id} className="animate-in slide-in-from-right-4 space-y-4 border-t border-blue-500/30 pt-4 mt-4">
                             <div className="flex justify-between items-center">
                                 <span className="font-bold text-blue-400 text-sm flex items-center gap-2">
@@ -462,7 +455,7 @@ export const Sidebar = () => {
                 </div>
             </aside>
 
-            {/* === MODALS 保持不变 === */}
+            {/* === MODALS === */}
             <Modal
                 isOpen={isAddModalOpen}
                 onClose={() => setIsAddModalOpen(false)}

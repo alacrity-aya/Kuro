@@ -47,7 +47,7 @@ const DEFAULT_SELECTOR: types.Selector = { mode: 'topology_aware' };
 
 export const useStore = create<KuroState>((set, get) => ({
     defaults: {
-        namespace: 'kuro-experiment-a',
+        namespace: 'kuro-experiment',
         physical_capacity: '1Gbps',
         background_rate: '900Mbps',
         background_burst: '100KB'
@@ -210,8 +210,6 @@ export const useStore = create<KuroState>((set, get) => ({
         const { edges, links } = get();
         const newEdges = react.applyEdgeChanges(changes, edges);
 
-
-
         const newEdgeIds = new Set(newEdges.map(e => e.id));
         const newLinks = links.filter(l => newEdgeIds.has(l.id));
 
@@ -225,7 +223,6 @@ export const useStore = create<KuroState>((set, get) => ({
         });
         get().syncVisuals();
     },
-
 
     updateLinkSelector: (id, selectorUpdates) => {
         set(state => {

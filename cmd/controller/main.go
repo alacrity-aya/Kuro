@@ -1,96 +1,113 @@
 package main
 
 import (
-	"context"
+	"encoding/json"
 	"flag"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
+	"path/filepath"
 	"time"
 
+	"github.com/alacrity-aya/Kuro/internal/api/v1alpha1"
 	"github.com/alacrity-aya/Kuro/internal/controller"
-	"github.com/alacrity-aya/Kuro/internal/controller/config"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 )
 
 func main() {
-	configPath := flag.String("config", "configs/kuro-emulation.yaml", "Path to emulation config")
-	kubeconfig := flag.String("kubeconfig", "", "Path to kubeconfig file (optional)")
-	namespace := flag.String("namespace", "kuro-system", "Namespace where agents run")
-	verbose := flag.Bool("verbose", false, "Enable debug logging")
+	// [需求1] 初始化 slog
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
 	flag.Parse()
 
-	logLevel := slog.LevelInfo
-	if *verbose {
-		logLevel = slog.LevelDebug
-	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
-
-	slog.Info("Loading emulation configuration", "path", *configPath)
-	cfg, err := config.LoadConfig(*configPath)
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
-		slog.Error("Failed to load config", "error", err)
-		os.Exit(1)
+		panic(err)
 	}
 
-	mgr, err := controller.NewControllerManager(*kubeconfig)
+	kubeClient, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		slog.Error("Failed to init controller manager", "error", err)
-		os.Exit(1)
+		panic(err)
 	}
-	defer mgr.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if err = mgr.StartDiscovery(ctx, *namespace); err != nil {
-		slog.Error("Failed to start discovery", "error", err)
-		os.Exit(1)
-	}
-
-	statusCh, err := mgr.MonitorAgents(ctx)
+	dynClient, err := dynamic.NewForConfig(config)
 	if err != nil {
-		slog.Error("Failed to start monitoring", "error", err)
-		os.Exit(1)
+		panic(err)
 	}
 
-	go func() {
-		for event := range statusCh {
-			if event.Error != nil {
-				slog.Debug("Agent monitor error", "agent", event.AgentAddr, "err", event.Error)
-				continue
+	// 1. 初始化 Reconcilers
+	workloadReconciler := controller.NewWorkloadReconciler(kubeClient, logger)
+	topologyReconciler := controller.NewTopologyReconciler(kubeClient, logger)
+
+	// 2. 准备 Factory
+	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dynClient, time.Minute, corev1.NamespaceAll, nil)
+
+	// 3. 注册 ExperimentWorkload 监听
+	gvrWorkload := schema.GroupVersionResource{Group: "kuro.io", Version: "v1alpha1", Resource: "experimentworkloads"}
+	workloadInformer := factory.ForResource(gvrWorkload).Informer()
+	workloadInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			u := obj.(*unstructured.Unstructured)
+			wl := convertToWorkload(u)
+			// 使用 slog
+			logger.Info("EVENT: ADD Workload", "name", wl.Name)
+			if err := workloadReconciler.Reconcile(wl); err != nil {
+				logger.Error("Workload Reconcile Failed", "error", err)
 			}
-			for _, wl := range event.Report.Workloads {
-				slog.Info("Stats",
-					"agent", event.AgentAddr,
-					"pod", wl.PodName,
-					"rate_bps", wl.TrafficStats.SmoothRateBps,
-				)
+		},
+		DeleteFunc: func(obj interface{}) {
+			u := obj.(*unstructured.Unstructured)
+			logger.Info("EVENT: DELETE Workload", "name", u.GetName())
+		},
+	})
+
+	// 4. [新增] 注册 NetworkTopology 监听
+	gvrTopology := schema.GroupVersionResource{Group: "kuro.io", Version: "v1alpha1", Resource: "networktopologies"} // 注意 plural 是 networktopologies
+	topoInformer := factory.ForResource(gvrTopology).Informer()
+	topoInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			u := obj.(*unstructured.Unstructured)
+			topo := convertToTopology(u)
+			logger.Info("EVENT: ADD Topology", "name", topo.Name)
+			if err := topologyReconciler.Reconcile(topo); err != nil {
+				logger.Error("Topology Reconcile Failed", "error", err)
 			}
-		}
-	}()
+		},
+	})
 
-	slog.Info("Waiting for agents to be discovered...")
-	time.Sleep(3 * time.Second)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
 
-	slog.Info("Applying configuration to discovered agents")
-	applyResults, err := mgr.ApplyConfig(ctx, cfg)
-	if err != nil {
-		slog.Error("Apply process failed", "error", err)
-	}
+	logger.Info("Kuro Controller 正在启动...")
+	factory.Start(stopCh)
 
-	for addr, res := range applyResults {
-		if res.Error != nil {
-			slog.Error("Agent apply failed", "agent", addr, "error", res.Error)
-		} else {
-			slog.Info("Agent apply success", "agent", addr, "status", res.Response.Status)
-		}
-	}
+	<-stopCh
+}
 
-	slog.Info("Controller running. Press Ctrl+C to stop.")
+// 辅助转换函数
+func convertToWorkload(u *unstructured.Unstructured) *v1alpha1.ExperimentWorkload {
+	var val v1alpha1.ExperimentWorkload
+	data, _ := json.Marshal(u.Object)
+	_ = json.Unmarshal(data, &val)
+	return &val
+}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-	slog.Info("Shutting down...")
+func convertToTopology(u *unstructured.Unstructured) *v1alpha1.NetworkTopology {
+	var val v1alpha1.NetworkTopology
+	data, _ := json.Marshal(u.Object)
+	_ = json.Unmarshal(data, &val)
+	return &val
 }
