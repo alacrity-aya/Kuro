@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -18,7 +19,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// AgentClientPool 简单的连接池，缓存 nodeName -> grpcClient
 type AgentClientPool struct {
 	clients map[string]pb.AgentServiceClient
 	conns   map[string]*grpc.ClientConn
@@ -32,8 +32,6 @@ func NewAgentClientPool() *AgentClientPool {
 	}
 }
 
-// GetClient 获取或创建连接到指定 Node 的 Agent 客户端
-// 假设 Agent 以 DaemonSet 运行，监听 Node IP 的固定端口 (例如 50051)
 func (p *AgentClientPool) GetClient(nodeIP string) (pb.AgentServiceClient, error) {
 	p.mu.RLock()
 	client, ok := p.clients[nodeIP]
@@ -45,14 +43,13 @@ func (p *AgentClientPool) GetClient(nodeIP string) (pb.AgentServiceClient, error
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// 双重检查
 	if client, ok := p.clients[nodeIP]; ok {
 		return client, nil
 	}
 
-	// 建立新连接 (生产环境应添加 keepalive 等配置)
-	target := fmt.Sprintf("%s:50051", nodeIP) // 假设 Agent 监听 50051
-	conn, err := grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	target := fmt.Sprintf("%s:50051", nodeIP)
+	// TODO: add keepalive params here
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +63,12 @@ func (p *AgentClientPool) GetClient(nodeIP string) (pb.AgentServiceClient, error
 type TopologyReconciler struct {
 	KubeClient kubernetes.Interface
 	Logger     *slog.Logger
-	Pool       *AgentClientPool // 新增连接池
+	Pool       *AgentClientPool
+
+	// trace current monitoring task
+	// map[NodeIP]context.CancelFunc
+	monitors  map[string]context.CancelFunc
+	monitorMu sync.Mutex
 }
 
 func NewTopologyReconciler(client kubernetes.Interface, logger *slog.Logger) *TopologyReconciler {
@@ -74,49 +76,43 @@ func NewTopologyReconciler(client kubernetes.Interface, logger *slog.Logger) *To
 		KubeClient: client,
 		Logger:     logger.With("controller", "TopologyReconciler"),
 		Pool:       NewAgentClientPool(),
+		monitors:   make(map[string]context.CancelFunc),
 	}
 }
 
 func (r *TopologyReconciler) Reconcile(topo *v1alpha1.NetworkTopology) error {
-	r.Logger.Info("开始计算并下发网络拓扑规则", "topology", topo.Name)
+	r.Logger.Info("Reconcile", "topology", topo.Name)
 
-	// 按 Node 聚合请求： Map<NodeName, List<WorkloadEmulation>>
-	// 这样同一个 Node 上的多个 Pod 规则可以一次 gRPC 发送
 	nodeRequests := make(map[string][]*pb.WorkloadEmulation)
-	// 记录 NodeName 到 NodeIP 的映射
 	nodeIPs := make(map[string]string)
 
 	for _, link := range topo.Spec.Links {
-		// 1. 找 Source Pod
+
 		pod, err := r.KubeClient.CoreV1().Pods(topo.Namespace).Get(context.TODO(), link.Source, metav1.GetOptions{})
 		if err != nil {
 			r.Logger.Warn("Skipping link: source pod not found", "pod", link.Source)
 			continue
 		}
 
-		if pod.Spec.NodeName == "" || pod.Status.HostIP == "" {
-			r.Logger.Debug("Skipping link: pod not scheduled", "pod", link.Source)
+		if pod.Spec.NodeName == "" || pod.Status.HostIP == "" || pod.Status.PodIP == "" {
+			r.Logger.Debug("Skipping link: pod not ready", "pod", link.Source)
 			continue
 		}
 
 		nodeName := pod.Spec.NodeName
-		nodeIPs[nodeName] = pod.Status.HostIP // 使用 HostIP 访问 Node 上的 Agent
+		nodeIPs[nodeName] = pod.Status.HostIP
 
-		// 2. 构建 Protobuf 对象
-		pbRule := r.buildPbRule(link, pod.Name)
+		pbRule := r.buildPbRule(link, pod.Name, pod.Status.PodIP)
 
-		// 3. 加入聚合列表
 		nodeRequests[nodeName] = append(nodeRequests[nodeName], pbRule)
 	}
 
-	// 4. 真正下发
 	for nodeName, rules := range nodeRequests {
 		nodeIP := nodeIPs[nodeName]
-		r.Logger.Info("正在向 Node 下发规则", "node", nodeName, "ip", nodeIP, "rule_count", len(rules))
 
 		client, err := r.Pool.GetClient(nodeIP)
 		if err != nil {
-			r.Logger.Error("无法连接 Agent", "node", nodeName, "error", err)
+			r.Logger.Error("unable to connect Agent", "node", nodeName, "error", err)
 			continue
 		}
 
@@ -125,19 +121,78 @@ func (r *TopologyReconciler) Reconcile(topo *v1alpha1.NetworkTopology) error {
 			Workloads: rules,
 		}
 
-		// RPC 调用
 		resp, err := client.ApplyEmulation(context.Background(), req)
 		if err != nil {
-			r.Logger.Error("gRPC ApplyEmulation 失败", "node", nodeName, "error", err)
+			r.Logger.Error("gRPC ApplyEmulation failed", "node", nodeName, "error", err)
 		} else {
-			r.Logger.Info("规则下发成功", "node", nodeName, "agent_msg", resp.Message, "status", resp.Status)
+			r.Logger.Info("rules successfully sent", "node", nodeName, "status", resp.Status)
 		}
+
+		r.ensureMonitorRunning(nodeName, nodeIP, client)
 	}
 
 	return nil
 }
 
-func (r *TopologyReconciler) buildPbRule(link v1alpha1.Link, podName string) *pb.WorkloadEmulation {
+// ensureMonitorRunning Ensures that the monitoring Goroutine for this node is running.
+func (r *TopologyReconciler) ensureMonitorRunning(nodeName, nodeIP string, client pb.AgentServiceClient) {
+	r.monitorMu.Lock()
+	defer r.monitorMu.Unlock()
+
+	// If it's already being monitored, just return.
+	if _, exists := r.monitors[nodeIP]; exists {
+		return
+	}
+
+	r.Logger.Info(">>> Start real-time traffic monitoring", "node", nodeName, "ip", nodeIP)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r.monitors[nodeIP] = cancel
+
+	go func() {
+		defer func() {
+			r.monitorMu.Lock()
+			delete(r.monitors, nodeIP) // clean up marker on exit
+			r.monitorMu.Unlock()
+			cancel()
+		}()
+
+		stream, err := client.WatchStatus(ctx, &pb.WatchStatusRequest{IncludeMetrics: true})
+		if err != nil {
+			r.Logger.Error("starting WatchStatus failed", "node", nodeName, "err", err)
+			return
+		}
+
+		for {
+			report, err := stream.Recv()
+			if err == io.EOF {
+				r.Logger.Info("end of monitoring flow", "node", nodeName)
+				return
+			}
+			if err != nil {
+				// TODO: check here if the context is canceled and then not print the error.
+				r.Logger.Error("Failed to read monitoring data", "node", nodeName, "err", err)
+				return
+			}
+
+			for _, wl := range report.Workloads {
+				stats := wl.TrafficStats
+				// bps -> Mbps
+				rateMbps := stats.SmoothRateBps * 8 / 1000000.0
+
+				r.Logger.Info("📊 [MONITOR]",
+					"node", nodeName,
+					"pod", wl.PodName,
+					"rate", fmt.Sprintf("%.2f Mbps", rateMbps),
+					"drop_pkts", stats.TotalDroppedPackets,
+					"total_bytes", stats.TotalAcceptedBytes,
+				)
+			}
+		}
+	}()
+}
+
+func (r *TopologyReconciler) buildPbRule(link v1alpha1.Link, podName string, podIP string) *pb.WorkloadEmulation {
 	rateBps := parseBandwidth(link.QoS.Bandwidth)
 	burstBytes := parseSize(link.QoS.Burst)
 	delayMs := parseTimeMs(link.QoS.Latency)
@@ -145,7 +200,8 @@ func (r *TopologyReconciler) buildPbRule(link v1alpha1.Link, podName string) *pb
 
 	return &pb.WorkloadEmulation{
 		PodName:   podName,
-		IfaceName: "eth0", // 简化假设
+		IfaceName: "eth0", // TODO: why eth0 here?
+		PodIp:     podIP,
 		RateLimit: &pb.RateLimit{
 			RateBps:    rateBps,
 			BurstBytes: burstBytes,
@@ -153,12 +209,11 @@ func (r *TopologyReconciler) buildPbRule(link v1alpha1.Link, podName string) *pb
 		Netem: &pb.Netem{
 			LossPpm:  lossPpm,
 			DelayMs:  delayMs,
-			JitterMs: 0, // 可以在 yaml 中添加 jitter 字段支持
+			JitterMs: 0, // TODO: hanle jitter here
 		},
 	}
 }
 
-// ... 之前的 parseBandwidth 等辅助函数保持不变 ...
 func parseBandwidth(s string) uint64 {
 	s = strings.TrimSuffix(s, "Mbps")
 	val, _ := strconv.ParseUint(s, 10, 64)

@@ -22,7 +22,6 @@ import (
 )
 
 func main() {
-	// [需求1] 初始化 slog
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
@@ -48,37 +47,33 @@ func main() {
 		panic(err)
 	}
 
-	// 1. 初始化 Reconcilers
 	workloadReconciler := controller.NewWorkloadReconciler(kubeClient, logger)
 	topologyReconciler := controller.NewTopologyReconciler(kubeClient, logger)
 
-	// 2. 准备 Factory
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dynClient, time.Minute, corev1.NamespaceAll, nil)
 
-	// 3. 注册 ExperimentWorkload 监听
 	gvrWorkload := schema.GroupVersionResource{Group: "kuro.io", Version: "v1alpha1", Resource: "experimentworkloads"}
 	workloadInformer := factory.ForResource(gvrWorkload).Informer()
 	workloadInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			u := obj.(*unstructured.Unstructured)
 			wl := convertToWorkload(u)
-			// 使用 slog
+
 			logger.Info("EVENT: ADD Workload", "name", wl.Name)
 			if err := workloadReconciler.Reconcile(wl); err != nil {
 				logger.Error("Workload Reconcile Failed", "error", err)
 			}
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			u := obj.(*unstructured.Unstructured)
 			logger.Info("EVENT: DELETE Workload", "name", u.GetName())
 		},
 	})
 
-	// 4. [新增] 注册 NetworkTopology 监听
 	gvrTopology := schema.GroupVersionResource{Group: "kuro.io", Version: "v1alpha1", Resource: "networktopologies"} // 注意 plural 是 networktopologies
 	topoInformer := factory.ForResource(gvrTopology).Informer()
 	topoInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			u := obj.(*unstructured.Unstructured)
 			topo := convertToTopology(u)
 			logger.Info("EVENT: ADD Topology", "name", topo.Name)
@@ -91,13 +86,12 @@ func main() {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 
-	logger.Info("Kuro Controller 正在启动...")
+	logger.Info("Kuro Controller starts...")
 	factory.Start(stopCh)
 
 	<-stopCh
 }
 
-// 辅助转换函数
 func convertToWorkload(u *unstructured.Unstructured) *v1alpha1.ExperimentWorkload {
 	var val v1alpha1.ExperimentWorkload
 	data, _ := json.Marshal(u.Object)

@@ -5,14 +5,14 @@ import (
 )
 
 // ==========================================
-// 1. ExperimentWorkload (对应 kuro-workload.yaml)
+// ExperimentWorkload - kuro-workload.yaml
 // ==========================================
 
 type ExperimentWorkload struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
-	Spec WorkloadSpec `json:"spec,omitempty"`
+	Spec WorkloadSpec `json:"spec"`
 }
 
 type WorkloadSpec struct {
@@ -26,7 +26,7 @@ type Component struct {
 	Command   []string          `json:"command,omitempty"`
 	Args      []string          `json:"args,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
-	Resources ResourceReqs      `json:"resources,omitempty"`
+	Resources ResourceReqs      `json:"resources"`
 }
 
 type ResourceReqs struct {
@@ -35,14 +35,14 @@ type ResourceReqs struct {
 }
 
 // ==========================================
-// 2. NetworkTopology (对应 kuro-emulation.yaml)
+// NetworkTopology - kuro-emulation.yaml
 // ==========================================
 
 type NetworkTopology struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
-	Spec TopologySpec `json:"spec,omitempty"`
+	Spec TopologySpec `json:"spec"`
 }
 
 type TopologySpec struct {

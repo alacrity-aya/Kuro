@@ -49,6 +49,9 @@ message WorkloadEmulation {
 
   // Network impairment parameters (netem).
   Netem netem = 4;
+
+  // Pod id address
+  string pod_ip = 5;
 }
 
 message RateLimit {

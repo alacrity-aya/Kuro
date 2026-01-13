@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kuro-agent
+  namespace: kuro-experiment-a # TODO: move it to kuro-system
+  labels:
+    app: kuro-agent
+spec:
+  selector:
+    matchLabels:
+      app: kuro-agent
+  template:
+    metadata:
+      labels:
+        app: kuro-agent
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: agent
+          image: kuro-agent:dev
+          imagePullPolicy: Never 
+          ports:
+            - containerPort: 50051
+              hostPort: 50051
+              name: grpc
+          securityContext:
+            privileged: true 

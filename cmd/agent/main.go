@@ -1,80 +1,49 @@
 package main
 
 import (
-	"context"
-	"log"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
+	pb "github.com/alacrity-aya/Kuro/api/proto/v1"
 	"github.com/alacrity-aya/Kuro/internal/agent"
-	"github.com/alacrity-aya/Kuro/internal/agent/discovery"
-	"github.com/alacrity-aya/Kuro/internal/agent/manager"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
+
+	"google.golang.org/grpc"
 )
 
 const (
-	criSocketPath   = "unix:///run/containerd/containerd.sock"
-	targetNamespace = "kuro-experiment"
+	Port = ":50051"
 )
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	logger.Info("Kuro Agent starts...")
 
-	kubeconfig := os.Getenv("KUBECONFIG")
-	var config *rest.Config
-	var err error
-
-	if kubeconfig != "" {
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			log.Printf("Error building kubeconfig from file: %v, trying in-cluster config", err)
-		}
-	}
-
-	if config == nil {
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			log.Fatalf("Error building kubernetes client config: %v", err)
-		}
-	}
-	k8sClient, err := kubernetes.NewForConfig(config)
+	lis, err := net.Listen("tcp", Port)
 	if err != nil {
-		log.Fatalf("Error building kubernetes client: %v", err)
+		logger.Error("unable to listen", "port", Port, "error", err)
+		os.Exit(1)
 	}
 
-	watcher, err := discovery.NewPodWatcher(k8sClient, criSocketPath, targetNamespace)
-	if err != nil {
-		log.Fatalf("Failed to create pod watcher: %v", err)
-	}
-	defer watcher.Close()
+	grpcServer := grpc.NewServer()
 
-	manager := manager.NewBpfManager()
-
-	containerAgent := agent.NewContainerAgent(watcher, manager)
+	agentServer := agent.NewServer(logger)
+	pb.RegisterAgentServiceServer(grpcServer, agentServer)
 
 	go func() {
-		log.Println("🚀 Agent started, watching for pods...")
-		containerAgent.Run(ctx, ":50051")
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		<-sigCh
+		logger.Info("stopping Agent...")
+		grpcServer.GracefulStop()
 	}()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-	cancel()
-
-	err = containerAgent.Close()
-	if err != nil {
-		slog.Error("close container agent failed", "error", err)
+	logger.Info("Agent gRPC Server is ready", "address", Port)
+	if err := grpcServer.Serve(lis); err != nil {
+		logger.Error("gRPC Server exit unexpectedly", "error", err)
+		os.Exit(1)
 	}
 }
