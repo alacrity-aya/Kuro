@@ -6,7 +6,7 @@ apiVersion: kuro.io/v1alpha1
 kind: ExperimentWorkload
 metadata:
   name: "drone-cluster-infra"
-  namespace: "kuro-experiment-a" 
+  namespace: "kuro-experiment"
 spec:
   components:
     # ----------------------------------------

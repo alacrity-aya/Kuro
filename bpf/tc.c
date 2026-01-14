@@ -3,6 +3,32 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
+static __always_inline void record_ingress(__u32 key, __u32 len, int dropped) {
+    struct flow_counter* cnt = bpf_map_lookup_elem(&flow_counter_map, &key);
+    if (cnt) {
+        if (dropped == 0) {
+            cnt->rx_packets++;
+            cnt->rx_bytes += len;
+        } else {
+            cnt->rx_dropped_packets++;
+            cnt->rx_dropped_bytes += len;
+        }
+    }
+}
+
+static __always_inline void record_egress(__u32 key, __u32 len, int dropped) {
+    struct flow_counter* cnt = bpf_map_lookup_elem(&flow_counter_map, &key);
+    if (cnt) {
+        if (dropped == 0) {
+            cnt->tx_packets++;
+            cnt->tx_bytes += len;
+        } else {
+            cnt->tx_dropped_packets++;
+            cnt->tx_dropped_bytes += len;
+        }
+    }
+}
+
 // return 0 = ok, 1 = drop
 static __always_inline int apply_limit(struct __sk_buff* skb, struct traffic_rule* rule) {
     __u32 key = skb->ifindex;
@@ -41,18 +67,6 @@ static __always_inline int apply_limit(struct __sk_buff* skb, struct traffic_rul
 
     bpf_spin_unlock(&bucket->lock);
     kuro_debug("drop = %s", dropped == 0 ? "ok" : "drop");
-
-    // counter
-    struct flow_counter* cnt = bpf_map_lookup_elem(&flow_counter_map, &key);
-    if (cnt) {
-        if (dropped == 0) {
-            cnt->accepted_packets++;
-            cnt->accepted_bytes += skb_len;
-        } else {
-            cnt->dropped_packets++;
-            cnt->dropped_bytes += skb_len;
-        }
-    }
 
     return dropped;
 }
@@ -109,31 +123,35 @@ SEC("tc")
 int ingress(struct __sk_buff* skb) {
     __u32 key = skb->ifindex;
 
-    // NetEm: Packet Loss
+    // NetEm (Loss)
     struct netem_rule* netem_rule = bpf_map_lookup_elem(&netem_rule_map, &key);
-
-    kuro_debug("[ingress]: key = %d, netem_rule = %p", key, netem_rule);
-    if (apply_loss(netem_rule) == 1)
+    if (apply_loss(netem_rule) == 1) {
+        record_ingress(key, skb->len, 1); // Drop
         return TC_ACT_SHOT;
+    }
 
-    // Traffic Shaping
+    // Traffic Shaping (Limit)
     struct traffic_rule* traffic_rule = bpf_map_lookup_elem(&traffic_rule_map, &key);
+    int dropped = apply_limit(skb, traffic_rule);
 
-    kuro_debug("[ingress]: key = %d, traffic_rule = %p", key, traffic_rule);
-    if (apply_limit(skb, traffic_rule) == 1)
+    record_ingress(key, skb->len, dropped); // Drop or Accept
+
+    if (dropped)
         return TC_ACT_SHOT;
-
     return TC_ACT_OK;
 }
 
 SEC("tc")
 int egress(struct __sk_buff* skb) {
+    //TODO: maybe we need apply_loss here
+    //ingress loss and egress loss
     __u32 key = skb->ifindex;
 
-    // NetEm: Packet Loss
     struct netem_rule* netem_rule = bpf_map_lookup_elem(&netem_rule_map, &key);
-    kuro_debug("[egress]: key = %d, netem_rule = %p", key, netem_rule);
 
     apply_delay(skb, netem_rule);
+
+    record_egress(key, skb->len, 0);
+
     return TC_ACT_OK;
 }

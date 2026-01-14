@@ -1,11 +1,8 @@
 package traffic
 
 import (
-	"errors"
 	"fmt"
-	"log/slog"
 	"math"
-	"os"
 	"time"
 
 	"github.com/alacrity-aya/Kuro/internal/bpf"
@@ -17,19 +14,24 @@ import (
 
 type BpfProgram struct {
 	podName     string
-	ingressLink link.Link
-	egressLink  link.Link
-	objs        *bpf.TcObjects
-	loaded      bool
 	ifaceIndex  uint32
-
-	// Stats helper fields
-	lastCheckTime time.Time
-	lastBytes     uint64
-	smoothRate    float64
-
 	ifaceName   string
 	currentSpec Spec
+
+	objs        *bpf.TcObjects
+	ingressLink link.Link
+	egressLink  link.Link
+	loaded      bool
+
+	lastCheckTime time.Time
+
+	// Ingress History
+	lastIngressBytes  uint64
+	smoothIngressRate float64
+
+	// Egress History
+	lastEgressBytes  uint64
+	smoothEgressRate float64
 }
 
 // apply initialize or update traffic rules
@@ -82,8 +84,9 @@ func (p *BpfProgram) apply(sp Spec) error {
 		Tokens: sp.RateLimit.BurstBytes,
 		LastNs: uint64(time.Now().UnixNano()),
 	}
-	p.objs.BucketStateMap.Update(p.ifaceIndex, bucketState, ebpf.UpdateNoExist)
 
+	// initialize bpf map
+	p.objs.BucketStateMap.Update(p.ifaceIndex, bucketState, ebpf.UpdateNoExist)
 	p.objs.FlowCounterMap.Update(p.ifaceIndex, []bpf.TcFlowCounter{}, ebpf.UpdateNoExist)
 
 	if err := p.ensureFQ(); err != nil {
@@ -117,6 +120,7 @@ func (p *BpfProgram) apply(sp Spec) error {
 	return nil
 }
 
+// ensureFQ: we use fq to analog delay effect
 func (p *BpfProgram) ensureFQ() error {
 	linkObj, err := netlink.LinkByIndex(int(p.ifaceIndex))
 	if err != nil {
@@ -171,8 +175,7 @@ func (p *BpfProgram) removeFQ() error {
 
 func (p *BpfProgram) getStats() TrafficStats {
 	stats := TrafficStats{
-		PodName: p.podName,
-
+		PodName:     p.podName,
 		IfaceName:   p.ifaceName,
 		CurrentSpec: &p.currentSpec,
 	}
@@ -182,46 +185,58 @@ func (p *BpfProgram) getStats() TrafficStats {
 	}
 
 	var counters []bpf.TcFlowCounter
-	if err := p.objs.FlowCounterMap.Lookup(p.ifaceIndex, &counters); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			slog.Error("failed to lookup flow stats", "err", err)
-		}
-		return stats
-	}
+	if err := p.objs.FlowCounterMap.Lookup(p.ifaceIndex, &counters); err == nil {
+		for _, c := range counters {
+			// Ingress
+			stats.Ingress.TotalBytes += c.RxBytes
+			stats.Ingress.TotalPackets += c.RxPackets
+			stats.Ingress.DroppedBytes += c.RxDroppedBytes
+			stats.Ingress.DroppedPackets += c.RxDroppedPackets
 
-	for _, counter := range counters {
-		stats.TotalAcceptedBytes += counter.AcceptedBytes
-		stats.TotalDroppedBytes += counter.DroppedBytes
-		stats.TotalAcceptedPackets += counter.AcceptedPackets
-		stats.TotalDroppedPackets += counter.DroppedPackets
+			// Egress
+			stats.Egress.TotalBytes += c.TxBytes
+			stats.Egress.TotalPackets += c.TxPackets
+			stats.Egress.DroppedBytes += c.TxDroppedBytes
+			stats.Egress.DroppedPackets += c.TxDroppedPackets
+		}
 	}
 
 	now := time.Now()
 	if !p.lastCheckTime.IsZero() {
 		duration := now.Sub(p.lastCheckTime).Seconds()
 		if duration > 0 {
-			bytesDiff := float64(stats.TotalAcceptedBytes - p.lastBytes)
-			// avoid overflow
-			if stats.TotalAcceptedBytes < p.lastBytes {
-				bytesDiff = 0
-			}
-
-			instantRate := bytesDiff / duration
-			stats.InstantRateBps = instantRate
-
-			// EMA - Exponential Moving Average
-			const alpha = 0.2
-			if p.smoothRate == 0 {
-				p.smoothRate = instantRate
-			} else {
-				p.smoothRate = (alpha * instantRate) + ((1 - alpha) * p.smoothRate)
-			}
-			stats.SmoothRateBps = p.smoothRate
+			stats.Ingress.InstantRateBps, stats.Ingress.SmoothRateBps = calculateRate(
+				stats.Ingress.TotalBytes, p.lastIngressBytes, p.smoothIngressRate, duration,
+			)
+			stats.Egress.InstantRateBps, stats.Egress.SmoothRateBps = calculateRate(
+				stats.Egress.TotalBytes, p.lastEgressBytes, p.smoothEgressRate, duration,
+			)
 		}
 	}
 
 	p.lastCheckTime = now
-	p.lastBytes = stats.TotalAcceptedBytes
+	p.lastIngressBytes = stats.Ingress.TotalBytes
+	p.smoothIngressRate = stats.Ingress.SmoothRateBps
+	p.lastEgressBytes = stats.Egress.TotalBytes
+	p.smoothEgressRate = stats.Egress.SmoothRateBps
 
 	return stats
+}
+
+func calculateRate(current, last uint64, smoothRate, duration float64) (float64, float64) {
+	bytesDiff := float64(0)
+	if current >= last {
+		bytesDiff = float64(current - last)
+	}
+
+	instant := bytesDiff / duration
+
+	// EMA alpha = 0.2
+	const alpha = 0.2
+	newSmooth := instant
+	if smoothRate != 0 {
+		newSmooth = (alpha * instant) + ((1 - alpha) * smoothRate)
+	}
+
+	return instant, newSmooth
 }

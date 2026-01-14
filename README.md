@@ -12,6 +12,15 @@
     - agent restart
     - pin bpf map
     - incorrect loss 
+    - fq limit
+    - jitter
+    - ```yaml
+        selector:
+        mode: "manual"
+        protocol: "UDP"
+        dest_port: 8080
+
+    ```
 
 - controller
     - connection pool

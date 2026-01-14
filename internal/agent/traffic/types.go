@@ -19,16 +19,21 @@ type NetemSpec struct {
 	LossPercent float64 // 0.0 - 100.0
 }
 
-type TrafficStats struct {
-	PodName              string
-	TotalAcceptedBytes   uint64
-	TotalDroppedBytes    uint64
-	TotalAcceptedPackets uint64
-	TotalDroppedPackets  uint64
-	InstantRateBps       float64
-	SmoothRateBps        float64
+type DirectionStats struct {
+	TotalBytes     uint64
+	TotalPackets   uint64
+	DroppedBytes   uint64
+	DroppedPackets uint64
 
-	// for WatchStatus
+	InstantRateBps float64
+	SmoothRateBps  float64
+}
+
+type TrafficStats struct {
+	PodName     string
 	IfaceName   string
 	CurrentSpec *Spec
+
+	Ingress DirectionStats
+	Egress  DirectionStats
 }

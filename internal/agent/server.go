@@ -141,13 +141,25 @@ func (s *Server) WatchStatus(req *pb.WatchStatusRequest, stream pb.AgentService_
 					IfaceName:        stat.IfaceName,
 					AppliedEmulation: appliedEmu,
 					TrafficStats: &pb.TrafficStats{
-						Timestamp:            timestamppb.Now(),
-						TotalAcceptedBytes:   stat.TotalAcceptedBytes,
-						TotalDroppedBytes:    stat.TotalDroppedBytes,
-						TotalAcceptedPackets: stat.TotalAcceptedPackets,
-						TotalDroppedPackets:  stat.TotalDroppedPackets,
-						InstantRateBps:       stat.InstantRateBps,
-						SmoothRateBps:        stat.SmoothRateBps,
+						Timestamp: timestamppb.Now(),
+						// Ingress
+						Ingress: &pb.DirectionStats{
+							TotalBytes:     stat.Ingress.TotalBytes,
+							TotalPackets:   stat.Ingress.TotalPackets,
+							DroppedBytes:   stat.Ingress.DroppedBytes,
+							DroppedPackets: stat.Ingress.DroppedPackets,
+							InstantRateBps: stat.Ingress.InstantRateBps,
+							SmoothRateBps:  stat.Ingress.SmoothRateBps,
+						},
+						// Egress
+						Egress: &pb.DirectionStats{
+							TotalBytes:     stat.Egress.TotalBytes,
+							TotalPackets:   stat.Egress.TotalPackets,
+							DroppedBytes:   stat.Egress.DroppedBytes,
+							DroppedPackets: stat.Egress.DroppedPackets,
+							InstantRateBps: stat.Egress.InstantRateBps,
+							SmoothRateBps:  stat.Egress.SmoothRateBps,
+						},
 					},
 				}
 				report.Workloads = append(report.Workloads, wl)

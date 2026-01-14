@@ -63,10 +63,17 @@ struct {
 
 // count flow
 struct flow_counter {
-    __u64 accepted_bytes;
-    __u64 dropped_bytes;
-    __u64 accepted_packets;
-    __u64 dropped_packets;
+    // Ingress (Rx from Host perspective, Container Upload)
+    __u64 rx_bytes;
+    __u64 rx_packets;
+    __u64 rx_dropped_bytes;
+    __u64 rx_dropped_packets;
+
+    // Egress (Tx from Host perspective, Container Download)
+    __u64 tx_bytes;
+    __u64 tx_packets;
+    __u64 tx_dropped_bytes;
+    __u64 tx_dropped_packets;
 };
 
 struct {

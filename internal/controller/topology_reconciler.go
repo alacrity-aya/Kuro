@@ -14,7 +14,9 @@ import (
 	"github.com/alacrity-aya/Kuro/internal/api/v1alpha1"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -32,12 +34,32 @@ func NewAgentClientPool() *AgentClientPool {
 	}
 }
 
+func (p *AgentClientPool) RemoveClient(nodeIP string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if conn, exists := p.conns[nodeIP]; exists {
+		conn.Close()
+		delete(p.conns, nodeIP)
+		delete(p.clients, nodeIP)
+		slog.Info("Connection removed from pool", "node_ip", nodeIP)
+	}
+}
+
 func (p *AgentClientPool) GetClient(nodeIP string) (pb.AgentServiceClient, error) {
 	p.mu.RLock()
-	client, ok := p.clients[nodeIP]
+	client, exists := p.clients[nodeIP]
+	conn, connExists := p.conns[nodeIP]
 	p.mu.RUnlock()
-	if ok {
-		return client, nil
+
+	if exists && connExists {
+		state := conn.GetState()
+		if state == connectivity.Ready || state == connectivity.Idle {
+			return client, nil
+		}
+		// if state == TransientFailure or Shutdown, clean up
+		slog.Warn("Connection unhealthy, recreating...", "node_ip", nodeIP, "state", state)
+		p.RemoveClient(nodeIP)
 	}
 
 	p.mu.Lock()
@@ -48,8 +70,17 @@ func (p *AgentClientPool) GetClient(nodeIP string) (pb.AgentServiceClient, error
 	}
 
 	target := fmt.Sprintf("%s:50051", nodeIP)
-	// TODO: add keepalive params here
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	kacp := keepalive.ClientParameters{
+		Time:                10 * time.Second,
+		Timeout:             time.Second * 2,
+		PermitWithoutStream: true,
+	}
+
+	conn, err := grpc.NewClient(target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithKeepaliveParams(kacp),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +154,8 @@ func (r *TopologyReconciler) Reconcile(topo *v1alpha1.NetworkTopology) error {
 
 		resp, err := client.ApplyEmulation(context.Background(), req)
 		if err != nil {
-			r.Logger.Error("gRPC ApplyEmulation failed", "node", nodeName, "error", err)
+			r.Logger.Error("gRPC ApplyEmulation failed, evicting connection", "node", nodeName, "error", err)
+			r.Pool.RemoveClient(nodeIP)
 		} else {
 			r.Logger.Info("rules successfully sent", "node", nodeName, "status", resp.Status)
 		}
@@ -159,7 +191,8 @@ func (r *TopologyReconciler) ensureMonitorRunning(nodeName, nodeIP string, clien
 
 		stream, err := client.WatchStatus(ctx, &pb.WatchStatusRequest{IncludeMetrics: true})
 		if err != nil {
-			r.Logger.Error("starting WatchStatus failed", "node", nodeName, "err", err)
+			r.Logger.Error("starting WatchStatus failed, evicting connection", "node", nodeName, "err", err)
+			r.Pool.RemoveClient(nodeIP)
 			return
 		}
 
@@ -170,23 +203,38 @@ func (r *TopologyReconciler) ensureMonitorRunning(nodeName, nodeIP string, clien
 				return
 			}
 			if err != nil {
-				// TODO: check here if the context is canceled and then not print the error.
-				r.Logger.Error("Failed to read monitoring data", "node", nodeName, "err", err)
+				r.Logger.Error("Failed to read monitoring data, evicting connection", "node", nodeName, "err", err)
+				r.Pool.RemoveClient(nodeIP)
 				return
 			}
 
 			for _, wl := range report.Workloads {
 				stats := wl.TrafficStats
-				// bps -> Mbps
-				rateMbps := stats.SmoothRateBps * 8 / 1000000.0
+				if stats == nil {
+					continue
+				}
 
-				r.Logger.Info("📊 [MONITOR]",
-					"node", nodeName,
-					"pod", wl.PodName,
-					"rate", fmt.Sprintf("%.2f Mbps", rateMbps),
-					"drop_pkts", stats.TotalDroppedPackets,
-					"total_bytes", stats.TotalAcceptedBytes,
-				)
+				if stats.Ingress != nil {
+					rateMbps := stats.Ingress.SmoothRateBps * 8 / 1000000.0
+					r.Logger.Info("📊 [MONITOR-TX]",
+						"node", nodeName,
+						"pod", wl.PodName,
+						"rate", fmt.Sprintf("%.2f Mbps", rateMbps),
+						"drop_pkts", stats.Ingress.DroppedPackets,
+						"total_bytes", stats.Ingress.TotalBytes,
+					)
+				}
+
+				if stats.Egress != nil {
+					rateMbps := stats.Egress.SmoothRateBps * 8 / 1000000.0
+					r.Logger.Info("📊 [MONITOR-CX]",
+						"node", nodeName,
+						"pod", wl.PodName,
+						"rate", fmt.Sprintf("%.2f Mbps", rateMbps),
+						"drop_pkts", stats.Egress.DroppedPackets,
+						"total_bytes", stats.Egress.TotalBytes,
+					)
+				}
 			}
 		}
 	}()

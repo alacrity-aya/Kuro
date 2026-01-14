@@ -153,27 +153,23 @@ message ActiveWorkload {
 // =========================
 //
 
+message DirectionStats {
+  uint64 total_bytes = 1;
+  uint64 total_packets = 2;
+  uint64 dropped_bytes = 3;
+  uint64 dropped_packets = 4;
+  double instant_rate_bps = 5;
+  double smooth_rate_bps = 6;
+}
+
 message TrafficStats {
-  // Timestamp of the statistics snapshot.
   google.protobuf.Timestamp timestamp = 1;
 
-  // Total bytes successfully transmitted.
-  uint64 total_accepted_bytes = 2;
+  // Ingress: pod -> host(upload)
+  DirectionStats ingress = 2;
 
-  // Total bytes dropped by emulation.
-  uint64 total_dropped_bytes = 3;
-
-  // Total packets successfully transmitted.
-  uint64 total_accepted_packets = 4;
-
-  // Total packets dropped by emulation.
-  uint64 total_dropped_packets = 5;
-
-  // Instantaneous transmission rate.
-  double instant_rate_bps = 6;
-
-  // Smoothed transmission rate (e.g. EWMA).
-  double smooth_rate_bps = 7;
+  // Egress: host -> pod(download)
+  DirectionStats egress = 3;
 }
 
 //

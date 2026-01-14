@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: kuro-agent
-  namespace: kuro-experiment-a # TODO: move it to kuro-system
+  namespace: kuro-experiment # TODO: move it to kuro-system
   labels:
     app: kuro-agent
 spec:
