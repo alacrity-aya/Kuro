@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "pb/v1;pb";
+
+import "google/protobuf/timestamp.proto";
+import "api/proto/v1/emulation.proto";
+import "api/proto/v1/stats.proto";
+import "api/proto/v1/observation.proto";
+
+// AgentService defines the control-plane contract between Controller and Agent.
+service AgentService {
+
+  // Apply or update emulation rules on the Agent.
+  // The Agent is responsible for translating rules into tc/eBPF/cgroup
+  // operations.
+  rpc ApplyEmulation(EmulationRequest) returns (EmulationResponse);
+
+  // Periodic status and observation report from Agent to Controller.
+  rpc WatchStatus(WatchStatusRequest) returns (stream StatusReport);
+}
+
+message EmulationRequest {
+  // Unique request identifier for tracing and idempotency.
+  string request_id = 1;
+
+  // Version or hash of the desired configuration.
+  // Used for consistency validation and reconciliation.
+  // TODO: remove this field
+  string config_version = 2;
+
+  // Emulation rules per workload (Pod).
+  repeated WorkloadEmulation workloads = 3;
+}
+
+message EmulationResponse {
+  string request_id = 1;
+
+  enum ApplyStatus {
+    APPLY_STATUS_UNSPECIFIED = 0;
+    APPLY_SUCCESS = 1;
+    APPLY_PARTIAL_SUCCESS = 2;
+    APPLY_FAILED = 3;
+  }
+
+  ApplyStatus status = 2;
+
+  // Per-workload apply result.
+  repeated WorkloadApplyResult results = 3;
+
+  // Human-readable error or diagnostic message.
+  string message = 4;
+}
+
+message WorkloadApplyResult {
+  string pod_name = 1;
+  bool success = 2;
+
+  enum ErrorCode {
+    ERROR_NONE = 0;
+    ERROR_INVALID_RULE = 1;
+    ERROR_TC_FAILED = 2;
+    ERROR_EBPF_FAILED = 3;
+    ERROR_POD_NOT_FOUND = 4;
+  }
+
+  ErrorCode error_code = 3;
+  string error_message = 4;
+}
+
+message WatchStatusRequest { bool include_metrics = 1; }
+
+message StatusReport {
+  google.protobuf.Timestamp timestamp = 1;
+  repeated ActiveWorkload workloads = 2;
+}
+
+message ActiveWorkload {
+  string pod_name = 1;
+  string iface_name = 2;
+  string applied_config_version = 3;
+  WorkloadEmulation applied_emulation = 4;
+  TrafficStats traffic_stats = 5;
+  repeated ObservationChannel observations = 6;
+}
+
+message StatusResponse {
+  enum SyncAction {
+    SYNC_ACTION_UNSPECIFIED = 0;
+    // Agent state is consistent with Controller expectation.
+    SYNC_ACTION_NONE = 1;
+
+    // Re-apply the current configuration without full cleanup.
+    SYNC_ACTION_REAPPLY = 2;
+
+    // Fully tear down and re-sync all emulation state.
+    SYNC_ACTION_FULL_RESYNC = 3;
+  }
+
+  SyncAction action = 1;
+}

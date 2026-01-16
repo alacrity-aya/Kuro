@@ -2,7 +2,9 @@ package traffic
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
+	"runtime"
 	"time"
 
 	"github.com/alacrity-aya/Kuro/internal/bpf"
@@ -12,6 +14,14 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+type flowHistory struct {
+	lastIngressBytes  uint64
+	smoothIngressRate float64
+	lastEgressBytes   uint64
+	smoothEgressRate  float64
+}
+
+// TODO: maybe need a NewBpfProgram function here
 type BpfProgram struct {
 	podName     string
 	ifaceIndex  uint32
@@ -25,13 +35,7 @@ type BpfProgram struct {
 
 	lastCheckTime time.Time
 
-	// Ingress History
-	lastIngressBytes  uint64
-	smoothIngressRate float64
-
-	// Egress History
-	lastEgressBytes  uint64
-	smoothEgressRate float64
+	history map[uint32]*flowHistory
 }
 
 // apply initialize or update traffic rules
@@ -56,38 +60,23 @@ func (p *BpfProgram) apply(sp Spec) error {
 		if err := bpf.LoadTcObjects(p.objs, opts); err != nil {
 			return fmt.Errorf("failed to load ebpf objects: %w", err)
 		}
+		p.history = make(map[uint32]*flowHistory)
 		p.loaded = true
 	}
-
-	trafficRule := bpf.TcTrafficRule{
-		RateBytes:  sp.RateLimit.RateBytes,
-		BurstBytes: sp.RateLimit.BurstBytes,
-	}
-	if err := p.objs.TrafficRuleMap.Put(p.ifaceIndex, trafficRule); err != nil {
-		return fmt.Errorf("update traffic map: %w", err)
+	if err := p.updateRule(uint32(sp.IfaceIndex), 0, sp.DefaultRule); err != nil {
+		return err
 	}
 
-	lossThreshold := uint32(0)
-	if sp.Netem.LossPercent > 0 {
-		lossThreshold = uint32((sp.Netem.LossPercent / 100.0) * math.MaxUint32)
+	for _, rule := range sp.Rules {
+		ipInt, err := IPToUint32(rule.TargetIP)
+		if err != nil {
+			slog.Warn("Invalid target IP in rule", "ip", rule.TargetIP)
+			continue
+		}
+		if err := p.updateRule(uint32(sp.IfaceIndex), ipInt, rule); err != nil {
+			return err
+		}
 	}
-	netemRule := bpf.TcNetemRule{
-		DelayMs:       uint64(sp.Netem.LatencyMs),
-		JitterMs:      uint64(sp.Netem.JitterMs),
-		LossThreshold: lossThreshold,
-	}
-	if err := p.objs.NetemRuleMap.Put(p.ifaceIndex, netemRule); err != nil {
-		return fmt.Errorf("update netem map: %w", err)
-	}
-
-	bucketState := bpf.TcBucketState{
-		Tokens: sp.RateLimit.BurstBytes,
-		LastNs: uint64(time.Now().UnixNano()),
-	}
-
-	// initialize bpf map
-	p.objs.BucketStateMap.Update(p.ifaceIndex, bucketState, ebpf.UpdateNoExist)
-	p.objs.FlowCounterMap.Update(p.ifaceIndex, []bpf.TcFlowCounter{}, ebpf.UpdateNoExist)
 
 	if err := p.ensureFQ(); err != nil {
 		return fmt.Errorf("ensure fq: %w", err)
@@ -115,6 +104,54 @@ func (p *BpfProgram) apply(sp Spec) error {
 			return fmt.Errorf("attach egress: %w", err)
 		}
 		p.egressLink = l
+	}
+
+	return nil
+}
+
+func (p *BpfProgram) updateRule(ifindex uint32, ip uint32, rule Rule) error {
+	// TODO: don't init bpf map in this function
+	key := bpf.TcRuleKey{
+		Ifindex: ifindex,
+		Ipv4:    ip,
+	}
+
+	// Traffic Rule
+	tr := bpf.TcTrafficRule{
+		RateBytes:  rule.Rate.RateBytes,
+		BurstBytes: rule.Rate.BurstBytes,
+	}
+	if err := p.objs.TrafficRuleMap.Put(key, tr); err != nil {
+		return err
+	}
+
+	// Netem Rule
+	nr := bpf.TcNetemRule{
+		DelayMs:       uint64(rule.Netem.LatencyMs),
+		JitterMs:      uint64(rule.Netem.JitterMs),
+		LossThreshold: uint32((rule.Netem.LossPercent / 100.0) * math.MaxUint32),
+	}
+	if err := p.objs.NetemRuleMap.Put(key, nr); err != nil {
+		return err
+	}
+
+	// init bucket state
+	if rule.Rate.RateBytes > 0 {
+		bs := bpf.TcBucketState{
+			Tokens: rule.Rate.BurstBytes,
+			LastNs: uint64(time.Now().UnixNano()),
+		}
+		if err := p.objs.BucketStateMap.Update(key, bs, ebpf.UpdateNoExist); err != nil {
+			// TODO: handler err here
+			slog.Warn("init bucket state", "error", err)
+		}
+	}
+
+	// init flow counter
+	emptyCounters := make([]bpf.TcFlowCounter, runtime.NumCPU())
+	if err := p.objs.FlowCounterMap.Update(key, emptyCounters, ebpf.UpdateNoExist); err != nil {
+		// TODO: handler err here
+		slog.Warn("init flow counter", "error", err)
 	}
 
 	return nil
@@ -174,53 +211,140 @@ func (p *BpfProgram) removeFQ() error {
 }
 
 func (p *BpfProgram) getStats() TrafficStats {
-	stats := TrafficStats{
+	// TODO: log should be removed
+	statsMap := make(map[string]*LinkStats, len(p.history))
+	result := TrafficStats{
 		PodName:     p.podName,
 		IfaceName:   p.ifaceName,
 		CurrentSpec: &p.currentSpec,
+		Stats:       statsMap,
 	}
 
 	if !p.loaded || p.objs == nil {
-		return stats
-	}
-
-	var counters []bpf.TcFlowCounter
-	if err := p.objs.FlowCounterMap.Lookup(p.ifaceIndex, &counters); err == nil {
-		for _, c := range counters {
-			// Ingress
-			stats.Ingress.TotalBytes += c.RxBytes
-			stats.Ingress.TotalPackets += c.RxPackets
-			stats.Ingress.DroppedBytes += c.RxDroppedBytes
-			stats.Ingress.DroppedPackets += c.RxDroppedPackets
-
-			// Egress
-			stats.Egress.TotalBytes += c.TxBytes
-			stats.Egress.TotalPackets += c.TxPackets
-			stats.Egress.DroppedBytes += c.TxDroppedBytes
-			stats.Egress.DroppedPackets += c.TxDroppedPackets
-		}
+		return result
 	}
 
 	now := time.Now()
+	var duration float64
+	calculateRateFlag := false
+
 	if !p.lastCheckTime.IsZero() {
-		duration := now.Sub(p.lastCheckTime).Seconds()
-		if duration > 0 {
-			stats.Ingress.InstantRateBps, stats.Ingress.SmoothRateBps = calculateRate(
-				stats.Ingress.TotalBytes, p.lastIngressBytes, p.smoothIngressRate, duration,
+		duration = now.Sub(p.lastCheckTime).Seconds()
+		if duration > 0.001 {
+			calculateRateFlag = true
+		}
+	}
+
+	slog.Info("Starting CollectStats", "pod", p.podName, "expect_ifindex", p.ifaceIndex)
+	iter := p.objs.FlowCounterMap.Iterate()
+	var key bpf.TcRuleKey
+	var counters []bpf.TcFlowCounter
+
+	currentActiveIPs := make(map[uint32]struct{}, len(p.history))
+
+	countItems := 0
+	for iter.Next(&key, &counters) {
+
+		countItems++
+		slog.Debug("Map Item Found",
+			"key_ifindex", key.Ifindex,
+			"key_ip_hex", fmt.Sprintf("%x", key.Ipv4),
+			"target_ifindex", p.ifaceIndex,
+			"matched", key.Ifindex == p.ifaceIndex,
+		)
+
+		if key.Ifindex != p.ifaceIndex {
+			continue
+		}
+
+		currentActiveIPs[key.Ipv4] = struct{}{}
+
+		var rxBytes, rxPkts, rxDropBytes, rxDropPkts uint64
+		var txBytes, txPkts, txDropBytes, txDropPkts uint64
+
+		for _, c := range counters {
+			rxBytes += c.RxBytes
+			rxPkts += c.RxPackets
+			rxDropBytes += c.RxDroppedBytes
+			rxDropPkts += c.RxDroppedPackets
+
+			txBytes += c.TxBytes
+			txPkts += c.TxPackets
+			txDropBytes += c.TxDroppedBytes
+			txDropPkts += c.TxDroppedPackets
+		}
+
+		ipStr := Uint32ToIP(key.Ipv4)
+
+		linkStat := &LinkStats{
+			RemoteIP: ipStr,
+			Ingress: DirectionStats{
+				TotalBytes:     rxBytes,
+				TotalPackets:   rxPkts,
+				DroppedBytes:   rxDropBytes,
+				DroppedPackets: rxDropPkts,
+			},
+			Egress: DirectionStats{
+				TotalBytes:     txBytes,
+				TotalPackets:   txPkts,
+				DroppedBytes:   txDropBytes,
+				DroppedPackets: txDropPkts,
+			},
+		}
+
+		if calculateRateFlag {
+			hist, exists := p.history[key.Ipv4]
+			if !exists {
+				hist = &flowHistory{}
+				p.history[key.Ipv4] = hist
+			}
+
+			linkStat.Ingress.InstantRateBps, linkStat.Ingress.SmoothRateBps = calculateRate(
+				rxBytes, hist.lastIngressBytes, hist.smoothIngressRate, duration,
 			)
-			stats.Egress.InstantRateBps, stats.Egress.SmoothRateBps = calculateRate(
-				stats.Egress.TotalBytes, p.lastEgressBytes, p.smoothEgressRate, duration,
+			linkStat.Egress.InstantRateBps, linkStat.Egress.SmoothRateBps = calculateRate(
+				txBytes, hist.lastEgressBytes, hist.smoothEgressRate, duration,
 			)
+
+			hist.lastIngressBytes = rxBytes
+			hist.smoothIngressRate = linkStat.Ingress.SmoothRateBps
+			hist.lastEgressBytes = txBytes
+			hist.smoothEgressRate = linkStat.Egress.SmoothRateBps
+		} else {
+			if _, exists := p.history[key.Ipv4]; !exists {
+				p.history[key.Ipv4] = &flowHistory{
+					lastIngressBytes: rxBytes,
+					lastEgressBytes:  txBytes,
+				}
+			}
+		}
+		slog.Debug("Stats Raw Data",
+			"ip", ipStr,
+			"rx_bytes", rxBytes,
+			"tx_bytes", txBytes,
+		)
+
+		statsMap[ipStr] = linkStat
+	}
+
+	if countItems == 0 {
+		slog.Debug("Map is empty! No items found during iteration.")
+	}
+
+	if err := iter.Err(); err != nil {
+		slog.Error("map iteration failed", "err", err)
+	}
+
+	if len(p.history) > len(currentActiveIPs) {
+		for ipInt := range p.history {
+			if _, ok := currentActiveIPs[ipInt]; !ok {
+				delete(p.history, ipInt)
+			}
 		}
 	}
 
 	p.lastCheckTime = now
-	p.lastIngressBytes = stats.Ingress.TotalBytes
-	p.smoothIngressRate = stats.Ingress.SmoothRateBps
-	p.lastEgressBytes = stats.Egress.TotalBytes
-	p.smoothEgressRate = stats.Egress.SmoothRateBps
-
-	return stats
+	return result
 }
 
 func calculateRate(current, last uint64, smoothRate, duration float64) (float64, float64) {

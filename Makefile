@@ -6,7 +6,7 @@ BINARY_DIR = bin
 # protobuf
 PROTO_SRC_DIR = api/proto/v1
 PROTO_OUT_DIR = .
-PROTO_FILE = $(PROTO_SRC_DIR)/control.proto
+PROTO_FILES = $(wildcard $(PROTO_SRC_DIR)/*.proto)
 
 .DEFAULT_GOAL := help
 
@@ -15,9 +15,10 @@ PROTO_FILE = $(PROTO_SRC_DIR)/control.proto
 proto:
 	protoc -I . \
 	       -I $(PROTO_SRC_DIR) \
-	       --go_out=. --go_opt=paths=source_relative \
+	       --go_out=. \
+	       --go_opt=paths=source_relative \
 	       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-	       $(PROTO_FILE)
+	       $(PROTO_FILES)
 
 ## bpf: Generate eBPF Go bindings using bpf2go
 .PHONY: bpf

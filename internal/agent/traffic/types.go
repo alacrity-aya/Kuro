@@ -4,10 +4,16 @@ type Spec struct {
 	PodName    string
 	IfaceIndex int
 	IfaceName  string
-	RateLimit  RateLimitSpec
-	Netem      NetemSpec
+
+	Rules       []Rule
+	DefaultRule Rule
 }
 
+type Rule struct {
+	TargetIP string // e.g. 10.244.0.9
+	Rate     RateLimitSpec
+	Netem    NetemSpec
+}
 type RateLimitSpec struct {
 	RateBytes  uint64
 	BurstBytes uint64
@@ -29,11 +35,17 @@ type DirectionStats struct {
 	SmoothRateBps  float64
 }
 
+type LinkStats struct {
+	RemoteIP string // e.g. 10.244.0.5
+	Ingress  DirectionStats
+	Egress   DirectionStats
+}
+
 type TrafficStats struct {
 	PodName     string
 	IfaceName   string
 	CurrentSpec *Spec
 
-	Ingress DirectionStats
-	Egress  DirectionStats
+	// ip address -> LinkStats
+	Stats map[string]*LinkStats
 }

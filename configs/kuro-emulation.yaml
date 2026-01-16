@@ -4,7 +4,6 @@
 apiVersion: kuro.io/v1alpha1
 kind: NetworkTopology
 metadata:
-  # [需求1] 实验标识
   name: "experiment-drone-cluster-01"
   namespace: "kuro-experiment" 
 
@@ -12,13 +11,11 @@ spec:
   defaults:
     physical_capacity: "1000Mbps"
     
-    # 默认背景流量策略 (未命中任何 Link 规则的流量)
     background_rate: "900Mbps"
     background_burst: "100KB"
 
   nodes:
     - name: "drone-follower-0" 
-
     - name: "drone-leader-0"
       config:
         physical_capacity: "10Gbps" 
@@ -41,6 +38,7 @@ spec:
         bandwidth: "20Mbps"
         latency: "10ms"
         loss: "0.1%"
+        jitter: "10ms"
 
     - source: "drone-follower-0"
       target: "ground-station-0"
@@ -54,3 +52,4 @@ spec:
         bandwidth: "5Mbps"
         burst: "50KB" 
         latency: "100ms"
+        jitter: "10ms"

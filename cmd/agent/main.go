@@ -20,9 +20,14 @@ const (
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
+
 	slog.SetDefault(logger)
 	logger.Info("Kuro Agent starts...")
+	logger.Debug("Debug mod is enabled")
 
 	lis, err := net.Listen("tcp", Port)
 	if err != nil {

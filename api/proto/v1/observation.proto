@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "pb/v1;pb";
+
+message ObservationChannel {
+  string name = 1;
+
+  enum ObservationType {
+    OBSERVATION_UNSPECIFIED = 0;
+    OBSERVATION_LOG = 1;
+    OBSERVATION_METRICS = 2;
+    OBSERVATION_MEDIA_SAMPLE = 3;
+  }
+
+  ObservationType type = 2;
+  string description = 3;
+}

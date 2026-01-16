@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "pb/v1;pb";
+
+import "google/protobuf/timestamp.proto";
+
+message TrafficStats {
+  google.protobuf.Timestamp timestamp = 1;
+  repeated LinkTrafficStats link_stats = 2;
+}
+
+message LinkTrafficStats {
+  string remote_ip = 1;
+  DirectionStats ingress = 2;
+  DirectionStats egress = 3;
+}
+
+message DirectionStats {
+  uint64 total_bytes = 1;
+  uint64 total_packets = 2;
+  uint64 dropped_bytes = 3;
+  uint64 dropped_packets = 4;
+  double instant_rate_bps = 5;
+  double smooth_rate_bps = 6;
+}

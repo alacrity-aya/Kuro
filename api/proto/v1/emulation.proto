@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "pb/v1;pb";
+
+// TODO: remove pod_name, iface_name, pod_ip
+message WorkloadEmulation {
+  // Kubernetes Pod name.
+  string pod_name = 1;
+  // Network interface inside the Pod namespace to be emulated (e.g. veth).
+  string iface_name = 2;
+  // Pod id address
+  string pod_ip = 3;
+  // Qos rule
+  repeated EmulationRule rules = 4;
+  // default rule
+  EmulationRule default_rule = 5;
+}
+
+message EmulationRule {
+  string target_ip = 1;
+  RateLimit rate_limit = 2;
+  Netem netem = 3;
+}
+
+message RateLimit {
+  uint64 rate_bps = 1;
+  uint64 burst_bytes = 2;
+}
+
+message Netem {
+  uint32 loss_ppm = 1;
+  uint32 delay_ms = 2;
+  uint32 jitter_ms = 3;
+}

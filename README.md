@@ -19,12 +19,12 @@
         mode: "manual"
         protocol: "UDP"
         dest_port: 8080
-
-    ```
-
-- controller
-    - connection pool
+        ```
 
 - upstream(nelink bug)
     - create PR for this [issue](https://github.com/vishvananda/netlink/issues/480) 
 
+- self-healing
+
+- Use topology-aware to distinguish between business traffic and simulated traffic.
+- the key of bpf map should be dst ip

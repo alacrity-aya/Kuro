@@ -1,6 +1,7 @@
 package traffic
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"net"
@@ -38,4 +39,44 @@ func ResolvePodInterface(podIP string) (int, string, error) {
 	}
 
 	return linkIndex, link.Attrs().Name, nil
+}
+
+func PortToUint16(port uint32) uint16 {
+	//  BUG: maybe endian issue here
+	return uint16((port >> 8) | (port << 8))
+}
+
+func ProtoToUint8(p string) uint8 {
+	switch p {
+	case "TCP":
+		return 6
+	case "UDP":
+		return 17
+	case "ICMP":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func IPToUint32(ipStr string) (uint32, error) {
+	//  BUG: maybe endian issue here
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return 0, fmt.Errorf("invalid ip")
+	}
+	ip = ip.To4()
+	if ip == nil {
+		return 0, fmt.Errorf("not ipv4")
+	}
+	return binary.LittleEndian.Uint32(ip), nil
+}
+
+func Uint32ToIP(n uint32) string {
+	if n == 0 {
+		return "0.0.0.0" // Default Rule
+	}
+	ip := make(net.IP, 4)
+	binary.LittleEndian.PutUint32(ip, n)
+	return ip.String()
 }
