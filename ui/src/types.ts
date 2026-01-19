@@ -53,3 +53,14 @@ export interface GlobalDefaults {
     background_rate: string;
     background_burst: string;
 }
+
+export interface TrafficStats {
+    timestamp: number;
+    rx_bps: number;
+    tx_bps: number;
+    drops: number;
+}
+
+export interface TrafficHistory {
+    [linkId: string]: TrafficStats[];
+}

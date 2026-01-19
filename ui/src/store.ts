@@ -3,6 +3,9 @@ import * as types from './types';
 import * as react from '@xyflow/react';
 import dagre from 'dagre';
 import type { ToastMessage } from './types';
+import type { TrafficStats, TrafficHistory } from './types';
+import { wsClient } from './services/WebSocketClient';
+import yaml from 'js-yaml';
 
 const COMPONENT_COLORS = [
     '#228be6', '#12b886', '#7950f2', '#fa5252', '#fd7e14', '#82c91e', '#be4bdb',
@@ -16,9 +19,17 @@ interface KuroState {
     nodes: react.Node[];
     edges: react.Edge[];
     selectedComponentId: string | null;
-    selectedLinkId: string | null;
+    selectedLinkIds: string[];
 
     jsonErrors: Record<string, boolean>;
+    trafficData: Record<string, TrafficStats>;
+    trafficHistory: TrafficHistory;
+    isMonitoring: boolean;
+
+    toggleLinkSelection: (id: string) => void;
+    toggleMonitoring: (active: boolean) => void;
+    updateTraffic: (data: Record<string, TrafficStats>) => void;
+
     setJsonError: (key: string, hasError: boolean) => void;
 
     updateDefaults: (defaults: Partial<types.GlobalDefaults>) => void;
@@ -40,6 +51,8 @@ interface KuroState {
     toasts: ToastMessage[];
     addToast: (title: string, type?: 'success' | 'error' | 'info') => void;
     removeToast: (id: string) => void;
+
+    importConfig: (workloadYaml: string, topologyYaml: string) => void;
 }
 
 const DEFAULT_QOS: types.QoS = { bandwidth: '10Mbps', latency: '0ms', loss: '0%', shaping_type: 'tbf' };
@@ -52,13 +65,65 @@ export const useStore = create<KuroState>((set, get) => ({
         background_rate: '900Mbps',
         background_burst: '100KB'
     },
+    trafficData: {},
+    trafficHistory: {},
+    isMonitoring: false,
     components: [],
     links: [],
     nodes: [],
     edges: [],
     jsonErrors: {},
     selectedComponentId: null,
-    selectedLinkId: null,
+    selectedLinkIds: [],
+
+    toggleLinkSelection: (id) => set((state) => {
+        const isSelected = state.selectedLinkIds.includes(id);
+        if (isSelected) {
+            return { selectedLinkIds: state.selectedLinkIds.filter(lid => lid !== id) };
+        } else {
+            return { selectedLinkIds: [...state.selectedLinkIds, id] };
+        }
+    }),
+
+    toggleMonitoring: (active) => {
+        set({ isMonitoring: active });
+
+        if (active) {
+
+            wsClient.connect((realData) => {
+
+
+                get().updateTraffic(realData);
+            });
+
+
+            /* trafficSimulator.subscribe((rawMockData) => {
+                
+            });
+            */
+        } else {
+
+            wsClient.disconnect();
+        }
+    },
+
+    updateTraffic: (newData) => set((state) => {
+        const newHistory = { ...state.trafficHistory };
+
+
+        Object.entries(newData).forEach(([id, stats]) => {
+            if (!newHistory[id]) newHistory[id] = [];
+
+            const history = [...newHistory[id], stats];
+            if (history.length > 30) history.shift();
+            newHistory[id] = history;
+        });
+
+        return {
+            trafficData: newData,
+            trafficHistory: newHistory
+        };
+    }),
 
     updateDefaults: (defs) => set((state) => ({ defaults: { ...state.defaults, ...defs } })),
 
@@ -164,7 +229,7 @@ export const useStore = create<KuroState>((set, get) => ({
             animated: true,
             markerEnd: { type: react.MarkerType.ArrowClosed },
             style: { stroke: '#4dabf7', strokeWidth: 2 },
-            type: 'default'
+            type: 'traffic'
         }));
 
         set({ nodes: newNodes, edges: newEdges });
@@ -236,7 +301,20 @@ export const useStore = create<KuroState>((set, get) => ({
     },
 
     selectItem: (type, id) => {
-        set({ selectedComponentId: type === 'component' ? id : null, selectedLinkId: type === 'link' ? id : null });
+        if (type === 'component') {
+
+            set({ selectedComponentId: id, selectedLinkIds: [] });
+        } else if (type === 'link') {
+
+            if (id) {
+                set({ selectedLinkIds: [id], selectedComponentId: null });
+            } else {
+                set({ selectedLinkIds: [] });
+            }
+        } else {
+
+            set({ selectedComponentId: null, selectedLinkIds: [] });
+        }
     },
 
     toasts: [],
@@ -248,6 +326,74 @@ export const useStore = create<KuroState>((set, get) => ({
     },
     removeToast: (id) => {
         set(state => ({ toasts: state.toasts.filter(t => t.id !== id) }));
-    }
+    },
+
+    importConfig: (workloadContent, topologyContent) => {
+        try {
+            let newComponents: types.Component[] = [];
+            let newLinks: types.Link[] = [];
+            let newDefaults = get().defaults;
+
+
+            if (workloadContent.trim()) {
+                const wlObj = yaml.load(workloadContent) as any;
+                if (wlObj && wlObj.spec && Array.isArray(wlObj.spec.components)) {
+                    newComponents = wlObj.spec.components.map((c: any) => ({
+                        id: crypto.randomUUID(),
+                        name: c.name,
+                        replicas: c.replicas,
+                        image: c.image,
+                        command: c.command,
+                        args: c.args,
+                        env: c.env,
+                        resources: c.resources
+                    }));
+                }
+            }
+
+
+            if (topologyContent.trim()) {
+                const topoObj = yaml.load(topologyContent) as any;
+                if (topoObj && topoObj.spec) {
+
+                    if (topoObj.spec.defaults) {
+                        newDefaults = { ...newDefaults, ...topoObj.spec.defaults };
+                    }
+
+
+                    if (Array.isArray(topoObj.spec.links)) {
+                        newLinks = topoObj.spec.links.map((l: any) => ({
+                            id: `link-${l.source}-${l.target}`,
+                            source: l.source,
+                            target: l.target,
+                            selector: l.selector || { mode: 'topology_aware' },
+                            qos: l.qos || { bandwidth: '10Mbps' }
+                        }));
+                    }
+                }
+            }
+
+
+
+            set({
+                components: newComponents,
+                links: newLinks,
+                defaults: newDefaults,
+
+                selectedComponentId: null,
+                selectedLinkIds: []
+            });
+
+
+            get().syncVisuals();
+            setTimeout(() => get().layoutNodes(), 50);
+
+            get().addToast("Configuration imported successfully!", "success");
+
+        } catch (e: any) {
+            console.error("Import failed:", e);
+            get().addToast(`Import failed: ${e.message}`, "error");
+        }
+    },
 
 }));

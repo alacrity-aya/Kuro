@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,14 +98,31 @@ type TopologyReconciler struct {
 
 	monitors  map[string]context.CancelFunc
 	monitorMu sync.Mutex
+
+	Hub        *StreamHub
+	ipToName   map[string]string
+	ipToNameMu sync.RWMutex
 }
 
 func NewTopologyReconciler(client kubernetes.Interface, logger *slog.Logger) *TopologyReconciler {
+	hub := NewStreamHub()
+	go hub.Run()
+
+	go func() {
+		http.HandleFunc("/ws/traffic", hub.HandleConnections)
+		slog.Info("WebSocket server listening on :8081")
+		if err := http.ListenAndServe(":8081", nil); err != nil {
+			slog.Error("HTTP Server failed", "err", err)
+		}
+	}()
+
 	return &TopologyReconciler{
 		KubeClient: client,
 		Logger:     logger.With("controller", "TopologyReconciler"),
 		Pool:       NewAgentClientPool(),
 		monitors:   make(map[string]context.CancelFunc),
+		Hub:        hub,
+		ipToName:   make(map[string]string),
 	}
 }
 
@@ -121,6 +139,8 @@ func (r *TopologyReconciler) Reconcile(topo *v1alpha1.NetworkTopology) error {
 	// 1. Pre-fetch Pod Info for all Nodes to build an IP map
 	podMap := make(map[string]PodInfo)
 	for _, node := range topo.Spec.Nodes {
+
+		r.ipToNameMu.Lock()
 		pod, err := r.KubeClient.CoreV1().Pods(topo.Namespace).Get(context.TODO(), node.Name, metav1.GetOptions{})
 		if err != nil {
 			r.Logger.Warn("Skipping node: pod not found", "pod", node.Name)
@@ -135,6 +155,10 @@ func (r *TopologyReconciler) Reconcile(topo *v1alpha1.NetworkTopology) error {
 			HostIP:   pod.Status.HostIP,
 			PodIP:    pod.Status.PodIP,
 		}
+
+		r.ipToName[pod.Status.PodIP] = node.Name
+
+		r.ipToNameMu.Unlock()
 	}
 
 	// 2. Aggregate rules by Source Pod
@@ -297,17 +321,46 @@ func (r *TopologyReconciler) ensureMonitorRunning(nodeName, nodeIP string, clien
 				return
 			}
 
+			update := TrafficUpdate{
+				LinkUpdates: make(map[string]LinkStatsData),
+			}
+			hasUpdates := false
+			now := time.Now().UnixMilli()
+
 			for _, wl := range report.Workloads {
 				stats := wl.TrafficStats
 				if stats == nil {
 					continue
 				}
 
+				sourcePod := wl.PodName
+
 				// Iterate over per-link stats
 				for _, linkStat := range stats.LinkStats {
-					remote := linkStat.RemoteIp
-					if remote == "" || remote == "0.0.0.0" {
-						remote = "DEFAULT"
+					remoteIP := linkStat.RemoteIp
+
+					r.ipToNameMu.RLock()
+					targetName, found := r.ipToName[remoteIP]
+					r.ipToNameMu.RUnlock()
+
+					if !found {
+						continue
+					}
+
+					linkID := fmt.Sprintf("link-%s-%s", sourcePod, targetName)
+
+					if linkStat.Egress != nil {
+						rateBps := linkStat.Egress.SmoothRateBps
+						drops := linkStat.Egress.DroppedPackets
+
+						update.LinkUpdates[linkID] = LinkStatsData{
+							Timestamp: now,
+							RxBps:     rateBps,
+							TxBps:     rateBps,
+							Drops:     drops,
+						}
+						hasUpdates = true
+
 					}
 
 					// Log Ingress (Upload / Rx from Host)
@@ -317,7 +370,6 @@ func (r *TopologyReconciler) ensureMonitorRunning(nodeName, nodeIP string, clien
 							r.Logger.Info("📊 [LINK-RX]",
 								"node", nodeName,
 								"pod", wl.PodName,
-								"remote", remote,
 								"rate", fmt.Sprintf("%.2f Mbps", rateMbps),
 								"drops", linkStat.Ingress.DroppedPackets,
 							)
@@ -331,11 +383,14 @@ func (r *TopologyReconciler) ensureMonitorRunning(nodeName, nodeIP string, clien
 							r.Logger.Info("📊 [LINK-TX]",
 								"node", nodeName,
 								"pod", wl.PodName,
-								"remote", remote,
 								"rate", fmt.Sprintf("%.2f Mbps", rateMbps),
 								"drops", linkStat.Egress.DroppedPackets,
 							)
 						}
+					}
+
+					if hasUpdates {
+						r.Hub.BroadcastTraffic(update)
 					}
 				}
 			}

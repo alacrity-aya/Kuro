@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap, Panel,
   type Node
@@ -7,17 +7,28 @@ import '@xyflow/react/dist/style.css';
 import { useStore } from './store';
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/ToastContainer';
+import { TrafficEdge } from './components/TrafficEdge';
+import { MonitorPanel } from './components/MonitorPanel';
+
 
 export default function App() {
   const {
     nodes, edges,
     onNodesChange, onEdgesChange, onConnect,
-    selectItem
+    selectItem,
+    toggleLinkSelection
   } = useStore();
 
+  const edgeTypes = useMemo(() => ({
+    traffic: TrafficEdge,
+  }), []);
+
   const onEdgeClick = useCallback((event: React.MouseEvent, edge: any) => {
-    selectItem('link', edge.id);
-  }, [selectItem]);
+
+    event.stopPropagation();
+
+    toggleLinkSelection(edge.id);
+  }, [toggleLinkSelection]);
 
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
     if (node.data && typeof node.data.componentId === 'string') {
@@ -42,6 +53,7 @@ export default function App() {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onEdgeClick={onEdgeClick}
+            edgeTypes={edgeTypes}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
             fitView
@@ -56,6 +68,7 @@ export default function App() {
               Color border indicates same Component.
             </Panel>
           </ReactFlow>
+          <MonitorPanel />
         </div>
         <Sidebar />
       </div>
