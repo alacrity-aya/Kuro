@@ -12,7 +12,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define NSEC_PER_SEC 1000000000ULL
 #define NSEC_PER_MSEC 1000000ULL
 
-#define ENABLE_PRINT 1
+#define ENABLE_PRINT 0
 
 #if ENABLE_PRINT
     #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)

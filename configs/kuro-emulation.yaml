@@ -53,3 +53,16 @@ spec:
         burst: "50KB" 
         latency: "100ms"
         jitter: "10ms"
+    #
+    #
+    # - source: "ground-station-0"
+    #   target: "drone-leader-0"
+    #
+    #   selector:
+    #     mode: "manual"
+    #     protocol: "UDP"
+    #     dest_port: 8080
+    #
+    #   qos:
+    #     bandwidth: "20Mbps"
+    #     burst: "50KB" 

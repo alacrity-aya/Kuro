@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sender
+  labels:
+    app: network-test
+spec:
+  containers:
+  - name: sender
+    image: nicolaka/netshoot # 这个镜像只有几十兆，但集成了 tc, ping, tcpdump
+    command: ["sleep", "infinity"]
+    securityContext:
+      capabilities:
+        add: ["NET_ADMIN"] # 关键！赋予容器修改网络队列的权限
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: receiver
+  labels:
+    app: network-test
+spec:
+  containers:
+  - name: receiver
+    image: nicolaka/netshoot
+    command: ["sleep", "infinity"]
