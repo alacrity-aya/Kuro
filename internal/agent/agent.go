@@ -3,8 +3,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"kuro/internal/agent/netns"
@@ -28,6 +30,8 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 }
 
 func (a *Agent) Run(ctx context.Context) error {
+	go a.startDebugServer()
+
 	go func() {
 		log.Println("[Agent] Starting Watcher...")
 		if err := a.watcher.Start(ctx); err != nil {
@@ -73,6 +77,21 @@ func (a *Agent) printDebugStats() {
 		)
 	}
 	log.Printf("------------------------------------------")
+}
+
+func (a *Agent) startDebugServer() {
+	http.HandleFunc("/debug/pods", func(w http.ResponseWriter, r *http.Request) {
+		pods := a.watcher.GetAllPods()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(pods); err != nil {
+			log.Printf("[Agent] Failed to encode debug info: %v", err)
+		}
+	})
+
+	log.Println("[Agent] Debug server listening on :8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Printf("[Agent] Debug server error: %v", err)
+	}
 }
 
 func truncate(s string, n int) string {
