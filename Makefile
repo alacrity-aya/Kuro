@@ -30,7 +30,7 @@ bpf:
 
 ## build-agent: Compile the Agent binary
 .PHONY: build-agent
-build-agent: proto bpf
+build-agent:## proto bpf
 	@mkdir -p $(BINARY_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/agent ./cmd/agent/main.go
 
@@ -42,9 +42,9 @@ build-controller: proto
 
 ## images: Build images
 .PHONY: images
-images: build-agent build-controller
+images: build-agent# build-controller
 	docker build -f docker/Dockerfile.agent -t kuro-agent:dev .
-	docker build -f docker/Dockerfile.controller -t kuro-controller:dev .
+	# docker build -f docker/Dockerfile.controller -t kuro-controller:dev .
 
 ## build : Build both Agent and Controller
 .PHONY: build

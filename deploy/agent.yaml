@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuro-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kuro-agent-sa
+  namespace: kuro-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kuro-agent-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kuro-agent-binding
+subjects:
+  - kind: ServiceAccount
+    name: kuro-agent-sa
+    namespace: kuro-system
+roleRef:
+  kind: ClusterRole
+  name: kuro-agent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kuro-agent
+  namespace: kuro-system
+  labels:
+    app: kuro-agent
+spec:
+  selector:
+    matchLabels:
+      app: kuro-agent
+  template:
+    metadata:
+      labels:
+        app: kuro-agent
+    spec:
+      serviceAccountName: kuro-agent-sa
+      
+      hostNetwork: true
+      
+      hostPID: true
+      
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      
+      containers:
+        - name: kuro-agent
+          image: kuro-agent:dev
+          imagePullPolicy: IfNotPresent
+          command: ["./agent"]
+          
+          securityContext:
+            privileged: true
+            
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CONTAINERD_ADDRESS
+              value: "/run/containerd/containerd.sock"
+              
+          volumeMounts:
+            - name: containerd-sock
+              mountPath: /run/containerd/containerd.sock
+            - name: host-proc
+              mountPath: /host/proc
+
+      volumes:
+        - name: containerd-sock
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: Socket
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory

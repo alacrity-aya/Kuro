@@ -1,4 +1,7 @@
 FROM alpine:latest
-COPY bin/agent /app/agent
-RUN apk add --no-cache iproute2
-CMD ["/app/agent"]
+
+RUN apk add --no-cache bash curl util-linux iproute2
+WORKDIR /root/
+COPY bin/agent .
+RUN chmod +x agent
+CMD ["./agent"]
