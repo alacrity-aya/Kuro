@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	github.com/cilium/ebpf v0.20.0
 	github.com/containerd/containerd v1.7.30
+	github.com/vishvananda/netlink v1.2.1-beta.2
 	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0

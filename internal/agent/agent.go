@@ -9,13 +9,15 @@ import (
 	"net/http"
 	"time"
 
+	"kuro/internal/agent/bpf"
 	"kuro/internal/agent/netns"
 
 	"k8s.io/client-go/kubernetes"
 )
 
 type Agent struct {
-	watcher *netns.Watcher
+	watcher    *netns.Watcher
+	bpfManager *bpf.BpfManager
 
 	errCh chan error
 }
@@ -26,7 +28,11 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 		return nil, err
 	}
 	watcher := netns.NewWatcher(clientSet, containerRuntime, nodeName, targetNs)
-	return &Agent{watcher: watcher, errCh: make(chan error, 1)}, nil
+	manager, err := bpf.NewBpfManager()
+	if err != nil {
+		return nil, err
+	}
+	return &Agent{watcher: watcher, errCh: make(chan error, 1), bpfManager: manager}, nil
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -48,7 +54,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			log.Println("[Agent] Context cancelled, shutting down...")
-			a.watcher.Stop() // 优雅关闭，清理 Netns Handles
+			a.watcher.Stop()
 			return nil
 
 		case err := <-a.errCh:
@@ -68,11 +74,11 @@ func (a *Agent) printDebugStats() {
 	for _, p := range pods {
 		status := "Closed"
 		if p.NetnsHandle.IsOpen() {
-			status = "Open/Active"
+			status = "Active"
 		}
-		log.Printf("  - Pod: %-15s | ContainerID: %-12s... | Handle: %s",
+		log.Printf("  - Pod: %-15s | Veth: %-15s | Handle: %s",
 			p.Info.Name,
-			truncate(p.Info.ContainerID, 12),
+			truncate(p.Info.HostVeth, 15),
 			status,
 		)
 	}

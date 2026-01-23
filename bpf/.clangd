@@ -1,5 +1,5 @@
 If:
-  PathMatch: .*\.h$
+  PathMatch: .*$
 
 CompileFlags:
   Add:
@@ -11,4 +11,3 @@ CompileFlags:
     - -I/usr/include/bpf
     - "-x"
     - "c"
-    - "-D__always_inline=inline __attribute__((__always_inline__))"

@@ -20,10 +20,12 @@ import (
 // PodInfo encapsulates the essential information needed for the data plane.
 type PodInfo struct {
 	Name        string
-	Namespace   string
 	IP          string
 	ContainerID string
 	NodeName    string
+	Namespace   string // pod netns
+	HostVeth    string // host side veth name
+	HostIfIndex int    // host side veth index
 }
 
 // PodContext holds the Pod metadata AND the active Netns handle.
@@ -162,6 +164,16 @@ func (w *Watcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 		return
 	}
 
+	vethName, vethIndex, err := w.containerRuntime.GetHostVethPair(handle)
+	if err != nil {
+		fmt.Printf("[Watcher] Failed to resolve host veth for %s: %v\n", info.Name, err)
+		handle.Close()
+		return
+	}
+
+	info.HostVeth = vethName
+	info.HostIfIndex = vethIndex
+
 	// 2. Update Store (Thread-Safe)
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -227,6 +239,7 @@ func extractPodInfo(pod *corev1.Pod) *PodInfo {
 		IP:          pod.Status.PodIP,
 		ContainerID: cid,
 		NodeName:    pod.Spec.NodeName,
+		// HostVeth and HostIfIndex : handlePodAddOrUpdate
 	}
 }
 
