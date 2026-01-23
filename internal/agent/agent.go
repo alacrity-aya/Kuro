@@ -94,6 +94,10 @@ func (a *Agent) startDebugServer() {
 		}
 	})
 
+	http.HandleFunc("/debug/bpf", func(w http.ResponseWriter, r *http.Request) {
+		// TODO: print bpf info here
+	})
+
 	log.Println("[Agent] Debug server listening on :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Printf("[Agent] Debug server error: %v", err)

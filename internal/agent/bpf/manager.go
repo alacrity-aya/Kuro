@@ -1,6 +1,8 @@
 // Package bpf
 package bpf
 
+// TODO: add a function to print bpf info
+
 import (
 	"fmt"
 	"log"
@@ -12,14 +14,16 @@ import (
 )
 
 type BpfManager struct {
-	mu      sync.RWMutex
-	objects *TcObjects
-	links   map[int]*gressLink
+	mu       sync.RWMutex
+	objects  *TcObjects
+	programs map[int]*BpfProgram
 }
 
-type gressLink struct {
+type BpfProgram struct {
 	ingress link.Link
 	egress  link.Link
+	podName string
+	// TODO: store edt, tbf args here
 }
 
 // NewBpfManager loads the BPF programs and initializes global configurations.
@@ -47,8 +51,8 @@ func NewBpfManager() (*BpfManager, error) {
 	}
 
 	return &BpfManager{
-		objects: objs,
-		links:   make(map[int]*gressLink),
+		objects:  objs,
+		programs: make(map[int]*BpfProgram),
 	}, nil
 }
 
@@ -67,12 +71,12 @@ func (m *BpfManager) AddPod(podName string, ifaceIndex int) error {
 		return fmt.Errorf("ensure fq: %w", err)
 	}
 
-	if _, ok := m.links[ifaceIndex]; !ok {
-		m.links[ifaceIndex] = &gressLink{}
+	if _, ok := m.programs[ifaceIndex]; !ok {
+		m.programs[ifaceIndex] = &BpfProgram{}
 	}
-	links := m.links[ifaceIndex]
+	prog := m.programs[ifaceIndex]
 
-	if links.egress == nil {
+	if prog.egress == nil {
 		l, err := link.AttachTCX(link.TCXOptions{
 			Program:   m.objects.HandleTbfIngress,
 			Interface: ifaceIndex,
@@ -81,11 +85,11 @@ func (m *BpfManager) AddPod(podName string, ifaceIndex int) error {
 		if err != nil {
 			return fmt.Errorf("attach egress: %w", err)
 		}
-		links.egress = l
+		prog.egress = l
 
 	}
 
-	if links.ingress == nil {
+	if prog.ingress == nil {
 		l, err := link.AttachTCX(link.TCXOptions{
 			Program:   m.objects.HandleEdtEgress,
 			Interface: ifaceIndex,
@@ -94,8 +98,10 @@ func (m *BpfManager) AddPod(podName string, ifaceIndex int) error {
 		if err != nil {
 			return fmt.Errorf("attach ingress: %w", err)
 		}
-		links.ingress = l
+		prog.ingress = l
 	}
+	prog.podName = podName
+	m.programs[ifaceIndex] = prog
 
 	idx := uint32(ifaceIndex)
 
@@ -113,6 +119,7 @@ func (m *BpfManager) AddPod(podName string, ifaceIndex int) error {
 }
 
 func (m *BpfManager) UpdateRule(ifaceIndex int, limitBytes uint64) error {
+	// TODO: shoule be double side
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -128,11 +135,14 @@ func (m *BpfManager) UpdateRule(ifaceIndex int, limitBytes uint64) error {
 
 // RemovePod cleans up the maps for a removed Pod.
 // Note: The Qdiscs and Filters are automatically removed by the kernel when the interface is deleted.
-func (m *BpfManager) RemovePod(podName string, ifaceIndex int) error {
+func (m *BpfManager) RemovePod(ifaceIndex int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// TODO: remove links
+	prog := m.programs[ifaceIndex]
+	prog.egress.Close()
+	prog.ingress.Close()
+	delete(m.programs, ifaceIndex)
 
 	idx := uint32(ifaceIndex)
 
@@ -141,13 +151,13 @@ func (m *BpfManager) RemovePod(podName string, ifaceIndex int) error {
 	_ = m.objects.EdtStateMap.Delete(&idx)
 	_ = m.objects.TbfStateMap.Delete(&idx)
 
-	log.Printf("[BPF] Cleaned up resources for Pod %s (ifindex %d)", podName, ifaceIndex)
+	log.Printf("[BPF] Cleaned up resources for Pod %s (ifindex %d)", prog.podName, ifaceIndex)
 	return nil
 }
 
 // Close cleans up the BPF objects from the kernel.
 func (m *BpfManager) Close() error {
-	for _, program := range m.links {
+	for _, program := range m.programs {
 		program.egress.Close()
 		program.ingress.Close()
 	}
@@ -185,7 +195,6 @@ func (m *BpfManager) ensureFQ(ifaceIndex int) error {
 			if q.Type() == "fq" {
 				return nil
 			}
-			// delete pfifo_fast, noqueue 先删除
 			if err := netlink.QdiscDel(q); err != nil {
 				return fmt.Errorf("failed to del existing qdisc %s: %w", q.Type(), err)
 			}
