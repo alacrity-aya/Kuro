@@ -46,12 +46,13 @@ throttle_flow(struct __sk_buff* skb, __u64 rate, void* state_map, __u32 target_i
     __u64 t_last = st->t_last;
     __u64 t_start = t_last;
 
-    if (t_start < now) {
-        if (now > BURST_WINDOW_NS) {
-            t_start = now - BURST_WINDOW_NS;
-        } else {
-            t_start = 0; // Handle partial underflow near boot time
-        }
+    __u64 burst_start = 0;
+    if (now > BURST_WINDOW_NS) {
+        burst_start = now - BURST_WINDOW_NS;
+    }
+
+    if (t_start < burst_start) {
+        t_start = burst_start;
     }
 
     t_send = t_start + packet_time_ns;

@@ -23,7 +23,7 @@ const (
 	hostIP    = "10.20.99.1"
 	iperfPort = "5202"
 
-	limitRateBits = 10 * 1000 * 1000 * 10 // 100 Mbps
+	limitRateBits = 10 * 1000 * 1000 * 100 // 1000 Mbps
 	edtHorizonSec = 2
 )
 
@@ -107,7 +107,7 @@ func runIperf(t *testing.T, reverse bool) float64 {
 	args := []string{
 		"-c", podIP,
 		"-p", iperfPort,
-		"-t", "5",
+		"-t", "3",
 		"-J",
 	}
 	if reverse {
