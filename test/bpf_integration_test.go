@@ -107,7 +107,7 @@ func runIperf(t *testing.T, reverse bool) float64 {
 	args := []string{
 		"-c", podIP,
 		"-p", iperfPort,
-		"-t", "10",
+		"-t", "5",
 		"-J",
 	}
 	if reverse {
