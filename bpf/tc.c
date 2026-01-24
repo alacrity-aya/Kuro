@@ -1,158 +1,116 @@
 #include "include/helper.h"
 #include "include/map.h"
 
-// Container NS      |         Host NS
-// -------------------------+-------------------------
-//                          |
-//       [ Pod eth0 ]       |    [ Host veth (lxc) ]
-//            |             |            |
-//            |             |            |
-// (Pod Egress) ⬇️          |            ⬇️ (Host Ingress)
-//            |             |            |
-//            +-------------+----------> * HandleEdtEgress (AttachTCXIngress)
-//                          |            |
-//                          |            v
-//                          |      (Linux Kernel Stack)
-//                          |            |
-//                          |            v
-//            +-------------+----------< * HandleTbfIngress (AttachTCXEgress)
-// (Pod Ingress) ⬆️          |            |
-//            |             |            ⬆️ (Host Egress)
-//            |             |            |
-//       [ Pod eth0 ]       |    [ Host veth (lxc) ]
+// Burst Allowance: 5ms
+// Allows a small burst of packets to pass immediately when the link is idle.
+// For 10Mbps, 5ms ~ 6.25KB, sufficient for TCP Handshake + Initial Window.
+#define BURST_WINDOW_NS (5ULL * 1000000ULL)
 
-// Helper function: Fetch configuration; return default values if not configured
-static __always_inline void get_global_config(__u64* horizon, __u64* burst) {
-    __u32 key = 0;
-    struct global_config* cfg = bpf_map_lookup_elem(&config_map, &key);
-
-    if (cfg) {
-        *horizon = cfg->edt_horizon_ns;
-        *burst = cfg->tbf_burst_bytes;
-
-        // Defensive programming: Prevent division-by-zero or logic deadlocks
-        // if userspace provides a 0 value.
-        if (*horizon == 0)
-            *horizon = DEFAULT_EDT_HORIZON_NS;
-        if (*burst == 0)
-            *burst = DEFAULT_TBF_BURST_BYTES;
-    } else {
-        *horizon = DEFAULT_EDT_HORIZON_NS;
-        *burst = DEFAULT_TBF_BURST_BYTES;
+/**
+ * Generic EDT Rate Limiting Logic
+ * @param rate: Rate limit in bits per second (bps)
+ * @param state_map: Corresponding state Map (passed separately to support full-duplex)
+ * @param target_idx: Key used to look up state in state_map (usually the veth ifindex)
+ */
+static __always_inline int
+throttle_flow(struct __sk_buff* skb, __u64 rate, void* state_map, __u32 target_idx) {
+    // 1. Rate Check
+    if (rate == 0) {
+        // If an entry is configured but rate is 0, treat as a block (drop packet)
+        return TC_ACT_SHOT;
     }
-}
 
-// ==========================================
-// Scenario A: Container Egress (Pod -> World)
-// ==========================================
-SEC("tc/edt_egress")
-int handle_edt_egress(struct __sk_buff* skb) {
-    __u32 ifindex = skb->ingress_ifindex;
-
-    // ... (rate_map lookup logic same as before) ...
-    __u64* rate_bps = bpf_map_lookup_elem(&rate_map, &ifindex);
-    if (!rate_bps || *rate_bps == 0)
+    // 2. Retrieve State
+    struct edt_state* st = bpf_map_lookup_elem(state_map, &target_idx);
+    if (!st) {
+        // If state is not initialized, allow by default
         return TC_ACT_OK;
+    }
 
-    struct edt_state* st = bpf_map_lookup_elem(&edt_state_map, &ifindex);
-    if (!st)
-        return TC_ACT_OK;
+    // 3. Retrieve configuration and time
+    __u64 horizon_ns;
+    get_global_config(&horizon_ns);
 
-    // --- New: Read dynamic configuration ---
-    __u64 horizon_ns, burst_bytes; // burst is unused here but read for function consistency
-    get_global_config(&horizon_ns, &burst_bytes);
-
-    __u64 rate = *rate_bps;
     __u64 now = bpf_ktime_get_ns();
     __u64 packet_len = skb->len;
-    __u64 packet_time_ns = (packet_len * NSEC_PER_SEC) / rate;
+
+    // Calculation: Time = (Bytes * 8 * 10^9) / Rate_bps
+    // Precision fix: Multiply first
+    __u64 packet_time_ns = (packet_len * 8 * NSEC_PER_SEC) / rate;
+
     __u64 t_send;
 
+    // 4. Critical Section: Calculate transmission time
     bpf_spin_lock(&st->lock);
 
-    __u64 t_start = st->t_last;
-    if (t_start < now)
-        t_start = now;
+    __u64 t_last = st->t_last;
+    __u64 t_start = t_last;
+
+    if (t_start < now) {
+        if (now > BURST_WINDOW_NS) {
+            t_start = now - BURST_WINDOW_NS;
+        } else {
+            t_start = 0; // Handle partial underflow near boot time
+        }
+    }
 
     t_send = t_start + packet_time_ns;
 
-    // --- Modified: Use variable horizon_ns ---
+    // Check if it exceeds the maximum delay limit (prevents the queue from growing too deep)
     if (t_send > now + horizon_ns) {
         bpf_spin_unlock(&st->lock);
+        // kuro_debug("EDT Drop: ifindex %d, Queue too deep", target_idx);
         return TC_ACT_SHOT;
     }
 
     st->t_last = t_send;
     bpf_spin_unlock(&st->lock);
 
+    // 5. Set timestamp, let FQ Qdisc handle the scheduling
     skb->tstamp = t_send;
+
     return TC_ACT_OK;
 }
 
-// ==========================================
-// Scenario B: Container Ingress (World -> Pod)
-// ==========================================
-SEC("tc/tbf_ingress")
-int handle_tbf_ingress(struct __sk_buff* skb) {
+// =============================================================
+// Scenario 1: Download Control (Host -> Pod)
+// Attachment Point: Host Veth Interface -> Egress
+// Logic: Here skb->ifindex is the veth; we lookup the download rate for this ID.
+// =============================================================
+SEC("tc/edt_download")
+int handle_edt_download(struct __sk_buff* skb) {
     __u32 ifindex = skb->ifindex;
 
-    // ... (rate_map lookup logic same as before) ...
-    __u64* rate_bps = bpf_map_lookup_elem(&rate_map, &ifindex);
-    if (!rate_bps || *rate_bps == 0)
-        return TC_ACT_OK;
-
-    struct tbf_state* st = bpf_map_lookup_elem(&tbf_state_map, &ifindex);
-    if (!st)
-        return TC_ACT_OK;
-
-    // --- New: Read dynamic configuration ---
-    __u64 horizon_ns, burst_bytes;
-    get_global_config(&horizon_ns, &burst_bytes);
-
-    __u64 rate = *rate_bps;
-    __u64 now = bpf_ktime_get_ns();
-    __u64 packet_len = skb->len;
-    int ret = TC_ACT_OK;
-
-    bpf_spin_lock(&st->lock);
-
-    // --- Modified: Initialize using burst_bytes ---
-    if (st->last_tstamp == 0) {
-        st->last_tstamp = now;
-        st->tokens = burst_bytes;
+    // Lookup rate configuration
+    struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
+    if (!rates) {
+        return TC_ACT_OK; // No configuration, no rate limiting
     }
 
-    __u64 delta_ns = now - st->last_tstamp;
-    if ((__s64)delta_ns < 0) [[clang::unlikely]]
-        delta_ns = 0;
-
-    // --- Modified: Calculate max fill time using burst_bytes ---
-    // Time = (Bytes * 10^9) / Rate
-    __u64 max_fill_time = (burst_bytes * NSEC_PER_SEC) / rate;
-
-    if (delta_ns >= max_fill_time) {
-        st->tokens = burst_bytes;
-    } else {
-        __u64 tokens_generated = (delta_ns * rate) / NSEC_PER_SEC;
-
-        if (tokens_generated > 0) {
-            st->tokens += tokens_generated;
-
-            if (st->tokens > burst_bytes) {
-                st->tokens = burst_bytes;
-            }
-            st->last_tstamp = now;
-        }
-    }
-
-    if (st->tokens >= packet_len) {
-        st->tokens -= packet_len;
-        ret = TC_ACT_OK;
-    } else {
-        ret = TC_ACT_SHOT;
-    }
-
-    bpf_spin_unlock(&st->lock);
-
-    return ret;
+    // Invoke generic logic for Download
+    return throttle_flow(skb, rates->rate_download, &edt_download_state_map, ifindex);
 }
+
+// =============================================================
+// Scenario 2: Upload Control (Pod -> Host -> World)
+// Attachment Point: Pod eth0 -> Egress (Inside Pod Netns)
+// Logic:
+//   Packet is leaving the Pod. Since we are attached inside the Pod Netns,
+//   skb->ifindex is directly the index of eth0.
+// =============================================================
+SEC("tc/edt_upload")
+int handle_edt_upload(struct __sk_buff* skb) {
+    // Key: use current interface index (eth0)
+    // Manager.go has correctly stored the eth0 index as the Key in the Map
+    __u32 ifindex = skb->ifindex;
+
+    struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
+    if (!rates) {
+        return TC_ACT_OK;
+    }
+
+    // Invoke generic logic for Upload
+    return throttle_flow(skb, rates->rate_upload, &edt_upload_state_map, ifindex);
+}
+
+char __license[] SEC("license") = "GPL";
