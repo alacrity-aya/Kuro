@@ -1,3 +1,5 @@
+//go:build k8s
+
 package test
 
 import (
@@ -72,7 +74,7 @@ func TestAgentE2E(t *testing.T) {
 
 	t.Log("Waiting for pod to be running and scheduled...")
 	var targetNodeName string
-	waitFor(t, 60*time.Second, func() bool {
+	waitFor(t, 90*time.Second, func() bool {
 		p, err := clientset.CoreV1().Pods(TargetNamespace).Get(ctx, TestPodName, metav1.GetOptions{})
 		if err == nil && p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" {
 			targetNodeName = p.Spec.NodeName

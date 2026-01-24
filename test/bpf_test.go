@@ -1,14 +1,15 @@
+//go:build bpf
+
 package test
 
 import (
 	"encoding/json"
 	"fmt"
+	"kuro/internal/agent/bpf"
 	"os"
 	"os/exec"
 	"testing"
 	"time"
-
-	"kuro/internal/agent/bpf"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
