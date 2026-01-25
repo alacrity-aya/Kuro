@@ -1,4 +1,4 @@
-//go:build bpf && benchmark
+//go:build benchmark
 
 package test
 

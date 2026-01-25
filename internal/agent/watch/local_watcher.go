@@ -1,5 +1,5 @@
 // Package netns get netns handler from pod
-package netns
+package watch
 
 import (
 	"context"
@@ -35,8 +35,8 @@ type PodContext struct {
 	NetnsHandle netns.NsHandle // The open file descriptor for the namespace
 }
 
-// Watcher manages the local cache of Pods and notifies on changes.
-type Watcher struct {
+// LocalWatcher manages the local cache of Pods and notifies on changes.
+type LocalWatcher struct {
 	client   kubernetes.Interface
 	informer cache.SharedIndexInformer
 	stopCh   chan struct{}
@@ -51,10 +51,10 @@ type Watcher struct {
 	store map[string]*PodContext // Key: PodName (since we are scoped to 1 namespace)
 }
 
-// NewWatcher creates a watcher optimized for a specific Node and Namespace.
+// NewLocolWatcher creates a watcher optimized for a specific Node and Namespace.
 // Note: We inject ContainerRuntime here.
-func NewWatcher(client kubernetes.Interface, containerRuntime *ContainerRuntime, nodeName, targetNs string) *Watcher {
-	return &Watcher{
+func NewLocolWatcher(client kubernetes.Interface, containerRuntime *ContainerRuntime, nodeName, targetNs string) *LocalWatcher {
+	return &LocalWatcher{
 		client:           client,
 		nodeName:         nodeName,
 		targetNs:         targetNs,
@@ -65,7 +65,7 @@ func NewWatcher(client kubernetes.Interface, containerRuntime *ContainerRuntime,
 }
 
 // Start begins the watching process.
-func (w *Watcher) Start(ctx context.Context) error {
+func (w *LocalWatcher) Start(ctx context.Context) error {
 	tweakListOptions := func(options *metav1.ListOptions) {
 		fs := fields.OneTermEqualSelector("spec.nodeName", w.nodeName)
 		options.FieldSelector = fs.String()
@@ -125,7 +125,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (w *Watcher) Stop() {
+func (w *LocalWatcher) Stop() {
 	// Clean up all open Netns handles before stopping
 	w.mu.Lock()
 	for name, ctx := range w.store {
@@ -141,7 +141,7 @@ func (w *Watcher) Stop() {
 
 // ================= Logic Handlers =================
 
-func (w *Watcher) handlePodAddOrUpdate(pod *corev1.Pod) {
+func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 	// Skip if Pod is not running or has no IP yet
 	if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
 		return
@@ -192,7 +192,7 @@ func (w *Watcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 	}
 }
 
-func (w *Watcher) handlePodDelete(pod *corev1.Pod) {
+func (w *LocalWatcher) handlePodDelete(pod *corev1.Pod) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -209,7 +209,7 @@ func (w *Watcher) handlePodDelete(pod *corev1.Pod) {
 // GetPodContext returns the PodInfo and NetnsHandle for a given pod name.
 // The caller should NOT close the handle, as it is managed by the Watcher.
 // If you need to keep the handle for long operations, consider duplicating it.
-func (w *Watcher) GetPodContext(podName string) (*PodContext, bool) {
+func (w *LocalWatcher) GetPodContext(podName string) (*PodContext, bool) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
@@ -218,7 +218,7 @@ func (w *Watcher) GetPodContext(podName string) (*PodContext, bool) {
 }
 
 // GetAllPods returns a snapshot of all tracked pods.
-func (w *Watcher) GetAllPods() []*PodContext {
+func (w *LocalWatcher) GetAllPods() []*PodContext {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 

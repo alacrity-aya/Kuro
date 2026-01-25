@@ -26,16 +26,19 @@ const (
 	AgentLabel      = "app=kuro-agent"
 )
 
+// PodContext matches the structure returned by /debug/pods
 type PodContext struct {
 	Info struct {
 		Name        string `json:"Name"`
 		Namespace   string `json:"Namespace"`
 		ContainerID string `json:"ContainerID"`
 		NodeName    string `json:"NodeName"`
+		IP          string `json:"IP"` // Ensure IP is included in PodInfo definition in watcher.go if not already
 	} `json:"Info"`
 }
 
 func TestAgentE2E(t *testing.T) {
+	// ... [Standard K8s Setup Code - Same as before] ...
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
@@ -48,8 +51,19 @@ func TestAgentE2E(t *testing.T) {
 
 	ctx := context.Background()
 
-	t.Log("Cleaning up previous test pods...")
-	_ = clientset.CoreV1().Pods(TargetNamespace).Delete(ctx, TestPodName, metav1.DeleteOptions{})
+	gracePeriod := int64(0)
+	err = clientset.CoreV1().Pods(TargetNamespace).Delete(ctx, TestPodName, metav1.DeleteOptions{
+		GracePeriodSeconds: &gracePeriod,
+	})
+
+	t.Logf("cleanup previous pod error: %v", err)
+
+	// if err != nil && !errors.IsNotFound(err) {
+	// 	t.Fatalf("Failed to cleanup previous pod: %v", err)
+	// }
+
+	t.Log("Waiting for previous pod to be fully deleted...")
+	time.Sleep(5 * time.Second)
 
 	t.Logf("Creating testing pod: %s", TestPodName)
 	pod := &corev1.Pod{
@@ -74,15 +88,18 @@ func TestAgentE2E(t *testing.T) {
 
 	t.Log("Waiting for pod to be running and scheduled...")
 	var targetNodeName string
+	var targetPodIP string // We need the IP to verify PeerWatcher
+
 	waitFor(t, 90*time.Second, func() bool {
 		p, err := clientset.CoreV1().Pods(TargetNamespace).Get(ctx, TestPodName, metav1.GetOptions{})
-		if err == nil && p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" {
+		if err == nil && p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" && p.Status.PodIP != "" {
 			targetNodeName = p.Spec.NodeName
+			targetPodIP = p.Status.PodIP
 			return true
 		}
 		return false
 	})
-	t.Logf("Test pod is running on node: %s", targetNodeName)
+	t.Logf("Test pod is running on node: %s with IP: %s", targetNodeName, targetPodIP)
 
 	agentPodName, err := getAgentPodOnNode(ctx, clientset, targetNodeName)
 	if err != nil {
@@ -101,45 +118,69 @@ func TestAgentE2E(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	t.Log("Assertion: Checking if Agent has detected the pod...")
+	// --- Test 1: Local Watcher (Existing) ---
+	t.Log("Assertion 1: Checking if Local Watcher has detected the pod...")
 	waitFor(t, 10*time.Second, func() bool {
 		pods, err := getAgentPods(localPort)
 		if err != nil {
-			t.Logf("Error querying agent: %v", err)
+			t.Logf("Error querying agent pods: %v", err)
 			return false
 		}
 		for _, p := range pods {
 			if p.Info.Name == TestPodName {
-				t.Logf("SUCCESS: Agent is tracking pod %s (ContainerID: %s)", p.Info.Name, p.Info.ContainerID)
+				t.Logf("SUCCESS: Local Agent is tracking pod %s", p.Info.Name)
 				return true
 			}
 		}
 		return false
 	})
 
+	// --- Test 2: Peer Watcher (New) ---
+	t.Log("Assertion 2: Checking if Peer Watcher has added IP to BPF Map...")
+	waitFor(t, 10*time.Second, func() bool {
+		peers, err := getAgentPeers(localPort)
+		if err != nil {
+			t.Logf("Error querying agent peers: %v", err)
+			return false
+		}
+		for _, ip := range peers {
+			if ip == targetPodIP {
+				t.Logf("SUCCESS: PeerWatcher synced IP %s to BPF Map", ip)
+				return true
+			}
+		}
+		return false
+	})
+
+	// --- Clean Up ---
 	t.Log("Deleting testing pod...")
 	err = clientset.CoreV1().Pods(TargetNamespace).Delete(ctx, TestPodName, metav1.DeleteOptions{})
 	if err != nil {
 		t.Fatalf("Failed to delete pod: %v", err)
 	}
 
-	t.Log("Assertion: Checking if Agent has cleaned up the pod...")
+	// --- Test 3: Verify Removal ---
+	t.Log("Assertion 3: Checking if IP is removed from BPF Map...")
 	waitFor(t, 20*time.Second, func() bool {
-		pods, err := getAgentPods(localPort)
+		peers, err := getAgentPeers(localPort)
 		if err != nil {
 			return false
 		}
-		for _, p := range pods {
-			if p.Info.Name == TestPodName {
+		for _, ip := range peers {
+			if ip == targetPodIP {
+				// Should NOT find it
 				return false
 			}
 		}
-		t.Log("SUCCESS: Pod removed from Agent memory.")
+		t.Log("SUCCESS: IP removed from BPF Map.")
 		return true
 	})
 }
 
+// ... [Helper Functions] ...
+
 func getAgentPodOnNode(ctx context.Context, client *kubernetes.Clientset, nodeName string) (string, error) {
+	// (Keep existing implementation)
 	pods, err := client.CoreV1().Pods(AgentNamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: AgentLabel,
 		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
@@ -154,6 +195,7 @@ func getAgentPodOnNode(ctx context.Context, client *kubernetes.Clientset, nodeNa
 }
 
 func getAgentPods(port string) ([]PodContext, error) {
+	// (Keep existing implementation)
 	url := fmt.Sprintf("http://127.0.0.1:%s/debug/pods", port)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -170,6 +212,26 @@ func getAgentPods(port string) ([]PodContext, error) {
 		return nil, err
 	}
 	return pods, nil
+}
+
+// [New Helper]
+func getAgentPeers(port string) ([]string, error) {
+	url := fmt.Sprintf("http://127.0.0.1:%s/debug/peers", port)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
+	}
+
+	var peers []string
+	if err := json.NewDecoder(resp.Body).Decode(&peers); err != nil {
+		return nil, err
+	}
+	return peers, nil
 }
 
 func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {

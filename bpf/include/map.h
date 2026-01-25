@@ -50,3 +50,11 @@ struct {
     __type(value, struct edt_state);
     __uint(max_entries, 1024);
 } edt_upload_state_map SEC(".maps");
+
+// Map 5: simulation pod white list (Key: IPv4 Address)
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32); // IPv4 Address (Network Byte Order recommended)
+    __type(value, __u8); // 1 = Is Simulation Peer
+    __uint(max_entries, 65535);
+} simulation_peers_map SEC(".maps");

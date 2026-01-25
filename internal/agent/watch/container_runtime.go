@@ -1,4 +1,4 @@
-package netns
+package watch
 
 import (
 	"context"

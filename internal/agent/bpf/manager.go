@@ -2,8 +2,10 @@
 package bpf
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"runtime"
 	"strings"
@@ -307,6 +309,69 @@ func (m *BpfManager) Close() error {
 	return m.objects.Close()
 }
 
+// AddPeer adds a simulation peer IP to the whitelist map.
+// ipStr: IPv4 address string (e.g., "10.244.1.5")
+func (m *BpfManager) AddPeer(ipStr string) error {
+	ipUint, err := ipToUint32(ipStr)
+	if err != nil {
+		return err
+	}
+
+	val := uint8(1)
+	// Key: IPv4 address (Network Byte Order/Big Endian)
+	if err := m.objects.SimulationPeersMap.Put(ipUint, val); err != nil {
+		return fmt.Errorf("failed to add peer ip %s: %w", ipStr, err)
+	}
+
+	// log.Printf("[BPF] Peer Added: %s", ipStr) // Optional: avoid spamming logs
+	return nil
+}
+
+// RemovePeer removes a simulation peer IP from the whitelist map.
+func (m *BpfManager) RemovePeer(ipStr string) error {
+	ipUint, err := ipToUint32(ipStr)
+	if err != nil {
+		return err
+	}
+
+	if err := m.objects.SimulationPeersMap.Delete(ipUint); err != nil {
+		// Ignore "key not found" errors
+		if err != ebpf.ErrKeyNotExist {
+			return fmt.Errorf("failed to remove peer ip %s: %w", ipStr, err)
+		}
+	}
+
+	m.objects.SimulationPeersMap.Iterate()
+
+	log.Printf("[BPF] Peer Removed: %s", ipStr)
+	return nil
+}
+
+// GetPeers returns a list of all IP addresses currently in the simulation_peers_map.
+// This is primarily used for debugging and E2E testing.
+func (m *BpfManager) GetPeers() ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var (
+		key uint32
+		val uint8
+		ips []string
+	)
+
+	iter := m.objects.SimulationPeersMap.Iterate()
+	for iter.Next(&key, &val) {
+		ip := uint32ToIP(key)
+		ips = append(ips, ip.String())
+	}
+
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("map iteration: %w", err)
+	}
+
+	return ips, nil
+}
+
 // ================= Helpers =================
 
 // ensureFQ checks and sets the fq qdisc on the given interface index.
@@ -351,4 +416,24 @@ func (m *BpfManager) ensureFQ(ifaceIndex int) error {
 		return fmt.Errorf("add fq: %w", err)
 	}
 	return nil
+}
+
+// ipToUint32 converts an IP string to uint32 in Network Byte Order (Big Endian)
+func ipToUint32(ipStr string) (uint32, error) {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return 0, fmt.Errorf("invalid ip format: %s", ipStr)
+	}
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		return 0, fmt.Errorf("not an ipv4 address: %s", ipStr)
+	}
+	return binary.BigEndian.Uint32(ipv4), nil
+}
+
+// uint32ToIP converts a Network Byte Order uint32 back to net.IP
+func uint32ToIP(n uint32) net.IP {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, n)
+	return ip
 }
