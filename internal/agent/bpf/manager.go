@@ -418,7 +418,8 @@ func (m *BpfManager) ensureFQ(ifaceIndex int) error {
 	return nil
 }
 
-// ipToUint32 converts an IP string to uint32 in Network Byte Order (Big Endian)
+// ipToUint32 converts an IP string to a uint32 that, when stored in memory
+// on a Little Endian machine, matches the Network Byte Order layout.
 func ipToUint32(ipStr string) (uint32, error) {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
@@ -428,12 +429,13 @@ func ipToUint32(ipStr string) (uint32, error) {
 	if ipv4 == nil {
 		return 0, fmt.Errorf("not an ipv4 address: %s", ipStr)
 	}
-	return binary.BigEndian.Uint32(ipv4), nil
+
+	return binary.LittleEndian.Uint32(ipv4), nil
 }
 
-// uint32ToIP converts a Network Byte Order uint32 back to net.IP
+// uint32ToIP converts the raw map key back to net.IP
 func uint32ToIP(n uint32) net.IP {
 	ip := make(net.IP, 4)
-	binary.BigEndian.PutUint32(ip, n)
+	binary.LittleEndian.PutUint32(ip, n)
 	return ip
 }

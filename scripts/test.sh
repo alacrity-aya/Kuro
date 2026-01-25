@@ -1,174 +1,238 @@
 #!/bin/bash
 
 # ==========================================
-# 1. Initialize Environment and Variables
+# 1. Environment Initialization
 # ==========================================
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -e # Exit immediately if a command exits with a non-zero status
+
+# Get project root directory regardless of where the script is executed
+CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$(basename "$CURRENT_DIR")" == "scripts" ]]; then
+    PROJECT_ROOT="$(dirname "$CURRENT_DIR")"
+else
+    PROJECT_ROOT="$CURRENT_DIR"
+fi
 cd "$PROJECT_ROOT"
 
+# Color Definitions
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
-NC='\033[0m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
 
-# Default Toggles
-RUN_STD=true
-RUN_BPF=true
-RUN_K8S=true
-USE_CACHE=true
-
+# Default States
+MODE_STD=false
+MODE_BPF=false
+MODE_K8S=false
+MODE_BENCH=false
 VERBOSE=false
+NO_CACHE=false
 
-EXIT_CODE=0
-FAILED_TESTS=()
+# Go Test Base Parameters
+GO_FLAGS=""
+TEST_ARGS=""
 
 # ==========================================
-# 2. Help Information and Argument Parsing
+# 2. Argument Parsing
 # ==========================================
 usage() {
-    echo "Usage: $0 [options]"
+    echo -e "${CYAN}Kuro Unified Test Runner${NC}"
+    echo "Usage: ./run.sh [targets] [options]"
+    echo ""
+    echo "Targets:"
+    echo "  -std         Run standard unit tests (non-root)"
+    echo "  -bpf         Run eBPF integration tests (requires sudo)"
+    echo "  -k8s         Run K8s integration tests (requires setup)"
+    echo "  -benchmark   Run benchmarks (requires sudo)"
+    echo "  -all         Run ALL tests (Std + BPF + K8s + Benchmark)"
+    echo ""
     echo "Options:"
-    echo "  --verbose     Show verbose output (go test -v)"
-    echo "  --only-k8s    Only run Kubernetes integration tests"
-    echo "  --only-bpf    Only run BPF tests"
-    echo "  --skip-bpf    Skip BPF tests"
-    echo "  --skip-k8s    Skip Kubernetes tests"
-    echo "  --no-cache    Force run all tests (disable Go cache)"
-    echo "  --help        Show this help message"
+    echo "  --verbose    Show verbose output (-v)"
+    echo "  --no-cache   Disable Go test cache (-count=1)"
+    echo "  --help       Show this help message"
     exit 0
 }
 
+# If no arguments provided, show usage
+if [[ "$#" -eq 0 ]]; then
+    usage
+fi
+
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --verbose) VERBOSE=true ;;
-        --only-k8s) RUN_STD=false; RUN_BPF=false; RUN_K8S=true ;;
-        --only-bpf) RUN_STD=false; RUN_BPF=true; RUN_K8S=false ;;
-        --skip-bpf) RUN_BPF=false ;;
-        --skip-k8s) RUN_K8S=false ;;
-        --no-cache) USE_CACHE=false ;;
-        --help) usage ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+        -std)       MODE_STD=true ;;
+        -bpf)       MODE_BPF=true ;;
+        -k8s)       MODE_K8S=true ;;
+        -benchmark) MODE_BENCH=true ;;
+        -all)       MODE_STD=true; MODE_BPF=true; MODE_K8S=true; MODE_BENCH=true ;;
+        --verbose)  VERBOSE=true ;;
+        --no-cache) NO_CACHE=true ;;
+        --help)     usage ;;
+        *)          echo -e "${RED}Unknown parameter: $1${NC}"; exit 1 ;;
     esac
     shift
 done
 
-GO_TEST_OPTS=""
+# Build Go arguments
 if [ "$VERBOSE" = true ]; then
-    GO_TEST_OPTS="-v"
+    TEST_ARGS="$TEST_ARGS -test.v"
+    GO_FLAGS="$GO_FLAGS -v"
 fi
 
-if [ "$USE_CACHE" = false ]; then
-    GO_TEST_OPTS="$GO_TEST_OPTS -count=1"
+if [ "$NO_CACHE" = true ]; then
+    TEST_ARGS="$TEST_ARGS -test.count=1"
+    GO_FLAGS="$GO_FLAGS -count=1"
 fi
 
 # ==========================================
-# 3. Utility Functions
+# 3. Helper Functions
 # ==========================================
-run_task() {
-    local DESC=$1
-    echo -e "${YELLOW}>>> Running: $DESC...${NC}"
-    # Use eval to execute all subsequent arguments as a command
-    if eval "${@:2}"; then
-        echo -e "${GREEN}Success: $DESC${NC}"
-    else
-        echo -e "${RED}Failed: $DESC${NC}"
-        EXIT_CODE=1
-        FAILED_TESTS+=("$DESC")
+
+ensure_root() {
+    echo -e "${YELLOW}>>> This step requires root privileges. Checking sudo...${NC}"
+    if ! sudo -v; then
+        echo -e "${RED}Error: Sudo authentication failed.${NC}"
+        exit 1
     fi
 }
 
-
-echo -e "${GREEN}>>> Starting Test Suite...${NC}"
-
-# ==========================================
-# 4. Execute Test Logic
-# ==========================================
-
-# (1) Standard Tests
-if [ "$RUN_STD" = true ]; then
-    run_task "Standard Go Tests" \
-        "go test $GO_TEST_OPTS ./... -tags=\"!bpf,!k8s\""
-fi
-
-# (2) BPF Tests
-if [ "$RUN_BPF" = true ]; then
-    echo -e "${YELLOW}>>> Preparing BPF tests...${NC}"
+run_std_tests() {
+    echo -e "\n${CYAN}========================================${NC}"
+    echo -e "${CYAN}>>> Running Standard Unit Tests...${NC}"
+    echo -e "${CYAN}========================================${NC}"
     
-    echo -e "${YELLOW}>>> BPF tests require root privileges.${NC}"
-    if ! sudo -v; then
-        echo -e "${RED}Error: Sudo authentication failed. Skipping BPF tests.${NC}"
-        EXIT_CODE=1
-        FAILED_TESTS+=("BPF Permission Check")
+    # Exclude tags that require special environments
+    if go test $GO_FLAGS ./... -tags="!bpf,!k8s,!benchmark"; then
+        echo -e "${GREEN}>>> Standard Tests Passed.${NC}"
+    else
+        echo -e "${RED}>>> Standard Tests Failed.${NC}"
         exit 1
     fi
+}
 
-    BPF_TEMP_DIR=$(mktemp -d)
+run_bpf_tests() {
+    echo -e "\n${CYAN}========================================${NC}"
+    echo -e "${CYAN}>>> Running eBPF Integration Tests...${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    
+    ensure_root
+
+    # Create temporary directory for compiled test binaries
+    TEMP_DIR=$(mktemp -d)
+    trap 'rm -rf "$TEMP_DIR"' EXIT
+
+    # Find packages with the 'bpf' tag
     PACKAGES=$(go list -tags=bpf ./...)
-    FOUND_BPF_TESTS=0
+    
+    if [ -z "$PACKAGES" ]; then
+        echo -e "${YELLOW}No packages with 'bpf' tag found.${NC}"
+        return
+    fi
 
     for PKG in $PACKAGES; do
-        SAFE_NAME=${PKG//\//_}
-        TEST_BIN="$BPF_TEMP_DIR/$SAFE_NAME.test"
+        SAFE_NAME=$(basename "$PKG")
+        TEST_BIN="$TEMP_DIR/$SAFE_NAME.test"
 
-        # Compile package
-        OUTPUT=$(go test -c -tags=bpf "$PKG" -o "$TEST_BIN" 2>&1)
-        if [ $? -ne 0 ]; then
-            if [[ "$OUTPUT" != *"[no test files]"* ]]; then
-                echo -e "${RED}BPF Compilation Error in $PKG:${NC}\n$OUTPUT"
-                EXIT_CODE=1
-                FAILED_TESTS+=("BPF Compile: $PKG")
-            fi
-            continue
-        fi
-
-        if [ -f "$TEST_BIN" ]; then
-            FOUND_BPF_TESTS=1
-            SHORT_NAME=$(basename "$PKG")
-            echo -e "${YELLOW}>>> Running BPF Test: $PKG (Sudo)${NC}"
-            
-            # 只有在 VERBOSE 为 true 时才传 -test.v
-            BPF_RUN_CMD="sudo $TEST_BIN"
-            [ "$VERBOSE" = true ] && BPF_RUN_CMD="$BPF_RUN_CMD -test.v"
-            [ "$USE_CACHE" = false ] && BPF_RUN_CMD="$BPF_RUN_CMD -test.count=1"
-
-            if eval "$BPF_RUN_CMD"; then
-                 echo -e "${GREEN}Success: $SHORT_NAME${NC}"
+        echo -e "${YELLOW}Compiling $PKG...${NC}"
+        # Compile test binary (Compile as current user to avoid sudo polluting go cache)
+        if go test -c -tags=bpf "$PKG" -o "$TEST_BIN"; then
+            echo -e "${YELLOW}Running $PKG (with sudo)...${NC}"
+            # Run the binary (Root privileges)
+            # Note: eval or direct variable expansion handles TEST_ARGS properly
+            if sudo "$TEST_BIN" $TEST_ARGS; then
+                echo -e "${GREEN}>>> $SAFE_NAME Passed.${NC}"
             else
-                 echo -e "${RED}Failed: $SHORT_NAME${NC}"
-                 EXIT_CODE=1
-                 FAILED_TESTS+=("BPF Run: $SHORT_NAME")
+                echo -e "${RED}>>> $SAFE_NAME Failed.${NC}"
+                exit 1
             fi
+        else
+            echo -e "${RED}Compilation Failed for $PKG${NC}"
+            exit 1
         fi
     done
-    [ $FOUND_BPF_TESTS -eq 0 ] && echo -e "${YELLOW}No BPF tests found.${NC}"
-    rm -rf "$BPF_TEMP_DIR"
-fi
+}
 
-# (3) K8s Tests
-if [ "$RUN_K8S" = true ]; then
-    if [ -f "$SCRIPT_DIR/setup_env.sh" ]; then
-        run_task "K8s Environment Setup" "bash $SCRIPT_DIR/setup_env.sh"
-        if [ $? -eq 0 ]; then
-            run_task "K8s Integration Tests" "go test $GO_TEST_OPTS -tags=k8s ./..."
+run_k8s_tests() {
+    echo -e "\n${CYAN}========================================${NC}"
+    echo -e "${CYAN}>>> Running Kubernetes Integration Tests...${NC}"
+    echo -e "${CYAN}========================================${NC}"
+
+    SETUP_SCRIPT="$PROJECT_ROOT/scripts/setup_env.sh"
+    
+    if [ -f "$SETUP_SCRIPT" ]; then
+        echo -e "${YELLOW}Setting up K8s Environment...${NC}"
+        # Assume setup_env.sh handles environment preparation
+        bash "$SETUP_SCRIPT"
+        
+        echo -e "${YELLOW}Running K8s Tests...${NC}"
+        if go test $GO_FLAGS -tags=k8s ./...; then
+            echo -e "${GREEN}>>> K8s Tests Passed.${NC}"
+        else
+            echo -e "${RED}>>> K8s Tests Failed.${NC}"
+            exit 1
         fi
     else
-        echo -e "${RED}Warning: setup_env.sh not found, skipping k8s tests.${NC}"
-        [ "$RUN_STD" = false ] && [ "$RUN_BPF" = false ] && EXIT_CODE=1 
+        echo -e "${RED}Warning: scripts/setup_env.sh not found. Skipping K8s tests.${NC}"
+        exit 1
     fi
-fi
+}
+
+run_benchmarks() {
+    echo -e "\n${CYAN}========================================${NC}"
+    echo -e "${CYAN}>>> Running Benchmarks...${NC}"
+    echo -e "${CYAN}========================================${NC}"
+
+    ensure_root
+    
+    TEMP_BIN=$(mktemp)
+    trap 'rm -f "$TEMP_BIN"' EXIT
+
+    echo -e "${YELLOW}Compiling Benchmarks...${NC}"
+    # Compile Benchmark binary
+    if go test -c -tags="bpf,benchmark" -o "$TEMP_BIN" ./test; then
+        echo -e "${YELLOW}Executing Benchmarks...${NC}"
+        
+        # Construct Benchmark arguments
+        BENCH_ARGS="-test.run=^$ -test.bench=."
+        [ "$VERBOSE" = true ] && BENCH_ARGS="$BENCH_ARGS -test.v"
+        # Benchmarks are count=1 by default, but we pass NO_CACHE if specified
+        [ "$NO_CACHE" = true ] && BENCH_ARGS="$BENCH_ARGS -test.count=1"
+
+        if sudo "$TEMP_BIN" $BENCH_ARGS; then
+            echo -e "${GREEN}>>> Benchmarks Completed.${NC}"
+        else
+            echo -e "${RED}>>> Benchmarks Failed.${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Benchmark Compilation Failed.${NC}"
+        exit 1
+    fi
+}
 
 # ==========================================
-# 5. Results Summary
+# 4. Execution Flow
 # ==========================================
-echo -e "\n${GREEN}>>> All tasks completed.${NC}"
-if [ $EXIT_CODE -ne 0 ]; then
-    echo -e "${RED}Summary of failures:${NC}"
-    for FAILED in "${FAILED_TESTS[@]}"; do
-        echo -e "${RED}  - $FAILED${NC}"
-    done
-    exit $EXIT_CODE
-else
-    echo -e "${GREEN}All test suites passed!${NC}"
-    exit 0
+
+# 1. Standard Tests
+if [ "$MODE_STD" = true ]; then
+    run_std_tests
 fi
+
+# 2. BPF Tests
+if [ "$MODE_BPF" = true ]; then
+    run_bpf_tests
+fi
+
+# 3. K8s Tests
+if [ "$MODE_K8S" = true ]; then
+    run_k8s_tests
+fi
+
+# 4. Benchmarks
+if [ "$MODE_BENCH" = true ]; then
+    run_benchmarks
+fi
+
+echo -e "\n${GREEN}>>> All requested tasks finished successfully.${NC}"
