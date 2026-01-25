@@ -127,6 +127,7 @@ if [ "$RUN_BPF" = true ]; then
             SHORT_NAME=$(basename "$PKG")
             echo -e "${YELLOW}>>> Running BPF Test: $PKG (Sudo)${NC}"
             
+            # 只有在 VERBOSE 为 true 时才传 -test.v
             BPF_RUN_CMD="sudo $TEST_BIN"
             [ "$VERBOSE" = true ] && BPF_RUN_CMD="$BPF_RUN_CMD -test.v"
             [ "$USE_CACHE" = false ] && BPF_RUN_CMD="$BPF_RUN_CMD -test.count=1"
