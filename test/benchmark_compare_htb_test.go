@@ -18,7 +18,8 @@ const (
 	BenchNsName   = "bench_ns"
 	BenchHostVeth = "veth_bench_host"
 	BenchPodVeth  = "veth_bench_pod"
-	// BenchLimitRate has been removed; rates are now defined dynamically by test cases
+	BenchPodIP    = "10.20.1.2"
+	BenchHostIP   = "10.20.1.1" // Explicitly define Host IP
 )
 
 // Define the test case structure
@@ -31,20 +32,16 @@ type benchCase struct {
 var testCases = []benchCase{
 	{"100Mbps", 100 * 1000 * 1000},
 	{"1Gbps", 1 * 1000 * 1000 * 1000},
-	{"5Gbps", 5 * 1000 * 1000 * 1000}, // High-load scenario, better demonstrates eBPF performance advantages
+	{"5Gbps", 5 * 1000 * 1000 * 1000},
 }
 
 // Benchmark_Classic_HTB tests the performance of the standard Linux TC HTB qdisc.
 func Benchmark_Classic_HTB(b *testing.B) {
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			// Set up the environment independently for each sub-test to ensure isolation
 			setupBenchmarkEnv(b)
 			defer teardownBenchmarkEnv()
 
-			// Apply HTB rules:
-			// tc qdisc add dev veth_bench_host root handle 1: htb default 10
-			// tc class add dev veth_bench_host parent 1: classid 1:10 htb rate <RATE>
 			b.Logf("[HTB] Applying rules for %s...", tc.name)
 			cmds := [][]string{
 				{"tc", "qdisc", "add", "dev", BenchHostVeth, "root", "handle", "1:", "htb", "default", "10"},
@@ -58,7 +55,6 @@ func Benchmark_Classic_HTB(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				// Pass targetRate to calculate compliance rate
 				result := runBenchIperf(b)
 				reportMetrics(b, "HTB-"+tc.name, result, tc.rate)
 			}
@@ -90,7 +86,6 @@ func Benchmark_Ebpf_EDT(b *testing.B) {
 			}
 			defer nsHandle.Close()
 
-			// Allow some time for the environment to stabilize
 			time.Sleep(1 * time.Second)
 
 			b.Logf("[eBPF] Attaching EDT programs for %s...", tc.name)
@@ -98,20 +93,22 @@ func Benchmark_Ebpf_EDT(b *testing.B) {
 				b.Fatalf("AddPod failed: %v", err)
 			}
 
-			// [FIX]: Add the Pod IP to the whitelist so it is treated as Sim traffic.
-			podIP := "10.20.1.2"
-			b.Logf("[eBPF] Whitelisting Peer %s for Simulation...", podIP)
-			if err := mgr.AddPeer(podIP); err != nil {
-				b.Fatalf("AddPeer failed: %v", err)
+			// [FIX]: Add BOTH Pod IP and Host IP to whitelist.
+			// Since we test Download (Host->Pod), eBPF checks Src IP (Host).
+			// We must simulate that the Host is a trusted Sim Peer.
+			b.Logf("[eBPF] Whitelisting Peers (Pod: %s, Host: %s)...", BenchPodIP, BenchHostIP)
+			if err := mgr.AddPeer(BenchPodIP); err != nil {
+				b.Fatalf("AddPeer Pod failed: %v", err)
+			}
+			if err := mgr.AddPeer(BenchHostIP); err != nil {
+				b.Fatalf("AddPeer Host failed: %v", err)
 			}
 
 			b.Logf("[eBPF] Applying EDT rules (%s)...", tc.name)
-
 			if err := mgr.UpdateRule(linkHost.Attrs().Index, tc.rate, tc.rate); err != nil {
 				b.Fatalf("UpdateRule failed: %v", err)
 			}
 
-			// Wait for BPF maps to propagate
 			time.Sleep(1 * time.Second)
 
 			b.ResetTimer()
@@ -130,15 +127,10 @@ type BenchResult struct {
 }
 
 func runBenchIperf(b *testing.B) BenchResult {
-	// Run iperf3 client targeting the Pod IP
-	// -t 5: Run for 5 seconds per iteration
-	// -P 8: Parallel streams to saturate link (reduced parallelism to avoid over-contention at low bandwidth)
-	// -Z: Zero Copy (reduce local CPU overhead to measure network stack strictly)
-	cmd := exec.Command("iperf3", "-c", "10.20.1.2", "-t", "5", "-J", "-Z", "-P", "8")
+	// Targeting BenchPodIP
+	cmd := exec.Command("iperf3", "-c", BenchPodIP, "-t", "5", "-J", "-Z", "-P", "8")
 	out, err := cmd.Output()
 	if err != nil {
-		// If iperf fails, do not Fatal immediately; sometimes network is temporarily unreachable,
-		// allowing for a retry or logged error.
 		b.Fatalf("iperf3 failed: %v", err)
 	}
 
@@ -172,9 +164,6 @@ func reportMetrics(b *testing.B, method string, r BenchResult, targetRate uint64
 	b.ReportMetric(r.CpuUsage, "CPU%")
 
 	targetMbps := float64(targetRate) / 1e6
-
-	// Relaxed check for benchmark warnings (15% tolerance)
-	// iperf fluctuations can be significant at very high or very low throughput
 	if mbps > targetMbps*1.15 || mbps < targetMbps*0.85 {
 		b.Logf("[%s] WARNING: Rate unstable. Got %.2f Mbps, Target %.2f Mbps", method, mbps, targetMbps)
 	} else {
@@ -183,14 +172,14 @@ func reportMetrics(b *testing.B, method string, r BenchResult, targetRate uint64
 }
 
 func setupBenchmarkEnv(b *testing.B) {
-	cmd := exec.Command("./test/setup_topology.sh", BenchNsName, BenchHostVeth, BenchPodVeth, "10.20.1.2/24", "10.20.1.1/24", "5201")
+	// Use BenchPodIP and BenchHostIP constants
+	cmd := exec.Command("./test/setup_topology.sh", BenchNsName, BenchHostVeth, BenchPodVeth, BenchPodIP+"/24", BenchHostIP+"/24", "5201")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		b.Fatalf("Setup failed: %v, %s", err, string(out))
 	}
 }
 
 func teardownBenchmarkEnv() {
-	// Ensure cleanup is thorough; ignore errors in case resources do not exist
 	exec.Command("ip", "netns", "del", BenchNsName).Run()
 	exec.Command("ip", "link", "del", BenchHostVeth).Run()
 }

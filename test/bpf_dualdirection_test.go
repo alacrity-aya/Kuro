@@ -86,6 +86,11 @@ func TestDualDirectionTC(t *testing.T) {
 		t.Fatalf("AddPeer failed: %v", err)
 	}
 
+	t.Logf("Whitelisting Host IP (Test Peer): %s", hostIP)
+	if err := mgr.AddPeer(hostIP); err != nil {
+		t.Fatalf("AddPeer Host failed: %v", err)
+	}
+
 	// 4. Apply rate limit rules (100 Mbps)
 	if err := mgr.UpdateRule(hostIfIndex, uint64(limitRateBits), uint64(limitRateBits)); err != nil {
 		t.Fatalf("UpdateRule failed: %v", err)
@@ -123,7 +128,7 @@ func runIperf(t *testing.T, reverse bool) float64 {
 	args := []string{
 		"-c", podIP,
 		"-p", iperfPort,
-		"-t", "10",
+		"-t", "5",
 		"-J",
 	}
 	if reverse {

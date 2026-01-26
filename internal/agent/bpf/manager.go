@@ -23,6 +23,8 @@ type BpfManager struct {
 	objects *TcObjects
 	// programs map key is HostIfIndex.
 	programs map[int]*BpfProgram
+
+	eth0Link link.Link
 }
 
 type BpfProgram struct {

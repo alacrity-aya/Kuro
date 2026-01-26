@@ -118,15 +118,13 @@ run_bpf_tests() {
     
     ensure_root
 
-    # Create temporary directory for compiled test binaries
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TEMP_DIR"' EXIT
 
-    # Find packages with the 'bpf' tag
-    PACKAGES=$(go list -tags=bpf ./...)
+    PACKAGES=$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' -tags=bpf ./...)
     
     if [ -z "$PACKAGES" ]; then
-        echo -e "${YELLOW}No packages with 'bpf' tag found.${NC}"
+        echo -e "${YELLOW}No packages with 'bpf' tag and test files found.${NC}"
         return
     fi
 
@@ -135,16 +133,17 @@ run_bpf_tests() {
         TEST_BIN="$TEMP_DIR/$SAFE_NAME.test"
 
         echo -e "${YELLOW}Compiling $PKG...${NC}"
-        # Compile test binary (Compile as current user to avoid sudo polluting go cache)
         if go test -c -tags=bpf "$PKG" -o "$TEST_BIN"; then
-            echo -e "${YELLOW}Running $PKG (with sudo)...${NC}"
-            # Run the binary (Root privileges)
-            # Note: eval or direct variable expansion handles TEST_ARGS properly
-            if sudo "$TEST_BIN" $TEST_ARGS; then
-                echo -e "${GREEN}>>> $SAFE_NAME Passed.${NC}"
+            if [[ -f "$TEST_BIN" ]]; then
+                echo -e "${YELLOW}Running $PKG (with sudo)...${NC}"
+                if sudo "$TEST_BIN" $TEST_ARGS; then
+                    echo -e "${GREEN}>>> $SAFE_NAME Passed.${NC}"
+                else
+                    echo -e "${RED}>>> $SAFE_NAME Failed.${NC}"
+                    exit 1
+                fi
             else
-                echo -e "${RED}>>> $SAFE_NAME Failed.${NC}"
-                exit 1
+                echo -e "${CYAN}>>> Skipping $PKG (no test files).${NC}"
             fi
         else
             echo -e "${RED}Compilation Failed for $PKG${NC}"

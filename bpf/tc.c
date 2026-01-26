@@ -108,14 +108,14 @@ int handle_edt_download(struct __sk_buff* skb) {
     }
 
     // 2. Parse packet to get Source IP
-    __u32 dst_ip = 0;
-    if (!parse_ipv4(skb, NULL, &dst_ip)) [[clang::unlikely]] {
+    __u32 src_ip = 0;
+    if (!parse_ipv4(skb, &src_ip, NULL)) [[clang::unlikely]] {
         // Non-IPv4 (ARP/IPv6) is ignored and passed as-is (Priority 0, tstamp 0)
         return TC_ACT_OK;
     }
 
     // 3. Check Whitelist: Is the Source IP a simulation peer?
-    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &dst_ip);
+    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
     __u64 now = bpf_ktime_get_ns();
 
     if (is_sim) {
@@ -147,13 +147,13 @@ int handle_edt_upload(struct __sk_buff* skb) {
     }
 
     // 2. Parse packet to get Destination IP
-    __u32 src_ip = 0;
-    if (!parse_ipv4(skb, &src_ip, NULL)) [[clang::unlikely]] {
+    __u32 dst_ip = 0;
+    if (!parse_ipv4(skb, NULL, &dst_ip)) [[clang::unlikely]] {
         return TC_ACT_OK;
     }
 
     // 3. Check Whitelist: Is the Destination IP a simulation peer?
-    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
+    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &dst_ip);
     __u64 now = bpf_ktime_get_ns();
 
     if (is_sim) {
@@ -164,6 +164,36 @@ int handle_edt_upload(struct __sk_buff* skb) {
 
     skb->tstamp = now + SYS_LATENCY_OFFSET_NS;
     skb->priority = 0;
+
+    return TC_ACT_OK;
+}
+
+// =============================================================
+// Scenario 3: Global Egress Control (Host Physical NIC)
+// Hook: Host Eth0 Egress
+// Logic: Catch Host-local traffic and enforce global scheduling
+// =============================================================
+SEC("tc/eth0_egress")
+int handle_eth0_egress(struct __sk_buff* skb) {
+    // 1. Check Priority
+    // Priority 1 = Set by Veth (Sim Traffic). It already has a correct tstamp.
+    if (skb->priority == 1) {
+        return TC_ACT_OK;
+    }
+
+    // 2. Handle Sys Traffic (Priority 0)
+    // This includes:
+    // a) Traffic from Pods marked as Sys (already has tstamp set by Veth)
+    // b) Traffic from Host processes (tstamp is 0)
+
+    // If tstamp is 0, it means it's Host-local traffic (SSH, Kubelet, etc.)
+    // We must delay it to prevent it from jumping ahead of Sim traffic.
+    if (skb->tstamp == 0) {
+        __u64 now = bpf_ktime_get_ns();
+        skb->tstamp = now + SYS_LATENCY_OFFSET_NS;
+    }
+
+    // If tstamp was already set by Veth, we respect it (do nothing).
 
     return TC_ACT_OK;
 }
