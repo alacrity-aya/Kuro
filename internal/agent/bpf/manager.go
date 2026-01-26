@@ -66,7 +66,7 @@ func NewBpfManager() (*BpfManager, error) {
 	return mgr, nil
 }
 
-func (m *BpfManager) AttachEth0Egress(hostInterface string) error {
+func (m *BpfManager) AttachNICEgress(hostInterface string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -190,15 +190,12 @@ func (m *BpfManager) AttachIngressProtection(hostInterface string, limitBps uint
 	return nil
 }
 
-// AddPod sets up traffic control for a pod.
-// It attaches BPF programs to BOTH the Host Veth (for download) and Pod Veth (for upload).
 func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 1. Check if already exists
 	if _, ok := m.programs[hostIfIndex]; ok {
-		return nil // Already managed
+		return nil
 	}
 
 	log.Printf("[BPF] Setting up Pod %s (HostIfIndex: %d)", podName, hostIfIndex)
@@ -209,16 +206,11 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 		netnsHandle: nsHandle,
 	}
 
-	// ==========================================
 	// Step 1: Host Side Configuration (Download)
-	// ==========================================
-
-	// Ensure FQ on Host Veth
 	if err := m.ensureFQ(hostIfIndex); err != nil {
 		return fmt.Errorf("host fq: %w", err)
 	}
 
-	// Attach EDT to Host Egress (Controls traffic Host -> Pod)
 	hostLink, err := link.AttachTCX(link.TCXOptions{
 		Program:   m.objects.HandleEdtDownload,
 		Interface: hostIfIndex,
@@ -229,22 +221,24 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	}
 	prog.hostEgressLink = hostLink
 
-	// Initialize Download State Map (Key: HostIfIndex)
-	idxHost := uint32(hostIfIndex)
+	// Key: ifindex * 2 + is_sim
 	initEdtState := TcEdtState{}
-	if err = m.objects.EdtDownloadStateMap.Update(&idxHost, &initEdtState, ebpf.UpdateAny); err != nil {
+
+	keyHostSys := uint32(hostIfIndex * 2)
+	keyHostSim := uint32(hostIfIndex*2 + 1)
+
+	if err = m.objects.EdtDownloadStateMap.Update(&keyHostSys, &initEdtState, ebpf.UpdateAny); err != nil {
 		hostLink.Close()
-		return fmt.Errorf("init download state: %w", err)
+		return fmt.Errorf("init download sys state: %w", err)
+	}
+	if err = m.objects.EdtDownloadStateMap.Update(&keyHostSim, &initEdtState, ebpf.UpdateAny); err != nil {
+		hostLink.Close()
+		return fmt.Errorf("init download sim state: %w", err)
 	}
 
-	// ==========================================
 	// Step 2: Pod Side Configuration (Upload)
-	// ==========================================
-
-	// We utilize a helper function to safely switch namespaces and perform setup
 	podIfIndex, podLink, err := m.setupPodEgress(nsHandle)
 	if err != nil {
-		// Cleanup host link if pod setup fails
 		hostLink.Close()
 		return fmt.Errorf("pod side setup failed: %w", err)
 	}
@@ -252,13 +246,19 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	prog.podIfIndex = podIfIndex
 	prog.podEgressLink = podLink
 
-	// Initialize Upload State Map (Key: PodIfIndex)
-	// Even though the map is on the host, the key logic relies on what the BPF program sees (PodIfIndex)
-	idxPod := uint32(prog.podIfIndex)
-	if err := m.objects.EdtUploadStateMap.Update(&idxPod, &initEdtState, ebpf.UpdateAny); err != nil {
+	// [CHANGE] Initialize TWO state buckets for Upload
+	keyPodSys := uint32(prog.podIfIndex * 2)
+	keyPodSim := uint32(prog.podIfIndex*2 + 1)
+
+	if err := m.objects.EdtUploadStateMap.Update(&keyPodSys, &initEdtState, ebpf.UpdateAny); err != nil {
 		hostLink.Close()
 		prog.podEgressLink.Close()
-		return fmt.Errorf("init upload state: %w", err)
+		return fmt.Errorf("init upload sys state: %w", err)
+	}
+	if err := m.objects.EdtUploadStateMap.Update(&keyPodSim, &initEdtState, ebpf.UpdateAny); err != nil {
+		hostLink.Close()
+		prog.podEgressLink.Close()
+		return fmt.Errorf("init upload sim state: %w", err)
 	}
 
 	m.programs[hostIfIndex] = prog
@@ -343,9 +343,8 @@ func (m *BpfManager) setupPodEgress(podNsHandle netns.NsHandle) (int, link.Link,
 }
 
 // UpdateRule updates the bandwidth limits for a pod.
-// uploadBytes: Limit for Pod -> Host
-// downloadBytes: Limit for Host -> Pod
-func (m *BpfManager) UpdateRule(hostIfIndex int, uploadRateBits uint64, downloadRateBits uint64) error {
+// Now accepts 4 rates: Up/Down for Sim, Up/Down for Sys.
+func (m *BpfManager) UpdateRule(hostIfIndex int, upSim, downSim, upSys, downSys uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -355,28 +354,31 @@ func (m *BpfManager) UpdateRule(hostIfIndex int, uploadRateBits uint64, download
 	}
 
 	// 1. Update Download Rule (Key: HostIfIndex)
-	// The Host BPF program looks up using its own ifindex
 	keyHost := uint32(hostIfIndex)
 	rateCfgDown := TcIoRate{
-		RateDownload: downloadRateBits,
-		RateUpload:   0, // Unused by download prog
+		RateSimDownload: downSim,
+		RateSysDownload: downSys,
+		RateSimUpload:   0,
+		RateSysUpload:   0,
 	}
 	if err := m.objects.RateMap.Update(&keyHost, &rateCfgDown, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("update download rate: %w", err)
 	}
 
 	// 2. Update Upload Rule (Key: PodIfIndex)
-	// The Pod BPF program looks up using the pod's internal ifindex
 	keyPod := uint32(prog.podIfIndex)
 	rateCfgUp := TcIoRate{
-		RateDownload: 0, // Unused by upload prog
-		RateUpload:   uploadRateBits,
+		RateSimDownload: 0,
+		RateSysDownload: 0,
+		RateSimUpload:   upSim,
+		RateSysUpload:   upSys,
 	}
 	if err := m.objects.RateMap.Update(&keyPod, &rateCfgUp, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("update upload rate: %w", err)
 	}
 
-	log.Printf("[BPF] Updated Rules for Pod %s: UL=%d Bps, DL=%d Bps", prog.podName, uploadRateBits, downloadRateBits)
+	log.Printf("[BPF] Updated Pod %s: Sim(UL=%d, DL=%d), Sys(UL=%d, DL=%d)",
+		prog.podName, upSim, downSim, upSys, downSys)
 	return nil
 }
 
@@ -390,8 +392,6 @@ func (m *BpfManager) RemovePod(hostIfIndex int) error {
 		return nil
 	}
 
-	// Close links
-	// Note: Closing the link detaches the BPF program.
 	if prog.hostEgressLink != nil {
 		prog.hostEgressLink.Close()
 	}
@@ -399,16 +399,21 @@ func (m *BpfManager) RemovePod(hostIfIndex int) error {
 		prog.podEgressLink.Close()
 	}
 
-	// Cleanup Maps
+	// Best effort cleanup (Rate Map)
 	keyHost := uint32(hostIfIndex)
 	keyPod := uint32(prog.podIfIndex)
-
-	// Best effort cleanup
 	_ = m.objects.RateMap.Delete(&keyHost)
 	_ = m.objects.RateMap.Delete(&keyPod)
 
-	_ = m.objects.EdtDownloadStateMap.Delete(&keyHost)
-	_ = m.objects.EdtUploadStateMap.Delete(&keyPod)
+	keyHostSys := uint32(hostIfIndex * 2)
+	keyHostSim := uint32(hostIfIndex*2 + 1)
+	_ = m.objects.EdtDownloadStateMap.Delete(&keyHostSys)
+	_ = m.objects.EdtDownloadStateMap.Delete(&keyHostSim)
+
+	keyPodSys := uint32(prog.podIfIndex * 2)
+	keyPodSim := uint32(prog.podIfIndex*2 + 1)
+	_ = m.objects.EdtUploadStateMap.Delete(&keyPodSys)
+	_ = m.objects.EdtUploadStateMap.Delete(&keyPodSim)
 
 	delete(m.programs, hostIfIndex)
 	log.Printf("[BPF] Removed Pod %s resources", prog.podName)

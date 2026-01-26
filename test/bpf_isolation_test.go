@@ -23,8 +23,9 @@ const (
 	isoHostIP    = "10.30.1.1"
 	isoIperfPort = "5301"
 
-	simLimitRateBits = 10 * 1000 * 1000
-	sysThresholdBits = 100 * 1000 * 1000
+	// Define distinct rates to verify isolation
+	simLimitRateBits = 10 * 1000 * 1000 // 10 Mbps
+	sysLimitRateBits = 50 * 1000 * 1000 // 50 Mbps (Different from Sim to distinguish)
 )
 
 type IperfResultIso struct {
@@ -45,7 +46,7 @@ func TestTrafficIsolation(t *testing.T) {
 	}
 	defer cleanupIso()
 
-	t.Logf("Topology %s created. Pod IP: %s", isoNsName, isoPodIP)
+	t.Logf("Topology %s created.", isoNsName)
 
 	mgr, err := bpf.NewBpfManager()
 	if err != nil {
@@ -69,37 +70,35 @@ func TestTrafficIsolation(t *testing.T) {
 		t.Fatalf("AddPod failed: %v", err)
 	}
 
-	if err := mgr.UpdateRule(hostIfIndex, uint64(simLimitRateBits), uint64(simLimitRateBits)); err != nil {
+	// [UPDATE] Configure Dual Rates
+	// Sim: 10Mbps, Sys: 50Mbps
+	if err := mgr.UpdateRule(hostIfIndex, uint64(simLimitRateBits), uint64(simLimitRateBits), uint64(sysLimitRateBits), uint64(sysLimitRateBits)); err != nil {
 		t.Fatalf("UpdateRule failed: %v", err)
 	}
-	t.Logf("Configured Rate Limit to 10 Mbps (Sim Only)")
+	t.Logf("Configured Rates: Sim=10Mbps, Sys=50Mbps")
 
 	time.Sleep(1 * time.Second)
 
-	// Phase A: Sys Traffic (Bypass)
-	t.Run("Phase_A_Sys_Traffic_Bypass", func(t *testing.T) {
+	// Phase A: Sys Traffic (Host IP NOT whitelisted)
+	// Expectation: Should match Sys Limit (50Mbps)
+	t.Run("Phase_A_Sys_Traffic_Limit", func(t *testing.T) {
 		t.Log("Testing Sys Traffic (Whitelist Empty)...")
+		// Verify whitelist is empty
 		peers, _ := mgr.GetPeers()
 		if len(peers) != 0 {
 			t.Fatalf("Expected empty whitelist, got: %v", peers)
 		}
-		bps := runIperfIso(t, true)
-		mbps := bps / 1000000.0
-		t.Logf("[Sys] Measured Speed: %.2f Mbps", mbps)
-		if bps < float64(sysThresholdBits) {
-			t.Errorf("[Sys] FAILED: Traffic was limited! Got %.2f Mbps", mbps)
-		}
+
+		bps := runIperfIso(t, true) // Upload (Pod->Host)
+		validateSpeedIso(t, bps, sysLimitRateBits, "Sys")
 	})
 
 	time.Sleep(2 * time.Second)
 
-	// Phase B: Sim Traffic (Throttled)
-	t.Run("Phase_B_Sim_Traffic_Throttled", func(t *testing.T) {
-		// [FIX]: Whitelist HOST IP.
-		// Test runs Upload (Pod->Host). tc.c checks Dst IP (Host).
-		// Host must be whitelisted to be considered a Sim Peer.
-		t.Logf("Adding HOST IP %s to Whitelist (Sim Mode)...", isoHostIP)
-
+	// Phase B: Sim Traffic (Host IP Whitelisted)
+	// Expectation: Should match Sim Limit (10Mbps)
+	t.Run("Phase_B_Sim_Traffic_Limit", func(t *testing.T) {
+		t.Logf("Adding HOST IP %s to Whitelist (Switching to Sim Mode)...", isoHostIP)
 		if err := mgr.AddPeer(isoHostIP); err != nil {
 			t.Fatalf("Failed to add peer: %v", err)
 		}
@@ -111,19 +110,15 @@ func TestTrafficIsolation(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Phase C: Sys Traffic Restored
+	// Expectation: Should return to Sys Limit (50Mbps)
 	t.Run("Phase_C_Sys_Traffic_Restored", func(t *testing.T) {
-		t.Logf("Removing HOST IP %s from Whitelist...", isoHostIP)
-
+		t.Logf("Removing HOST IP %s from Whitelist (Switching back to Sys Mode)...", isoHostIP)
 		if err := mgr.RemovePeer(isoHostIP); err != nil {
 			t.Fatalf("Failed to remove peer: %v", err)
 		}
 
 		bps := runIperfIso(t, true)
-		mbps := bps / 1000000.0
-		t.Logf("[Sys-Restored] Measured Speed: %.2f Mbps", mbps)
-		if bps < float64(sysThresholdBits) {
-			t.Errorf("[Sys-Restored] FAILED: Traffic still limited! Speed: %.2f Mbps", mbps)
-		}
+		validateSpeedIso(t, bps, sysLimitRateBits, "Sys-Restored")
 	})
 }
 
@@ -131,7 +126,7 @@ func runIperfIso(t *testing.T, reverse bool) float64 {
 	args := []string{
 		"-c", isoPodIP,
 		"-p", isoIperfPort,
-		"-t", "5", // Shortened for faster feedback
+		"-t", "5",
 		"-J",
 	}
 	if reverse {
@@ -160,8 +155,11 @@ func runIperfIso(t *testing.T, reverse bool) float64 {
 func validateSpeedIso(t *testing.T, actualBps float64, targetBps float64, mode string) {
 	mbps := actualBps / 1000000.0
 	t.Logf("[%s] Actual Speed: %.2f Mbps, Target: %.2f Mbps", mode, mbps, targetBps/1000000.0)
+
+	// Tolerance
 	upperLimit := targetBps * 1.3
 	lowerLimit := targetBps * 0.7
+
 	if actualBps > upperLimit {
 		t.Errorf("[%s] FAILED: Speed too high! Got: %.2f Mbps", mode, mbps)
 	} else if actualBps < lowerLimit {

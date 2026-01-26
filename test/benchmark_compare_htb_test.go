@@ -105,7 +105,7 @@ func Benchmark_Ebpf_EDT(b *testing.B) {
 			}
 
 			b.Logf("[eBPF] Applying EDT rules (%s)...", tc.name)
-			if err := mgr.UpdateRule(linkHost.Attrs().Index, tc.rate, tc.rate); err != nil {
+			if err := mgr.UpdateRule(linkHost.Attrs().Index, tc.rate, tc.rate, 1000*1000*1000, 1000*1000*1000); err != nil {
 				b.Fatalf("UpdateRule failed: %v", err)
 			}
 

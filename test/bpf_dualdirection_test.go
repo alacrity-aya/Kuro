@@ -23,7 +23,8 @@ const (
 	hostIP    = "10.20.99.1"
 	iperfPort = "5202"
 
-	limitRateBits = 100 * 1000 * 1000
+	limitRateBits = 100 * 1000 * 1000  // Sim Rate: 100 Mbps
+	sysRateBits   = 1000 * 1000 * 1000 // Sys Rate: 1 Gbps (Default)
 
 	edtHorizonSec = 2
 )
@@ -46,25 +47,20 @@ func TestDualDirectionTC(t *testing.T) {
 	}
 	t.Log("Topology setup complete.")
 
-	// Ensure resources are cleaned up when the test ends
 	defer func() {
-		// Print server logs for debugging
 		logContent, _ := os.ReadFile(fmt.Sprintf("/tmp/iperf_server_%s.log", nsName))
 		if len(logContent) > 0 {
-			// Only print the tail of the log to avoid excessive length
 			t.Logf("=== iperf3 Server Log (Tail) ===\n%s", string(logContent))
 		}
 		cleanup()
 	}()
 
-	// 2. Initialize BPF Manager
 	mgr, err := bpf.NewBpfManager()
 	if err != nil {
 		t.Fatalf("Failed to create BPF manager: %v", err)
 	}
 	defer mgr.Close()
 
-	// 3. Attach BPF programs
 	linkObj, err := netlink.LinkByName(hostVeth)
 	if err != nil {
 		t.Fatalf("Failed to find host veth: %v", err)
@@ -81,44 +77,35 @@ func TestDualDirectionTC(t *testing.T) {
 		t.Fatalf("AddPod failed: %v", err)
 	}
 
-	t.Logf("Whitelisting Pod IP: %s", podIP)
+	// Whitelist both IPs so traffic is classified as SIMULATION
+	t.Logf("Whitelisting IPs: Pod=%s, Host=%s", podIP, hostIP)
 	if err := mgr.AddPeer(podIP); err != nil {
-		t.Fatalf("AddPeer failed: %v", err)
+		t.Fatalf("AddPeer Pod failed: %v", err)
 	}
-
-	t.Logf("Whitelisting Host IP (Test Peer): %s", hostIP)
 	if err := mgr.AddPeer(hostIP); err != nil {
 		t.Fatalf("AddPeer Host failed: %v", err)
 	}
 
-	// 4. Apply rate limit rules (100 Mbps)
-	if err := mgr.UpdateRule(hostIfIndex, uint64(limitRateBits), uint64(limitRateBits)); err != nil {
+	// [UPDATE] Apply rate limit rules (4 params)
+	// Sim: 100 Mbps, Sys: 1 Gbps
+	if err := mgr.UpdateRule(hostIfIndex, uint64(limitRateBits), uint64(limitRateBits), uint64(sysRateBits), uint64(sysRateBits)); err != nil {
 		t.Fatalf("UpdateRule failed: %v", err)
 	}
 
-	t.Logf("Rate limit set to %.2f Mbps. Waiting for convergence...", float64(limitRateBits)/1e6)
+	t.Logf("Rate limit set (Sim=100Mbps). Waiting for convergence...")
 	time.Sleep(2 * time.Second)
 
 	// --- Test A: Download (Host -> Pod) ---
 	t.Run("Download_HostToPod", func(t *testing.T) {
-		// Verify download direction (Checks Dst IP whitelist logic)
 		bps := runIperf(t, false)
 		validateSpeed(t, bps, limitRateBits, "Download")
 	})
 
-	// Wait for the EDT bucket to drain to prevent interference with the next test
 	t.Logf("Sleeping %d seconds to drain EDT bucket...", edtHorizonSec+1)
 	time.Sleep(time.Duration(edtHorizonSec+1) * time.Second)
 
-	// Check if the iperf server is still running
-	checkServerCmd := exec.Command("pgrep", "-f", "iperf3 -s")
-	if err := checkServerCmd.Run(); err != nil {
-		t.Fatalf("CRITICAL: iperf3 server died before Upload test!")
-	}
-
 	// --- Test B: Upload (Pod -> Host) ---
 	t.Run("Upload_PodToHost", func(t *testing.T) {
-		// Verify upload direction (Checks Src IP whitelist logic)
 		bps := runIperf(t, true)
 		validateSpeed(t, bps, limitRateBits, "Upload")
 	})
@@ -149,7 +136,6 @@ func runIperf(t *testing.T, reverse bool) float64 {
 	bpsSent := result.End.SumSent.BitsPerSecond
 	bpsRecv := result.End.SumReceived.BitsPerSecond
 
-	// Return the larger value (usually represents the actual throughput)
 	if bpsSent > bpsRecv {
 		return bpsSent
 	}
@@ -160,14 +146,13 @@ func validateSpeed(t *testing.T, actualBps float64, targetBps float64, direction
 	mbps := actualBps / 1000000.0
 	t.Logf("[%s] Actual Speed: %.2f Mbps, Target: %.2f Mbps", direction, mbps, targetBps/1000000.0)
 
-	// Set upper/lower limits (allowing a 30% margin)
 	upperLimit := targetBps * 1.3
 	lowerLimit := targetBps * 0.7
 
 	if actualBps > upperLimit {
-		t.Errorf("[%s] Speed too high! Limit not enforced. Got: %.2f Mbps, Max expected: %.2f Mbps", direction, mbps, upperLimit/1000000.0)
+		t.Errorf("[%s] Speed too high! Got: %.2f Mbps", direction, mbps)
 	} else if actualBps < lowerLimit {
-		t.Logf("[%s] Warning: Speed lower than expected (%.2f Mbps). Could be environment noise.", direction, mbps)
+		t.Logf("[%s] Warning: Speed lower than expected (%.2f Mbps).", direction, mbps)
 	} else {
 		t.Logf("[%s] PASS: Speed within valid range.", direction)
 	}

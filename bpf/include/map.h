@@ -8,9 +8,13 @@ struct global_config {
 };
 
 // Rate configuration: supports separate settings for upload and download
+// Upload: Pod -> Host; Download: Host -> Pod
 struct io_rate {
-    __u64 rate_upload; // Pod -> Host (bps)
-    __u64 rate_download; // Host -> Pod (bps)
+    __u64 rate_sim_upload;
+    __u64 rate_sim_download;
+
+    __u64 rate_sys_upload;
+    __u64 rate_sys_download;
 };
 
 // EDT State: records the last transmission time

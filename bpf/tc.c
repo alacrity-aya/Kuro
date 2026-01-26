@@ -101,35 +101,47 @@ throttle_flow(struct __sk_buff* skb, __u64 rate, void* state_map, __u32 target_i
 SEC("tc/edt_download")
 int handle_edt_download(struct __sk_buff* skb) {
     __u32 ifindex = skb->ifindex;
-
-    // 1. Look up rate limit configuration (pass if none configured)
     struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
-    if (!rates) {
+    if (!rates)
         return TC_ACT_OK;
-    }
 
-    // 2. Parse packet to get Source IP
+    // Check Source IP for Download
     __u32 src_ip = 0;
-    if (unlikely(!parse_ipv4(skb, &src_ip, NULL))) {
-        // Non-IPv4 (ARP/IPv6) is ignored and passed as-is (Priority 0, tstamp 0)
+    if (unlikely(!parse_ipv4(skb, &src_ip, NULL)))
         return TC_ACT_OK;
-    }
 
-    // 3. Check Whitelist: Is the Source IP a simulation peer?
-    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
+    __u8* is_sim_ptr = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
+    int is_sim = (is_sim_ptr != NULL);
     __u64 now = bpf_ktime_get_ns();
 
+    __u64 target_rate;
+    __u32 state_key;
+
     if (is_sim) {
-        // [SIM Traffic Branch]
-        // Mark as high priority and perform precise rate limiting
+        // Sim Traffic: Key = idx*2 + 1
+        target_rate = rates->rate_sim_download;
+        state_key = ifindex * 2 + 1;
         skb->priority = 1;
-        return throttle_flow(skb, rates->rate_download, &edt_download_state_map, ifindex, now);
+    } else {
+        // Sys Traffic: Key = idx*2 + 0
+        target_rate = rates->rate_sys_download;
+        state_key = ifindex * 2;
+        skb->priority = 0;
     }
 
-    skb->tstamp = now + SYS_LATENCY_OFFSET_NS;
-    skb->priority = 0;
+    int ret = throttle_flow(skb, target_rate, &edt_download_state_map, state_key, now);
 
-    return TC_ACT_OK;
+    // [SYS Traffic Protection]
+    // Even if Sys traffic passes rate check, enforce minimum latency offset
+    // to ensure it doesn't jump ahead of Sim traffic in Host FQ.
+    if (ret == TC_ACT_OK && !is_sim) {
+        __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
+        if (skb->tstamp < min_tstamp) {
+            skb->tstamp = min_tstamp;
+        }
+    }
+
+    return ret;
 }
 
 // =============================================================
@@ -140,33 +152,42 @@ int handle_edt_download(struct __sk_buff* skb) {
 SEC("tc/edt_upload")
 int handle_edt_upload(struct __sk_buff* skb) {
     __u32 ifindex = skb->ifindex;
-
-    // 1. Look up rate limit configuration
     struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
-    if (!rates) {
+    if (!rates)
         return TC_ACT_OK;
-    }
 
-    // 2. Parse packet to get Destination IP
+    // Check Destination IP for Upload
     __u32 dst_ip = 0;
-    if (unlikely(!parse_ipv4(skb, NULL, &dst_ip))) {
+    if (unlikely(!parse_ipv4(skb, NULL, &dst_ip)))
         return TC_ACT_OK;
-    }
 
-    // 3. Check Whitelist: Is the Destination IP a simulation peer?
-    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &dst_ip);
+    __u8* is_sim_ptr = bpf_map_lookup_elem(&simulation_peers_map, &dst_ip);
+    int is_sim = (is_sim_ptr != NULL);
     __u64 now = bpf_ktime_get_ns();
 
+    __u64 target_rate;
+    __u32 state_key;
+
     if (is_sim) {
-        // [SIM Traffic Branch]
+        target_rate = rates->rate_sim_upload;
+        state_key = ifindex * 2 + 1;
         skb->priority = 1;
-        return throttle_flow(skb, rates->rate_upload, &edt_upload_state_map, ifindex, now);
+    } else {
+        target_rate = rates->rate_sys_upload;
+        state_key = ifindex * 2;
+        skb->priority = 0;
     }
 
-    skb->tstamp = now + SYS_LATENCY_OFFSET_NS;
-    skb->priority = 0;
+    int ret = throttle_flow(skb, target_rate, &edt_upload_state_map, state_key, now);
 
-    return TC_ACT_OK;
+    if (ret == TC_ACT_OK && !is_sim) {
+        __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
+        if (skb->tstamp < min_tstamp) {
+            skb->tstamp = min_tstamp;
+        }
+    }
+
+    return ret;
 }
 
 // =============================================================
