@@ -66,7 +66,7 @@ throttle_flow(struct __sk_buff* skb, __u64 rate, void* state_map, __u32 target_i
 
     // Handle Burst Window: If link has been idle for a long time, reset t_start to (now - burst)
     __u64 burst_start = 0;
-    if (now > BURST_WINDOW_NS) [[clang::likely]] {
+    if (likely(now > BURST_WINDOW_NS)) {
         burst_start = now - BURST_WINDOW_NS;
     }
 
@@ -78,7 +78,7 @@ throttle_flow(struct __sk_buff* skb, __u64 rate, void* state_map, __u32 target_i
 
     // Queue Depth Protection: If departure time is pushed too far into the future,
     // drop the packet to prevent Buffer Bloat.
-    if (t_send > now + horizon_ns) [[clang::unlikely]] {
+    if (unlikely(t_send > now + horizon_ns)) {
         bpf_spin_unlock(&st->lock);
         // kuro_debug("EDT Drop: ifindex %d, Queue too deep\n", target_idx);
         return TC_ACT_SHOT;
@@ -110,7 +110,7 @@ int handle_edt_download(struct __sk_buff* skb) {
 
     // 2. Parse packet to get Source IP
     __u32 src_ip = 0;
-    if (!parse_ipv4(skb, &src_ip, NULL)) [[clang::unlikely]] {
+    if (unlikely(!parse_ipv4(skb, &src_ip, NULL))) {
         // Non-IPv4 (ARP/IPv6) is ignored and passed as-is (Priority 0, tstamp 0)
         return TC_ACT_OK;
     }
@@ -149,7 +149,7 @@ int handle_edt_upload(struct __sk_buff* skb) {
 
     // 2. Parse packet to get Destination IP
     __u32 dst_ip = 0;
-    if (!parse_ipv4(skb, NULL, &dst_ip)) [[clang::unlikely]] {
+    if (unlikely(!parse_ipv4(skb, NULL, &dst_ip))) {
         return TC_ACT_OK;
     }
 
@@ -246,7 +246,7 @@ int handle_xdp_ingress(struct xdp_md* ctx) {
     }
 
     // Check if limit is disabled (0)
-    if (cfg->limit_bps == 0) {
+    if (cfg->cost_per_byte_ns_scaled == 0) {
         return XDP_PASS;
     }
 
@@ -256,35 +256,38 @@ int handle_xdp_ingress(struct xdp_md* ctx) {
 
     bpf_spin_lock(&st->lock);
 
-    // Calculate time delta
+    if (unlikely(st->last_updated == 0)) {
+        st->last_updated = now;
+        st->tokens_ns = cfg->burst_ns;
+    }
+
     __u64 delta_ns = now - st->last_updated;
-    // Cap delta to avoid overflow after long idle periods (max 1 second refill)
+
+    // NOTE: max time = 1s
     if (delta_ns > NSEC_PER_SEC) {
         delta_ns = NSEC_PER_SEC;
     }
 
-    // Refill Tokens: tokens += (time_delta_ns * limit_bps) / (8 * 10^9)
-    // Formula: (limit_bps * delta_ns) >> 33 is an approximation of / 8e9
-    // Standard: (limit_bps / 8) * (delta_ns / 1e9)
-    // Precise integer math:
-    __u64 tokens_to_add = (cfg->limit_bps * delta_ns) >> 33;
+    st->tokens_ns += delta_ns;
 
-    st->tokens += tokens_to_add;
-
-    // Cap tokens at burst size
-    if (st->tokens > cfg->burst_bytes) {
-        st->tokens = cfg->burst_bytes;
+    // Cap at Burst
+    if (st->tokens_ns > cfg->burst_ns) {
+        st->tokens_ns = cfg->burst_ns;
     }
 
-    // Consume Tokens
-    if (st->tokens >= pkt_len) {
-        st->tokens -= pkt_len;
+    // Consume
+    // Cost = (Len * CostPerByteScaled) / 65536
+    __u64 packet_cost_ns = (pkt_len * cfg->cost_per_byte_ns_scaled) >> 16;
+
+    if (st->tokens_ns >= packet_cost_ns) {
+        st->tokens_ns -= packet_cost_ns;
         action = XDP_PASS;
     } else {
         action = XDP_DROP;
     }
 
     st->last_updated = now;
+
     bpf_spin_unlock(&st->lock);
 
     return action;

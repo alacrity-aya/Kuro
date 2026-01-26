@@ -128,7 +128,7 @@ type BenchResult struct {
 
 func runBenchIperf(b *testing.B) BenchResult {
 	// Targeting BenchPodIP
-	cmd := exec.Command("iperf3", "-c", BenchPodIP, "-t", "5", "-J", "-Z", "-P", "8")
+	cmd := exec.Command("iperf3", "-c", BenchPodIP, "-t", "10", "-J", "-Z", "-P", "8")
 	out, err := cmd.Output()
 	if err != nil {
 		b.Fatalf("iperf3 failed: %v", err)

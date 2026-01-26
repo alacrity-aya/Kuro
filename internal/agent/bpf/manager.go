@@ -38,24 +38,21 @@ type BpfProgram struct {
 }
 
 // NewBpfManager loads the BPF programs and initializes global configurations.
-func NewBpfManager(hostInterface string) (*BpfManager, error) {
+func NewBpfManager() (*BpfManager, error) {
 	objs := &TcObjects{}
 	opts := &ebpf.CollectionOptions{
 		Programs: ebpf.ProgramOptions{
 			LogSizeStart: 64 * 1024 * 1024,
 		},
 	}
-
 	if err := LoadTcObjects(objs, opts); err != nil {
 		return nil, fmt.Errorf("loading tc objects: %w", err)
 	}
 
-	// Initialize Global Config
 	key := uint32(0)
 	config := TcGlobalConfig{
 		EdtHorizonNs: 2 * 1000 * 1000 * 1000, // 2 Seconds
 	}
-
 	if err := objs.ConfigMap.Put(&key, &config); err != nil {
 		objs.Close()
 		return nil, fmt.Errorf("initializing config map: %w", err)
@@ -66,88 +63,131 @@ func NewBpfManager(hostInterface string) (*BpfManager, error) {
 		programs: make(map[int]*BpfProgram),
 	}
 
+	return mgr, nil
+}
+
+func (m *BpfManager) AttachEth0Egress(hostInterface string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	hostLink, err := netlink.LinkByName(hostInterface)
 	if err != nil {
-		objs.Close()
-		return nil, fmt.Errorf("failed to find host iface: %s: %w", hostInterface, err)
+		return fmt.Errorf("failed to find host iface %s: %w", hostInterface, err)
 	}
 	hostIfIndex := hostLink.Attrs().Index
 
-	speedMbps, err := getInterfaceSpeed(hostInterface)
-	var limitBps uint64
-
-	if err != nil || speedMbps == 0 {
-		log.Printf("[BPF] Warning: Could not detect speed for %s (err: %v). Using Default 1Gbps.", hostInterface, err)
-		speedMbps = 1000 // default: 1Gbps
-	} else {
-		log.Printf("[BPF] Detected speed for %s: %d Mbps", hostInterface, speedMbps)
+	if err = m.ensureFQ(hostIfIndex); err != nil {
+		return fmt.Errorf("failed to ensure fq on %s: %w", hostInterface, err)
 	}
+	log.Printf("[BPF] FQ qdisc ensured on %s (Index: %d)", hostInterface, hostIfIndex)
 
-	limitBps = (speedMbps * 1000 * 1000) * 90 / 100 // TODO: this shoule be configurable
-
-	ingressCfg := TcIngressConfig{
-		LimitBps:   limitBps,
-		BurstBytes: 64 * 1024, // 64KB Burst
-	}
-
-	key0 := uint32(0)
-	if err = objs.IngressConfigMap.Put(&key0, &ingressCfg); err != nil {
-		objs.Close()
-		return nil, fmt.Errorf("init ingress config: %w", err)
-	}
-
-	// initialze
-	ingressState := TcIngressState{
-		LastUpdated: 0,
-		Tokens:      ingressCfg.BurstBytes,
-	}
-	if err = objs.IngressStateMap.Put(&key0, &ingressState); err != nil {
-		objs.Close()
-	}
-
-	// attach fq and egress hook
-	if err = mgr.ensureFQ(hostLink.Attrs().Index); err != nil {
-		objs.Close()
-		return nil, fmt.Errorf("failed to ensure fq on eth0: %w", err)
-	}
-	log.Printf("[BPF] FQ qdisc ensured on host eth0 (Index: %d)", hostLink.Attrs().Index)
-
-	mgr.eth0EgressLink, err = link.AttachTCX(link.TCXOptions{
-		Program:   mgr.objects.HandleEth0Egress,
+	m.eth0EgressLink, err = link.AttachTCX(link.TCXOptions{
+		Program:   m.objects.HandleEth0Egress,
 		Interface: hostIfIndex,
 		Attach:    ebpf.AttachTCXEgress,
 	})
 	if err != nil {
-		objs.Close()
-		return nil, fmt.Errorf("attach host egress: %w", err)
+		return fmt.Errorf("attach host egress: %w", err)
+	}
+	log.Printf("[BPF] TC Egress program attached to %s", hostInterface)
+	return nil
+}
+
+// AttachIngressProtection attach xdp ingress protection
+// burstBytes := uint64(64 * 1024) // 64KB
+func (m *BpfManager) AttachIngressProtection(hostInterface string, limitBps uint64, burstBytes uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if limitBps == 0 {
+		speedMbps, err := getInterfaceSpeed(hostInterface)
+		if err != nil || speedMbps == 0 {
+			log.Printf("[BPF] Warning: Could not detect speed for %s (err: %v). Using Default 1Gbps.", hostInterface, err)
+			speedMbps = 1000
+		} else {
+			log.Printf("[BPF] Detected speed for %s: %d Mbps", hostInterface, speedMbps)
+		}
+		// Set limit to 90% of detected interface speed
+		limitBps = (speedMbps * 1000 * 1000) * 90 / 100
 	}
 
-	log.Printf("[BPF] host eth0 ebpf program attached")
+	hostLink, err := netlink.LinkByName(hostInterface)
+	if err != nil {
+		return fmt.Errorf("failed to find host iface %s: %w", hostInterface, err)
+	}
+	hostIfIndex := hostLink.Attrs().Index
 
-	mgr.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
-		Program:   mgr.objects.HandleXdpIngress,
+	// =============================================================
+	// 2. Fixed-point Precomputation Core Logic
+	//    (Key to solving Benchmark rate compliance issues)
+	// =============================================================
+	// Goal: Eliminate large divisions against 8000000000ULL inside BPF.
+	// Formula: Cost_ns = (Packet_Len * 8 * 10^9) / limitBps
+	// Transformation: Cost_ns = (Packet_Len * CostPerByteScaled) >> 16
+
+	const (
+		NsecPerSec  = 1000000000
+		ScaleFactor = 65536 // 2^16
+	)
+
+	// Calculate nanoseconds required to send 1 byte (scaled by 2^16 to preserve precision)
+	// Calculation: (8 * 10^9 * 65536) / limitBps
+	costPerByteScaled := uint64((float64(8*NsecPerSec) * float64(ScaleFactor)) / float64(limitBps))
+
+	// Calculate the maximum time window for the Token Bucket (Burst Window in Nanoseconds)
+	// Calculation: (burstBytes * 8 * 10^9) / limitBps
+	burstNs := (burstBytes * 8 * NsecPerSec) / limitBps
+
+	// 3. Update BPF Configuration Map
+	// Note: Ensure the TcIngressConfig struct member names in your C code are synchronized
+
+	ingressCfg := TcIngressConfig{
+		CostPerByteNsScaled: costPerByteScaled,
+		BurstNs:             burstNs,
+	}
+
+	key0 := uint32(0)
+	if err = m.objects.IngressConfigMap.Put(&key0, &ingressCfg); err != nil {
+		return fmt.Errorf("update ingress config: %w", err)
+	}
+
+	ingressState := TcIngressState{
+		LastUpdated: 0,       // Triggers initialization logic inside BPF
+		TokensNs:    burstNs, // Initialize with a full bucket of tokens
+	}
+	if err = m.objects.IngressStateMap.Put(&key0, &ingressState); err != nil {
+		return fmt.Errorf("init ingress state: %w", err)
+	}
+
+	// 5. Attach XDP Program
+	if m.eth0IngressLink != nil {
+		m.eth0IngressLink.Close()
+	}
+
+	// Priority: Attempt Driver Mode (Highest native performance)
+	m.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
+		Program:   m.objects.HandleXdpIngress,
 		Interface: hostIfIndex,
 		Flags:     link.XDPDriverMode,
 	})
-	// Fallback to GenericMode
 	if err != nil {
-		fmt.Printf("DriverMode failed, falling back to GenericMode: %v\n", err)
-
-		mgr.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
-			Program:   mgr.objects.HandleXdpIngress,
+		log.Printf("[BPF] XDP DriverMode failed (%v), falling back to GenericMode...", err)
+		// Fallback to Generic Mode (SKB Mode)
+		m.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
+			Program:   m.objects.HandleXdpIngress,
 			Interface: hostIfIndex,
 			Flags:     link.XDPGenericMode,
 		})
 	}
+
 	if err != nil {
-		log.Printf("[BPF] Critical: Failed to attach XDP: %v. Ingress protection disabled.", err)
-		objs.Close()
-		return nil, err
-	} else {
-		log.Printf("[BPF] XDP Ingress Protection attached to %s (Limit: %d bps)", hostInterface, limitBps)
+		return fmt.Errorf("attach xdp (both driver and generic failed): %w", err)
 	}
 
-	return mgr, nil
+	log.Printf("[BPF] XDP Ingress Protection attached to %s (Limit: %d bps, Burst Window: %d ns)",
+		hostInterface, limitBps, burstNs)
+
+	return nil
 }
 
 // AddPod sets up traffic control for a pod.

@@ -28,7 +28,7 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 	if err != nil {
 		return nil, err
 	}
-	manager, err := bpf.NewBpfManager(hostInterface)
+	manager, err := bpf.NewBpfManager()
 	if err != nil {
 		return nil, err
 	}

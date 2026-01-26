@@ -65,15 +65,15 @@ struct {
 
 // Ingress Rate Config (Sys Traffic Limit)
 struct ingress_config {
-    __u64 limit_bps; // Bandwidth limit in bits per second
-    __u64 burst_bytes; // Max burst size in bytes
+    __u64 cost_per_byte_ns_scaled;
+    __u64 burst_ns; // burst_bytes converted to time: (burst_bytes * 8 * 10^9) / limit_bps
 };
 
 // Ingress Token Bucket State
 struct ingress_state {
     struct bpf_spin_lock lock;
     __u64 last_updated; // Nanoseconds
-    __u64 tokens; // Current tokens (bytes)
+    __u64 tokens_ns; // Accumulated sendable time
 };
 
 // Map 6: Ingress Configuration (Key: 0)
