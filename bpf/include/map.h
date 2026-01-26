@@ -58,3 +58,36 @@ struct {
     __type(value, __u8); // 1 = Is Simulation Peer
     __uint(max_entries, 65535);
 } simulation_peers_map SEC(".maps");
+
+// =============================================================
+// XDP Ingress Protection Structures
+// =============================================================
+
+// Ingress Rate Config (Sys Traffic Limit)
+struct ingress_config {
+    __u64 limit_bps; // Bandwidth limit in bits per second
+    __u64 burst_bytes; // Max burst size in bytes
+};
+
+// Ingress Token Bucket State
+struct ingress_state {
+    struct bpf_spin_lock lock;
+    __u64 last_updated; // Nanoseconds
+    __u64 tokens; // Current tokens (bytes)
+};
+
+// Map 6: Ingress Configuration (Key: 0)
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, struct ingress_config);
+    __uint(max_entries, 1);
+} ingress_config_map SEC(".maps");
+
+// Map 7: Ingress Runtime State (Key: 0)
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, struct ingress_state);
+    __uint(max_entries, 1);
+} ingress_state_map SEC(".maps");

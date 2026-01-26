@@ -2,13 +2,9 @@
 package bpf
 
 import (
-	"encoding/binary"
 	"fmt"
 	"log"
-	"net"
-	"os"
 	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/cilium/ebpf"
@@ -24,7 +20,8 @@ type BpfManager struct {
 	// programs map key is HostIfIndex.
 	programs map[int]*BpfProgram
 
-	eth0Link link.Link
+	eth0EgressLink  link.Link
+	eth0IngressLink link.Link
 }
 
 type BpfProgram struct {
@@ -37,10 +34,11 @@ type BpfProgram struct {
 	hostIfIndex int
 	podIfIndex  int // The interface index inside the container
 	netnsHandle netns.NsHandle
+	// TODO: store rate limiation here
 }
 
 // NewBpfManager loads the BPF programs and initializes global configurations.
-func NewBpfManager() (*BpfManager, error) {
+func NewBpfManager(hostInterface string) (*BpfManager, error) {
 	objs := &TcObjects{}
 	opts := &ebpf.CollectionOptions{
 		Programs: ebpf.ProgramOptions{
@@ -63,10 +61,93 @@ func NewBpfManager() (*BpfManager, error) {
 		return nil, fmt.Errorf("initializing config map: %w", err)
 	}
 
-	return &BpfManager{
+	mgr := &BpfManager{
 		objects:  objs,
 		programs: make(map[int]*BpfProgram),
-	}, nil
+	}
+
+	hostLink, err := netlink.LinkByName(hostInterface)
+	if err != nil {
+		objs.Close()
+		return nil, fmt.Errorf("failed to find host iface: %s: %w", hostInterface, err)
+	}
+	hostIfIndex := hostLink.Attrs().Index
+
+	speedMbps, err := getInterfaceSpeed(hostInterface)
+	var limitBps uint64
+
+	if err != nil || speedMbps == 0 {
+		log.Printf("[BPF] Warning: Could not detect speed for %s (err: %v). Using Default 1Gbps.", hostInterface, err)
+		speedMbps = 1000 // default: 1Gbps
+	} else {
+		log.Printf("[BPF] Detected speed for %s: %d Mbps", hostInterface, speedMbps)
+	}
+
+	limitBps = (speedMbps * 1000 * 1000) * 90 / 100 // TODO: this shoule be configurable
+
+	ingressCfg := TcIngressConfig{
+		LimitBps:   limitBps,
+		BurstBytes: 64 * 1024, // 64KB Burst
+	}
+
+	key0 := uint32(0)
+	if err = objs.IngressConfigMap.Put(&key0, &ingressCfg); err != nil {
+		objs.Close()
+		return nil, fmt.Errorf("init ingress config: %w", err)
+	}
+
+	// initialze
+	ingressState := TcIngressState{
+		LastUpdated: 0,
+		Tokens:      ingressCfg.BurstBytes,
+	}
+	if err = objs.IngressStateMap.Put(&key0, &ingressState); err != nil {
+		objs.Close()
+	}
+
+	// attach fq and egress hook
+	if err = mgr.ensureFQ(hostLink.Attrs().Index); err != nil {
+		objs.Close()
+		return nil, fmt.Errorf("failed to ensure fq on eth0: %w", err)
+	}
+	log.Printf("[BPF] FQ qdisc ensured on host eth0 (Index: %d)", hostLink.Attrs().Index)
+
+	mgr.eth0EgressLink, err = link.AttachTCX(link.TCXOptions{
+		Program:   mgr.objects.HandleEth0Egress,
+		Interface: hostIfIndex,
+		Attach:    ebpf.AttachTCXEgress,
+	})
+	if err != nil {
+		objs.Close()
+		return nil, fmt.Errorf("attach host egress: %w", err)
+	}
+
+	log.Printf("[BPF] host eth0 ebpf program attached")
+
+	mgr.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
+		Program:   mgr.objects.HandleXdpIngress,
+		Interface: hostIfIndex,
+		Flags:     link.XDPDriverMode,
+	})
+	// Fallback to GenericMode
+	if err != nil {
+		fmt.Printf("DriverMode failed, falling back to GenericMode: %v\n", err)
+
+		mgr.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
+			Program:   mgr.objects.HandleXdpIngress,
+			Interface: hostIfIndex,
+			Flags:     link.XDPGenericMode,
+		})
+	}
+	if err != nil {
+		log.Printf("[BPF] Critical: Failed to attach XDP: %v. Ingress protection disabled.", err)
+		objs.Close()
+		return nil, err
+	} else {
+		log.Printf("[BPF] XDP Ingress Protection attached to %s (Limit: %d bps)", hostInterface, limitBps)
+	}
+
+	return mgr, nil
 }
 
 // AddPod sets up traffic control for a pod.
@@ -308,6 +389,14 @@ func (m *BpfManager) Close() error {
 		}
 	}
 
+	if m.eth0EgressLink != nil {
+		m.eth0EgressLink.Close()
+	}
+
+	if m.eth0IngressLink != nil {
+		m.eth0IngressLink.Close()
+	}
+
 	return m.objects.Close()
 }
 
@@ -372,72 +461,4 @@ func (m *BpfManager) GetPeers() ([]string, error) {
 	}
 
 	return ips, nil
-}
-
-// ================= Helpers =================
-
-// ensureFQ checks and sets the fq qdisc on the given interface index.
-// This function operates in the CURRENT namespace context.
-func (m *BpfManager) ensureFQ(ifaceIndex int) error {
-	linkObj, err := netlink.LinkByIndex(ifaceIndex)
-	if err != nil {
-		return fmt.Errorf("get link: %w", err)
-	}
-
-	qdiscs, err := netlink.QdiscList(linkObj)
-	if err != nil {
-		return fmt.Errorf("list qdiscs: %w", err)
-	}
-
-	// Check existing root qdisc
-	for _, q := range qdiscs {
-		if q.Attrs().Parent == netlink.HANDLE_ROOT {
-			if q.Type() == "fq" {
-				return nil // Already fq
-			}
-			// Delete non-fq qdisc
-			if err := netlink.QdiscDel(q); err != nil {
-				// Check for "file not exist" in case it was auto-removed
-				if !os.IsNotExist(err) && !strings.Contains(err.Error(), "no such file") {
-					return fmt.Errorf("del qdisc: %w", err)
-				}
-			}
-			break
-		}
-	}
-
-	// Add fq qdisc
-	fq := netlink.NewFq(netlink.QdiscAttrs{
-		LinkIndex: linkObj.Attrs().Index,
-		Parent:    netlink.HANDLE_ROOT,
-		Handle:    netlink.MakeHandle(1, 0),
-	})
-	fq.Pacing = 1 // Crucial for EDT
-
-	if err := netlink.QdiscAdd(fq); err != nil {
-		return fmt.Errorf("add fq: %w", err)
-	}
-	return nil
-}
-
-// ipToUint32 converts an IP string to a uint32 that, when stored in memory
-// on a Little Endian machine, matches the Network Byte Order layout.
-func ipToUint32(ipStr string) (uint32, error) {
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return 0, fmt.Errorf("invalid ip format: %s", ipStr)
-	}
-	ipv4 := ip.To4()
-	if ipv4 == nil {
-		return 0, fmt.Errorf("not an ipv4 address: %s", ipStr)
-	}
-
-	return binary.LittleEndian.Uint32(ipv4), nil
-}
-
-// uint32ToIP converts the raw map key back to net.IP
-func uint32ToIP(n uint32) net.IP {
-	ip := make(net.IP, 4)
-	binary.LittleEndian.PutUint32(ip, n)
-	return ip
 }

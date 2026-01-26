@@ -13,6 +13,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+const hostInterface = "eth0"
+
 type Agent struct {
 	localWatcher *watch.LocalWatcher // Local Pod Watcher (for Netns)
 	peerWatcher  *watch.PeerWatcher  // Global Pod Watcher (for IP Whitelist)
@@ -26,7 +28,7 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 	if err != nil {
 		return nil, err
 	}
-	manager, err := bpf.NewBpfManager()
+	manager, err := bpf.NewBpfManager(hostInterface)
 	if err != nil {
 		return nil, err
 	}

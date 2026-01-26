@@ -6,6 +6,7 @@
 // =============================================================
 
 // TODO: there constant variables should be configurable
+// TODO: use '>>' instread of division operation
 
 // Burst Allowance: 5ms
 // Allows simulation traffic a small burst after an idle period (e.g., TCP handshake or ACKs).
@@ -196,6 +197,97 @@ int handle_eth0_egress(struct __sk_buff* skb) {
     // If tstamp was already set by Veth, we respect it (do nothing).
 
     return TC_ACT_OK;
+}
+
+// =============================================================
+// Scenario 4: Ingress Protection (Host Physical NIC)
+// Hook: Host Eth0 Ingress (XDP)
+// Logic: Allow Sim traffic unconditionally; Rate limit Sys traffic.
+// =============================================================
+SEC("xdp")
+int handle_xdp_ingress(struct xdp_md* ctx) {
+    void* data_end = (void*)(long)ctx->data_end;
+    void* data = (void*)(long)ctx->data;
+
+    // 1. Parse Ethernet Header
+    struct ethhdr* eth = data;
+    if ((void*)(eth + 1) > data_end) {
+        return XDP_PASS;
+    }
+
+    // Pass non-IP packets (ARP, etc.) to avoid connectivity loss
+    if (eth->h_proto != bpf_htons(ETH_P_IP)) {
+        return XDP_PASS;
+    }
+
+    // 2. Parse IPv4 Header
+    struct iphdr* iph = (void*)(eth + 1);
+    if ((void*)(iph + 1) > data_end) {
+        return XDP_DROP; // Malformed IP packet
+    }
+
+    // 3. Whitelist Check: Is Source IP a Simulation Peer?
+    __u32 src_ip = iph->saddr;
+    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
+
+    if (is_sim) {
+        // [SIM Traffic] Unconditional Pass
+        return XDP_PASS;
+    }
+
+    // 4. [SYS Traffic] Token Bucket Rate Limiting
+    __u32 key = 0;
+    struct ingress_config* cfg = bpf_map_lookup_elem(&ingress_config_map, &key);
+    struct ingress_state* st = bpf_map_lookup_elem(&ingress_state_map, &key);
+
+    // If config or state is missing, fail open (Pass)
+    if (!cfg || !st) {
+        return XDP_PASS;
+    }
+
+    // Check if limit is disabled (0)
+    if (cfg->limit_bps == 0) {
+        return XDP_PASS;
+    }
+
+    __u64 now = bpf_ktime_get_ns();
+    __u64 pkt_len = (__u64)(data_end - data);
+    int action = XDP_PASS;
+
+    bpf_spin_lock(&st->lock);
+
+    // Calculate time delta
+    __u64 delta_ns = now - st->last_updated;
+    // Cap delta to avoid overflow after long idle periods (max 1 second refill)
+    if (delta_ns > NSEC_PER_SEC) {
+        delta_ns = NSEC_PER_SEC;
+    }
+
+    // Refill Tokens: tokens += (time_delta_ns * limit_bps) / (8 * 10^9)
+    // Formula: (limit_bps * delta_ns) >> 33 is an approximation of / 8e9
+    // Standard: (limit_bps / 8) * (delta_ns / 1e9)
+    // Precise integer math:
+    __u64 tokens_to_add = (cfg->limit_bps * delta_ns) >> 33;
+
+    st->tokens += tokens_to_add;
+
+    // Cap tokens at burst size
+    if (st->tokens > cfg->burst_bytes) {
+        st->tokens = cfg->burst_bytes;
+    }
+
+    // Consume Tokens
+    if (st->tokens >= pkt_len) {
+        st->tokens -= pkt_len;
+        action = XDP_PASS;
+    } else {
+        action = XDP_DROP;
+    }
+
+    st->last_updated = now;
+    bpf_spin_unlock(&st->lock);
+
+    return action;
 }
 
 char __license[] SEC("license") = "GPL";
