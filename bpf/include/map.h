@@ -95,3 +95,42 @@ struct {
     __type(value, struct ingress_state);
     __uint(max_entries, 1);
 } ingress_state_map SEC(".maps");
+
+// =============================================================
+// Flow Metrics Structures
+// =============================================================
+
+struct flow_metrics {
+    __u64 packets;
+    __u64 bytes;
+    __u64 drop_packets;
+    __u64 drop_bytes;
+};
+
+struct pod_stats {
+    struct flow_metrics sim_download;
+    struct flow_metrics sim_upload;
+    struct flow_metrics sys_download;
+    struct flow_metrics sys_upload;
+};
+
+// Map 8: flow metrics (Key: ifindex, Value: pod_stats)
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __type(key, __u32);
+    __type(value, struct pod_stats);
+    __uint(max_entries, 1024);
+} metrics_map SEC(".maps");
+
+#define LATENCY_BUCKETS 16
+struct latency_hist {
+    __u64 buckets[LATENCY_BUCKETS];
+};
+
+// Map 9: delay histogram (Key: ifindex)
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __type(key, __u32);
+    __type(value, struct latency_hist);
+    __uint(max_entries, 1024);
+} latency_map SEC(".maps");

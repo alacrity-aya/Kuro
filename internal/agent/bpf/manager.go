@@ -6,6 +6,7 @@ import (
 	"log"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -51,7 +52,7 @@ func NewBpfManager() (*BpfManager, error) {
 
 	key := uint32(0)
 	config := TcGlobalConfig{
-		EdtHorizonNs: 2 * 1000 * 1000 * 1000, // 2 Seconds
+		EdtHorizonNs: 5 * 100 * 1000 * 1000, // 500 ms
 	}
 	if err := objs.ConfigMap.Put(&key, &config); err != nil {
 		objs.Close()
@@ -76,7 +77,7 @@ func (m *BpfManager) AttachNICEgress(hostInterface string) error {
 	}
 	hostIfIndex := hostLink.Attrs().Index
 
-	if err = m.ensureFQ(hostIfIndex); err != nil {
+	if err = m.ensureFQ(hostIfIndex, 0); err != nil {
 		return fmt.Errorf("failed to ensure fq on %s: %w", hostInterface, err)
 	}
 	log.Printf("[BPF] FQ qdisc ensured on %s (Index: %d)", hostInterface, hostIfIndex)
@@ -207,7 +208,7 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	}
 
 	// Step 1: Host Side Configuration (Download)
-	if err := m.ensureFQ(hostIfIndex); err != nil {
+	if err := m.ensureFQ(hostIfIndex, 0); err != nil {
 		return fmt.Errorf("host fq: %w", err)
 	}
 
@@ -246,7 +247,7 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	prog.podIfIndex = podIfIndex
 	prog.podEgressLink = podLink
 
-	// [CHANGE] Initialize TWO state buckets for Upload
+	// Initialize TWO state buckets for Upload
 	keyPodSys := uint32(prog.podIfIndex * 2)
 	keyPodSim := uint32(prog.podIfIndex*2 + 1)
 
@@ -259,6 +260,13 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 		hostLink.Close()
 		prog.podEgressLink.Close()
 		return fmt.Errorf("init upload sim state: %w", err)
+	}
+
+	// Initialize Metrics Map
+	zeroStats := make([]TcPodStats, runtime.NumCPU())
+	key := uint32(hostIfIndex)
+	if err := m.objects.MetricsMap.Put(&key, zeroStats); err != nil {
+		log.Printf("[BPF] Warning: Failed to init metrics map for %s: %v", podName, err)
 	}
 
 	m.programs[hostIfIndex] = prog
@@ -323,7 +331,7 @@ func (m *BpfManager) setupPodEgress(podNsHandle netns.NsHandle) (int, link.Link,
 
 	// B. Ensure FQ on Pod Interface
 	// Since we are in the Pod NS, netlink calls operate on Pod objects.
-	if err = m.ensureFQ(podIfIndex); err != nil {
+	if err = m.ensureFQ(podIfIndex, 0); err != nil {
 		return 0, nil, fmt.Errorf("pod fq: %w", err)
 	}
 
@@ -506,4 +514,65 @@ func (m *BpfManager) GetPeers() ([]string, error) {
 	}
 
 	return ips, nil
+}
+
+type PodMetricsResult struct {
+	PodName     string     `json:"pod_name"`
+	HostIfIndex int        `json:"host_ifindex"`
+	Timestamp   int64      `json:"timestamp"` // Unix Nano
+	Stats       TcPodStats `json:"stats"`
+}
+
+func (m *BpfManager) CollectAllMetrics() ([]PodMetricsResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var results []PodMetricsResult
+
+	for ifIndex, prog := range m.programs {
+		var statsPerCPU []TcPodStats
+		key := uint32(ifIndex)
+
+		if err := m.objects.MetricsMap.Lookup(&key, &statsPerCPU); err != nil {
+			log.Printf("Failed to lookup metrics for pod %s: %v", prog.podName, err)
+			continue
+		}
+
+		// aggregate all cpu data
+		var totalStats TcPodStats
+		for _, cpuStat := range statsPerCPU {
+			// Sim Download
+			totalStats.SimDownload.Packets += cpuStat.SimDownload.Packets
+			totalStats.SimDownload.Bytes += cpuStat.SimDownload.Bytes
+			totalStats.SimDownload.DropPackets += cpuStat.SimDownload.DropPackets
+			totalStats.SimDownload.DropBytes += cpuStat.SimDownload.DropBytes
+
+			// Sim Upload
+			totalStats.SimUpload.Packets += cpuStat.SimUpload.Packets
+			totalStats.SimUpload.Bytes += cpuStat.SimUpload.Bytes
+			totalStats.SimUpload.DropPackets += cpuStat.SimUpload.DropPackets
+			totalStats.SimUpload.DropBytes += cpuStat.SimUpload.DropBytes
+
+			// Sys Download
+			totalStats.SysDownload.Packets += cpuStat.SysDownload.Packets
+			totalStats.SysDownload.Bytes += cpuStat.SysDownload.Bytes
+			totalStats.SysDownload.DropPackets += cpuStat.SysDownload.DropPackets
+			totalStats.SysDownload.DropBytes += cpuStat.SysDownload.DropBytes
+
+			// Sys Upload
+			totalStats.SysUpload.Packets += cpuStat.SysUpload.Packets
+			totalStats.SysUpload.Bytes += cpuStat.SysUpload.Bytes
+			totalStats.SysUpload.DropPackets += cpuStat.SysUpload.DropPackets
+			totalStats.SysUpload.DropBytes += cpuStat.SysUpload.DropBytes
+		}
+
+		results = append(results, PodMetricsResult{
+			PodName:     prog.podName,
+			HostIfIndex: ifIndex,
+			Timestamp:   time.Now().UnixNano(),
+			Stats:       totalStats,
+		})
+	}
+
+	return results, nil
 }

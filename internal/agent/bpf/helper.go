@@ -3,6 +3,7 @@ package bpf
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -15,7 +16,7 @@ import (
 
 // ensureFQ checks and sets the fq qdisc on the given interface index.
 // This function operates in the CURRENT namespace context.
-func (m *BpfManager) ensureFQ(ifaceIndex int) error {
+func (m *BpfManager) ensureFQ(ifaceIndex int, packetLimit uint32) error {
 	linkObj, err := netlink.LinkByIndex(ifaceIndex)
 	if err != nil {
 		return fmt.Errorf("get link: %w", err)
@@ -43,6 +44,8 @@ func (m *BpfManager) ensureFQ(ifaceIndex int) error {
 		}
 	}
 
+	const safeLimit = 20000
+
 	// Add fq qdisc
 	fq := netlink.NewFq(netlink.QdiscAttrs{
 		LinkIndex: linkObj.Attrs().Index,
@@ -50,6 +53,12 @@ func (m *BpfManager) ensureFQ(ifaceIndex int) error {
 		Handle:    netlink.MakeHandle(1, 0),
 	})
 	fq.Pacing = 1 // Crucial for EDT
+
+	fq.PacketLimit = safeLimit // TODO: In fact this is not safe
+	if packetLimit != 0 {
+		fq.PacketLimit = packetLimit
+	}
+	fq.FlowMaxRate = math.MaxUint32
 
 	if err := netlink.QdiscAdd(fq); err != nil {
 		return fmt.Errorf("add fq: %w", err)

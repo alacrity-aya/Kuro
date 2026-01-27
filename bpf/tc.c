@@ -6,7 +6,6 @@
 // =============================================================
 
 // TODO: there constant variables should be configurable
-// TODO: use '>>' instread of division operation
 
 // Burst Allowance: 5ms
 // Allows simulation traffic a small burst after an idle period (e.g., TCP handshake or ACKs).
@@ -19,9 +18,6 @@
 // the timestamp for Sys traffic will always be 3ms later than Sim traffic.
 // Result: As long as Sim traffic isn't severely backlogged, it will always be prioritized.
 #define SYS_LATENCY_OFFSET_NS (3ULL * 1000000ULL)
-
-// Ethernet Header Length
-#define ETH_HLEN 14
 
 // =============================================================
 // Helper Functions
@@ -105,7 +101,6 @@ int handle_edt_download(struct __sk_buff* skb) {
     if (!rates)
         return TC_ACT_OK;
 
-    // Check Source IP for Download
     __u32 src_ip = 0;
     if (unlikely(!parse_ipv4(skb, &src_ip, NULL)))
         return TC_ACT_OK;
@@ -123,7 +118,7 @@ int handle_edt_download(struct __sk_buff* skb) {
         state_key = ifindex * 2 + 1;
         skb->priority = 1;
     } else {
-        // Sys Traffic: Key = idx*2 + 0
+        // Sys Traffic: Key = idx*2
         target_rate = rates->rate_sys_download;
         state_key = ifindex * 2;
         skb->priority = 0;
@@ -131,9 +126,8 @@ int handle_edt_download(struct __sk_buff* skb) {
 
     int ret = throttle_flow(skb, target_rate, &edt_download_state_map, state_key, now);
 
-    // [SYS Traffic Protection]
-    // Even if Sys traffic passes rate check, enforce minimum latency offset
-    // to ensure it doesn't jump ahead of Sim traffic in Host FQ.
+    update_metrics(ifindex, skb->len, ret, is_sim, 0);
+
     if (ret == TC_ACT_OK && !is_sim) {
         __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
         if (skb->tstamp < min_tstamp) {
@@ -156,7 +150,6 @@ int handle_edt_upload(struct __sk_buff* skb) {
     if (!rates)
         return TC_ACT_OK;
 
-    // Check Destination IP for Upload
     __u32 dst_ip = 0;
     if (unlikely(!parse_ipv4(skb, NULL, &dst_ip)))
         return TC_ACT_OK;
@@ -179,6 +172,8 @@ int handle_edt_upload(struct __sk_buff* skb) {
     }
 
     int ret = throttle_flow(skb, target_rate, &edt_upload_state_map, state_key, now);
+
+    update_metrics(ifindex, skb->len, ret, is_sim, 1);
 
     if (ret == TC_ACT_OK && !is_sim) {
         __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
