@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package kuro.simulation.v1;
+
+option go_package = "kuro/api/v1;kurov1";
+
+// SimulationAgentService defines the communication between Node Agent and
+// Central Controller.
+service SimulationAgentService {
+  // Bidirectional streaming:
+  // 1. Agent connects and sends 'Heartbeat' (initially Register).
+  // 2. Agent pushes 'PodEvent' when local Pods start/stop (Topology Discovery).
+  // 3. Controller pushes 'Command' to update rules or whitelist.
+  rpc ControlStream(stream AgentMsg) returns (stream ControllerCmd);
+}
+
+// =============================================================
+// Messages: Agent -> Controller
+// =============================================================
+
+message AgentMsg {
+  // Unix Timestamp (ns)
+  int64 timestamp = 1;
+
+  oneof payload {
+    // Periodic heartbeat containing node status
+    Heartbeat heartbeat = 2;
+
+    // Triggered when Watcher detects local Pod changes
+    PodLifecycleEvent pod_event = 3;
+
+    // Acknowledgement of a received command
+    CommandAck ack = 4;
+  }
+}
+
+message Heartbeat {
+  string node_name = 1;
+  string node_ip = 2;
+  // Summary of currently managed pods count
+  int32 managed_pod_count = 3;
+}
+
+// Maps to your 'watcher.go' PodInfo struct
+message PodLifecycleEvent {
+  enum EventType {
+    ADDED = 0;
+    MODIFIED = 1;
+    DELETED = 2;
+  }
+  EventType type = 1;
+
+  string pod_name = 2;
+  string namespace = 3;
+  string pod_ip = 4; // Critical for Global Whitelist
+  string container_id = 5;
+  int32 host_ifindex = 6; // Important: Agent uses this, Controller might just
+                          // need to know it exists
+}
+
+message CommandAck {
+  string command_id = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// =============================================================
+// Messages: Controller -> Agent
+// =============================================================
+
+message ControllerCmd {
+  string command_id = 1; // UUID for tracking
+
+  oneof payload {
+    // 1. Global Sync: Update the 'simulation_peers_map'
+    SyncPeerWhitelist sync_peers = 2;
+
+    // 2. Pod Policy: Update 'rate_map', 'edt_state_map'
+    ApplyPodPolicy apply_policy = 3;
+
+    // 3. Node Policy: Update XDP Ingress (Eth0)
+    ApplyNodePolicy apply_node_policy = 4;
+  }
+}
+
+// Corresponds to 'manager.go' -> AddPeer / RemovePeer logic
+message SyncPeerWhitelist {
+  // Full list of IPs that should be in the whitelist.
+  // Agent should calculate diff (add missing, remove extra) to keep map
+  // efficient.
+  repeated string peer_ips = 1;
+}
+
+// Corresponds to 'manager.go' -> UpdateRule logic
+message ApplyPodPolicy {
+  // Target Pod identifier
+  string pod_name = 1;
+  string namespace = 2;
+
+  // Bandwidth Limits (in bits per second)
+  // Matches 'struct io_rate' in map.h
+  RateLimit sim_rate = 3;
+  RateLimit sys_rate = 4;
+}
+
+message RateLimit {
+  uint64 upload_bps = 1;   // Pod -> Host
+  uint64 download_bps = 2; // Host -> Pod
+}
+
+// Corresponds to 'manager.go' -> AttachIngressProtection logic
+message ApplyNodePolicy {
+  // Ingress protection for the physical interface (eth0)
+  uint64 ingress_limit_bps = 1;
+  uint64 ingress_burst_bytes = 2;
+}
