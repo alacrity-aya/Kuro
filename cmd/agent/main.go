@@ -43,7 +43,7 @@ func main() {
 		log.Fatalf("Failed to create clientset: %v", err)
 	}
 
-	kuroAgent, err := agent.NewAgent(ContainerSocket, clientset, nodeName, TargetNamespace)
+	kuroAgent, err := agent.NewAgent(ContainerSocket, clientset, nodeName, TargetNamespace, "127.0.0.1")
 	if err != nil {
 		log.Fatalf("Failed to initialize agent: %v", err)
 	}

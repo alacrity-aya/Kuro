@@ -1,4 +1,4 @@
-// Package netns get netns handler from pod
+// Package watch get netns handler from pod
 package watch
 
 import (
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	pb "kuro/api/v1"
 
 	"github.com/vishvananda/netns"
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +51,8 @@ type LocalWatcher struct {
 	// Custom In-Memory Storage
 	mu    sync.RWMutex
 	store map[string]*PodContext // Key: PodName (since we are scoped to 1 namespace)
+
+	eventCh chan *pb.PodLifecycleEvent
 }
 
 // NewLocolWatcher creates a watcher optimized for a specific Node and Namespace.
@@ -61,6 +65,7 @@ func NewLocolWatcher(client kubernetes.Interface, containerRuntime *ContainerRun
 		containerRuntime: containerRuntime,
 		stopCh:           make(chan struct{}),
 		store:            make(map[string]*PodContext),
+		eventCh:          make(chan *pb.PodLifecycleEvent, 100), // Buffer size 100
 	}
 }
 
@@ -178,9 +183,12 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	eventType := pb.PodLifecycleEvent_ADDED
+
 	// If entry exists, close the OLD handle to prevent FD leak
 	if oldCtx, exists := w.store[info.Name]; exists {
 		oldCtx.NetnsHandle.Close()
+		eventType = pb.PodLifecycleEvent_MODIFIED
 		fmt.Printf("[Watcher] Updated Netns for %s\n", info.Name)
 	} else {
 		fmt.Printf("[Watcher] Added Netns for %s\n", info.Name)
@@ -189,6 +197,23 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 	w.store[info.Name] = &PodContext{
 		Info:        info,
 		NetnsHandle: handle,
+	}
+
+	// 3. Notify Agent
+	event := &pb.PodLifecycleEvent{
+		Type:        eventType,
+		PodName:     info.Name,
+		Namespace:   info.Namespace,
+		PodIp:       info.IP,
+		ContainerId: info.ContainerID,
+		HostIfindex: int32(info.HostIfIndex),
+	}
+
+	// Non-blocking send to avoid holding the lock or stalling informer
+	select {
+	case w.eventCh <- event:
+	default:
+		fmt.Printf("[Watcher] Warning: Event channel full, dropping event for %s\n", info.Name)
 	}
 }
 
@@ -201,6 +226,24 @@ func (w *LocalWatcher) handlePodDelete(pod *corev1.Pod) {
 		ctx.NetnsHandle.Close()
 		delete(w.store, pod.Name)
 		fmt.Printf("[Watcher] Cleaned up %s\n", pod.Name)
+
+		// Notify Agent
+		// Use cached info (ctx.Info) because the pod object from DeleteFunc
+		// might miss some details if it's a DeletedFinalStateUnknown object
+		event := &pb.PodLifecycleEvent{
+			Type:        pb.PodLifecycleEvent_DELETED,
+			PodName:     ctx.Info.Name,
+			Namespace:   ctx.Info.Namespace,
+			PodIp:       ctx.Info.IP,
+			ContainerId: ctx.Info.ContainerID,
+			HostIfindex: int32(ctx.Info.HostIfIndex),
+		}
+
+		select {
+		case w.eventCh <- event:
+		default:
+			fmt.Printf("[Watcher] Warning: Event channel full, dropping delete event for %s\n", pod.Name)
+		}
 	}
 }
 
@@ -227,6 +270,10 @@ func (w *LocalWatcher) GetAllPods() []*PodContext {
 		list = append(list, ctx)
 	}
 	return list
+}
+
+func (w *LocalWatcher) GetEventCh() <-chan *pb.PodLifecycleEvent {
+	return w.eventCh
 }
 
 // ================= Helpers =================
