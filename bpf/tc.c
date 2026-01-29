@@ -29,63 +29,51 @@
  * @param state_map: Pointer to the state Map
  * @param target_idx: Map Key (ifindex)
  */
-static __always_inline int
-throttle_flow(struct __sk_buff* skb, __u64 rate, void* state_map, __u32 target_idx, __u64 now) {
-    // 1. Rate check
-    if (rate == 0) {
-        // Rate set to 0 while limiting is active is treated as a block
+static __always_inline int throttle_flow(
+    struct __sk_buff* skb,
+    __u64 cost_per_byte_scaled,
+    void* state_map,
+    __u32 target_idx,
+    __u64 now
+) {
+    if (cost_per_byte_scaled == 0)
         return TC_ACT_SHOT;
-    }
 
-    // 2. Retrieve state
     struct edt_state* st = bpf_map_lookup_elem(state_map, &target_idx);
-    if (!st) {
-        return TC_ACT_OK; // No state found, pass through by default
-    }
+    if (!st)
+        return TC_ACT_OK;
 
-    // 3. Get global configuration (Maximum delay horizon)
     __u64 horizon_ns;
     get_global_config(&horizon_ns);
 
     __u64 packet_len = skb->len;
 
-    // Calculate physical time required to send this packet: Time = (Bytes * 8 * 10^9) / Rate_bps
-    __u64 packet_time_ns = (packet_len * 8 * NSEC_PER_SEC) / rate;
+    // Time = (Bytes * ScaledCost) >> 16
+    __u64 packet_time_ns = (packet_len * cost_per_byte_scaled) >> 16;
 
     __u64 t_send;
 
-    // 4. Critical Section: Calculate EDT timestamp
     bpf_spin_lock(&st->lock);
 
     __u64 t_last = st->t_last;
-    __u64 t_start = t_last;
 
-    // Handle Burst Window: If link has been idle for a long time, reset t_start to (now - burst)
-    __u64 burst_start = 0;
-    if (likely(now > BURST_WINDOW_NS)) {
-        burst_start = now - BURST_WINDOW_NS;
+    __u64 burst_start = (now > BURST_WINDOW_NS) ? (now - BURST_WINDOW_NS) : 0;
+
+    if (t_last < burst_start) {
+        t_last = burst_start;
     }
 
-    if (t_start < burst_start) {
-        t_start = burst_start;
-    }
+    t_send = t_last + packet_time_ns;
 
-    t_send = t_start + packet_time_ns;
-
-    // Queue Depth Protection: If departure time is pushed too far into the future,
-    // drop the packet to prevent Buffer Bloat.
     if (unlikely(t_send > now + horizon_ns)) {
         bpf_spin_unlock(&st->lock);
-        // kuro_debug("EDT Drop: ifindex %d, Queue too deep\n", target_idx);
         return TC_ACT_SHOT;
     }
 
     st->t_last = t_send;
     bpf_spin_unlock(&st->lock);
 
-    // 5. Set skb->tstamp for FQ scheduling
     skb->tstamp = t_send;
-
     return TC_ACT_OK;
 }
 
@@ -96,7 +84,12 @@ throttle_flow(struct __sk_buff* skb, __u64 rate, void* state_map, __u32 target_i
 // =============================================================
 SEC("tc/edt_download")
 int handle_edt_download(struct __sk_buff* skb) {
+    __u64 now = bpf_ktime_get_ns();
     __u32 ifindex = skb->ifindex;
+
+    if (unlikely(ifindex >= MAX_IFINDEX_CAP))
+        return TC_ACT_OK;
+
     struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
     if (!rates)
         return TC_ACT_OK;
@@ -107,32 +100,35 @@ int handle_edt_download(struct __sk_buff* skb) {
 
     __u8* is_sim_ptr = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
     int is_sim = (is_sim_ptr != NULL);
-    __u64 now = bpf_ktime_get_ns();
 
-    __u64 target_rate;
+    __u64 target_cost;
     __u32 state_key;
 
     if (is_sim) {
-        // Sim Traffic: Key = idx*2 + 1
-        target_rate = rates->rate_sim_download;
+        target_cost = rates->cost_per_byte_sim_download;
         state_key = ifindex * 2 + 1;
         skb->priority = 1;
     } else {
-        // Sys Traffic: Key = idx*2
-        target_rate = rates->rate_sys_download;
+        target_cost = rates->cost_per_byte_sys_download;
         state_key = ifindex * 2;
         skb->priority = 0;
     }
 
-    int ret = throttle_flow(skb, target_rate, &edt_download_state_map, state_key, now);
-
-    update_metrics(ifindex, skb->len, ret, is_sim, 0);
+    int ret = throttle_flow(skb, target_cost, &edt_download_state_map, state_key, now);
 
     if (ret == TC_ACT_OK && !is_sim) {
         __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
-        if (skb->tstamp < min_tstamp) {
+        if (skb->tstamp < min_tstamp)
             skb->tstamp = min_tstamp;
-        }
+    }
+
+    if (is_sim || (bpf_get_prandom_u32() & 0x3F) == 0) {
+        update_metrics(ifindex, skb->len, ret, is_sim, 0);
+    }
+
+    if (ret == TC_ACT_OK && (bpf_get_prandom_u32() & 0x7F) == 0) {
+        __u64 latency = (skb->tstamp > now) ? (skb->tstamp - now) : 0;
+        update_latency_hist(ifindex, latency);
     }
 
     return ret;
@@ -145,7 +141,12 @@ int handle_edt_download(struct __sk_buff* skb) {
 // =============================================================
 SEC("tc/edt_upload")
 int handle_edt_upload(struct __sk_buff* skb) {
+    __u64 now = bpf_ktime_get_ns();
     __u32 ifindex = skb->ifindex;
+
+    if (unlikely(ifindex >= MAX_IFINDEX_CAP))
+        return TC_ACT_OK;
+
     struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
     if (!rates)
         return TC_ACT_OK;
@@ -156,30 +157,35 @@ int handle_edt_upload(struct __sk_buff* skb) {
 
     __u8* is_sim_ptr = bpf_map_lookup_elem(&simulation_peers_map, &dst_ip);
     int is_sim = (is_sim_ptr != NULL);
-    __u64 now = bpf_ktime_get_ns();
 
-    __u64 target_rate;
+    __u64 target_cost;
     __u32 state_key;
 
     if (is_sim) {
-        target_rate = rates->rate_sim_upload;
+        target_cost = rates->cost_per_byte_sim_upload;
         state_key = ifindex * 2 + 1;
         skb->priority = 1;
     } else {
-        target_rate = rates->rate_sys_upload;
+        target_cost = rates->cost_per_byte_sys_upload;
         state_key = ifindex * 2;
         skb->priority = 0;
     }
 
-    int ret = throttle_flow(skb, target_rate, &edt_upload_state_map, state_key, now);
-
-    update_metrics(ifindex, skb->len, ret, is_sim, 1);
+    int ret = throttle_flow(skb, target_cost, &edt_upload_state_map, state_key, now);
 
     if (ret == TC_ACT_OK && !is_sim) {
         __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
-        if (skb->tstamp < min_tstamp) {
+        if (skb->tstamp < min_tstamp)
             skb->tstamp = min_tstamp;
-        }
+    }
+
+    if (is_sim || (bpf_get_prandom_u32() & 0x3F) == 0) {
+        update_metrics(ifindex, skb->len, ret, is_sim, 1);
+    }
+
+    if (ret == TC_ACT_OK && (bpf_get_prandom_u32() & 0x7F) == 0) {
+        __u64 latency = (skb->tstamp > now) ? (skb->tstamp - now) : 0;
+        update_latency_hist(ifindex, latency);
     }
 
     return ret;

@@ -104,3 +104,10 @@ func getInterfaceSpeed(ifaceName string) (uint64, error) {
 
 	return speedMbps, nil
 }
+
+func bpsToScaledCost(bps uint64) uint64 {
+	if bps == 0 {
+		return 0
+	}
+	return uint64((float64(8*NsecPerSec) * float64(ScaleFactor)) / float64(bps))
+}

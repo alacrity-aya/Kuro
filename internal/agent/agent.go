@@ -44,7 +44,7 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 }
 
 func (a *Agent) Run(ctx context.Context) error {
-	go a.startDebugServer()
+	go a.startHttpServer()
 	a.bpfManager.AttachIngressProtection(hostInterface, 0, 64*1024)
 	a.bpfManager.AttachNICEgress(hostInterface)
 

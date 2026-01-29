@@ -13,7 +13,7 @@
 
 #define DEFAULT_EDT_HORIZON_NS (500ULL * 1000000ULL) // 500ms
 
-#define ENABLE_PRINT 1
+#define ENABLE_PRINT 0
 
 #if ENABLE_PRINT
     #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
