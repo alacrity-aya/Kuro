@@ -189,7 +189,7 @@ run_benchmarks() {
 
     echo -e "${YELLOW}Compiling Benchmarks...${NC}"
     # Compile Benchmark binary
-    if go test -c -tags="bpf,benchmark" -o "$TEMP_BIN" ./test; then
+    if go test -c -tags="bpf,benchmark" -o "$TEMP_BIN" ./test/benchmark; then
         echo -e "${YELLOW}Executing Benchmarks...${NC}"
         
         # Construct Benchmark arguments

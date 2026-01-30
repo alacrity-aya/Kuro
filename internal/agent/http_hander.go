@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func (a *Agent) startHttpServer() {
+func (a *Agent) startHTTPServer() {
 	// 1. Debug API: List Pods
 	http.HandleFunc("/debug/pods", func(w http.ResponseWriter, r *http.Request) {
 		pods := a.localWatcher.GetAllPods()

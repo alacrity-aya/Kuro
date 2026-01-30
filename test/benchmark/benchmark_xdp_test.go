@@ -127,7 +127,7 @@ func Benchmark_XDP_TokenBucket(b *testing.B) {
 // --- Helpers ---
 
 func setupXdpBenchEnv(b *testing.B) {
-	cmd := exec.Command("./test/setup_topology.sh", XdpBenchNs, XdpHostVeth, XdpPodVeth, XdpPodIP+"/24", XdpHostIP+"/24", XdpServerPort)
+	cmd := exec.Command("./test/bpf/setup_topology.sh", XdpBenchNs, XdpHostVeth, XdpPodVeth, XdpPodIP+"/24", XdpHostIP+"/24", XdpServerPort)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		b.Fatalf("Setup failed: %v, %s", err, string(out))
 	}
@@ -189,4 +189,3 @@ func runXdpBenchIperf(b *testing.B) BenchResult {
 		CpuUsage: res.End.CpuUtilizationPercent.HostTotal,
 	}
 }
-

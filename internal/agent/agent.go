@@ -41,7 +41,7 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 	}
 
 	// 3. Initialize Local Watcher (Monitors current node only)
-	localWatcher := watch.NewLocolWatcher(clientSet, containerRuntime, nodeName, targetNs)
+	localWatcher := watch.NewLocalWatcher(clientSet, containerRuntime, nodeName, targetNs)
 
 	// PeerWatcher has been removed
 
@@ -83,13 +83,15 @@ func (a *Agent) watchLocalEvents(ctx context.Context) {
 }
 
 func (a *Agent) Run(ctx context.Context) error {
-	go a.startHttpServer()
+	go a.startHTTPServer()
 
-	log.Println("[Agent] Starting Remote Client...")
-	// Start gRPC bidirectional stream (heartbeats, event reporting, command receiving)
-	if err := a.grpcClient.Start(ctx); err != nil {
-		return fmt.Errorf("remote client failed to start: %w", err)
-	}
+	go func() {
+		log.Println("[Agent] Starting Remote Client...")
+		// Start gRPC bidirectional stream (heartbeats, event reporting, command receiving)
+		if err := a.grpcClient.Start(ctx); err != nil {
+			log.Printf("[Agent] Remote Client stopped: %v", err)
+		}
+	}()
 
 	// Enable node-level protection by default
 	// Note: Parameters 0 indicates default rate, 64KB burst
@@ -139,6 +141,13 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) printDebugStats() {
+	truncate := func(s string, n int) string {
+		if len(s) > n {
+			return s[:n]
+		}
+		return s
+	}
+
 	pods := a.localWatcher.GetAllPods()
 	log.Printf("--- [Debug Audit] Current Memory State ---")
 	log.Printf("Total Tracked Pods: %d", len(pods))
@@ -149,18 +158,12 @@ func (a *Agent) printDebugStats() {
 		}
 		log.Printf("  - Pod: %-15s | Veth: %-15s | Handle: %s",
 			p.Info.Name,
+
 			truncate(p.Info.HostVeth, 15),
 			status,
 		)
 	}
 	log.Printf("------------------------------------------")
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
 }
 
 // =============================================================
@@ -224,17 +227,10 @@ func (a *Agent) SyncWhitelist(cmd *pb.SyncPeerWhitelist) error {
 		return nil
 	}
 
-	log.Printf("[Agent] Syncing whitelist: %d IPs", len(cmd.PeerIps))
-
-	// Simple implementation: Full addition.
-	// Optimized implementation should perform a Diff in BPF Manager (Add missing, Remove extra).
-	// For demonstration, we perform overwrite/add only. Since BPF Maps are Hash Maps,
-	// overwriting the key is acceptable.
-	// TODO: Implement BpfManager.SyncPeers(ips) to handle deletion logic.
-	for _, ip := range cmd.PeerIps {
-		if err := a.bpfManager.AddPeer(ip); err != nil {
-			log.Printf("Failed to add peer %s: %v", ip, err)
-		}
+	// Delegate the diff logic completely to BpfManager
+	if err := a.bpfManager.SyncPeers(cmd.PeerIps); err != nil {
+		return fmt.Errorf("failed to sync peers to bpf map: %w", err)
 	}
+
 	return nil
 }

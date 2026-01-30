@@ -29,6 +29,11 @@ func main() {
 		nodeName = "kind-worker"
 	}
 
+	controllerAddr := os.Getenv("CONTROLLER_ADDR")
+	if controllerAddr == "" {
+		controllerAddr = "127.0.0.1:9090"
+	}
+
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		kubeconfig := os.Getenv("HOME") + "/.kube/config"
@@ -43,7 +48,7 @@ func main() {
 		log.Fatalf("Failed to create clientset: %v", err)
 	}
 
-	kuroAgent, err := agent.NewAgent(ContainerSocket, clientset, nodeName, TargetNamespace, "127.0.0.1")
+	kuroAgent, err := agent.NewAgent(ContainerSocket, clientset, nodeName, TargetNamespace, controllerAddr)
 	if err != nil {
 		log.Fatalf("Failed to initialize agent: %v", err)
 	}

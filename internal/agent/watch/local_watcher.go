@@ -4,6 +4,7 @@ package watch
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -55,9 +56,9 @@ type LocalWatcher struct {
 	eventCh chan *pb.PodLifecycleEvent
 }
 
-// NewLocolWatcher creates a watcher optimized for a specific Node and Namespace.
+// NewLocalWatcher creates a watcher optimized for a specific Node and Namespace.
 // Note: We inject ContainerRuntime here.
-func NewLocolWatcher(client kubernetes.Interface, containerRuntime *ContainerRuntime, nodeName, targetNs string) *LocalWatcher {
+func NewLocalWatcher(client kubernetes.Interface, containerRuntime *ContainerRuntime, nodeName, targetNs string) *LocalWatcher {
 	return &LocalWatcher{
 		client:           client,
 		nodeName:         nodeName,
@@ -71,6 +72,8 @@ func NewLocolWatcher(client kubernetes.Interface, containerRuntime *ContainerRun
 
 // Start begins the watching process.
 func (w *LocalWatcher) Start(ctx context.Context) error {
+	log.Printf("[Watcher] INFO Initializing watcher for Node: %s, Namespace: %s", w.nodeName, w.targetNs)
+
 	tweakListOptions := func(options *metav1.ListOptions) {
 		fs := fields.OneTermEqualSelector("spec.nodeName", w.nodeName)
 		options.FieldSelector = fs.String()
@@ -90,7 +93,8 @@ func (w *LocalWatcher) Start(ctx context.Context) error {
 	w.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
 			pod := obj.(*corev1.Pod)
-			w.handlePodAddOrUpdate(pod)
+			// Log minimal trace for debug if needed, usually too noisy
+			w.handlePodAddOrUpdate(pod, "ADD")
 		},
 		UpdateFunc: func(oldObj, newObj any) {
 			newPod := newObj.(*corev1.Pod)
@@ -98,9 +102,13 @@ func (w *LocalWatcher) Start(ctx context.Context) error {
 
 			// Only update if ContainerID or IP changed (Networking changed)
 			// OR if we don't have it in our store yet.
-			if newPod.Status.PodIP != oldPod.Status.PodIP ||
-				getContainerID(newPod) != getContainerID(oldPod) {
-				w.handlePodAddOrUpdate(newPod)
+			newCid := getContainerID(newPod)
+			oldCid := getContainerID(oldPod)
+
+			if newPod.Status.PodIP != oldPod.Status.PodIP || newCid != oldCid {
+				log.Printf("[Watcher] INFO Detected change for %s. IP: %s->%s, CID: %s->%s",
+					newPod.Name, oldPod.Status.PodIP, newPod.Status.PodIP, oldCid, newCid)
+				w.handlePodAddOrUpdate(newPod, "UPDATE")
 			}
 		},
 		DeleteFunc: func(obj any) {
@@ -108,10 +116,12 @@ func (w *LocalWatcher) Start(ctx context.Context) error {
 			if !ok {
 				tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
 				if !ok {
+					log.Printf("[Watcher] ERROR Could not get object from tombstone")
 					return
 				}
 				pod, ok = tombstone.Obj.(*corev1.Pod)
 				if !ok {
+					log.Printf("[Watcher] ERROR Tombstone contained object that is not a Pod")
 					return
 				}
 			}
@@ -121,42 +131,51 @@ func (w *LocalWatcher) Start(ctx context.Context) error {
 
 	go factory.Start(w.stopCh)
 
-	fmt.Println("[Watcher] Waiting for cache sync...")
+	log.Println("[Watcher] INFO Waiting for informer cache sync...")
 	if !cache.WaitForCacheSync(w.stopCh, w.informer.HasSynced) {
 		return fmt.Errorf("timed out waiting for caches to sync")
 	}
-	fmt.Println("[Watcher] Cache synced successfully.")
+	log.Println("[Watcher] INFO Cache synced successfully. Watcher is now active.")
 
 	return nil
 }
 
 func (w *LocalWatcher) Stop() {
+	log.Println("[Watcher] INFO Stopping watcher initiated...")
+
 	// Clean up all open Netns handles before stopping
 	w.mu.Lock()
+	count := 0
 	for name, ctx := range w.store {
 		if ctx.NetnsHandle.IsOpen() {
 			ctx.NetnsHandle.Close()
+			count++
 		}
 		delete(w.store, name)
 	}
 	w.mu.Unlock()
 
 	close(w.stopCh)
+	log.Printf("[Watcher] INFO Stopped. Closed %d active Netns handles.", count)
 }
 
 // ================= Logic Handlers =================
 
-func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod) {
+func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod, source string) {
 	// Skip if Pod is not running or has no IP yet
 	if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
+		// Optional: Log verbose if needed, but skipping usually reduces noise
 		return
 	}
 
 	info := extractPodInfo(pod)
 	if info.ContainerID == "" {
-		// Container not ready yet
+		log.Printf("[Watcher] WARN Pod %s is running but ContainerID is missing. Skipping.", info.Name)
 		return
 	}
+
+	log.Printf("[Watcher] INFO Handling %s event for Pod: %s | IP: %s | ContainerID: %s",
+		source, info.Name, info.IP, info.ContainerID)
 
 	// 1. Resolve Netns
 	// Create a short-lived context for the Containerd call
@@ -165,13 +184,13 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 
 	handle, err := w.containerRuntime.GetNsByContainerID(ctx, info.ContainerID)
 	if err != nil {
-		fmt.Printf("[Watcher] Failed to resolve netns for %s: %v\n", info.Name, err)
+		log.Printf("[Watcher] ERROR Failed to resolve netns for Pod %s (CID: %s): %v", info.Name, info.ContainerID, err)
 		return
 	}
 
 	vethName, vethIndex, err := w.containerRuntime.GetHostVethPair(handle)
 	if err != nil {
-		fmt.Printf("[Watcher] Failed to resolve host veth for %s: %v\n", info.Name, err)
+		log.Printf("[Watcher] ERROR Failed to resolve host veth for Pod %s: %v. Closing handle.", info.Name, err)
 		handle.Close()
 		return
 	}
@@ -184,20 +203,23 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 	defer w.mu.Unlock()
 
 	eventType := pb.PodLifecycleEvent_ADDED
+	actionMsg := "Added new"
 
 	// If entry exists, close the OLD handle to prevent FD leak
 	if oldCtx, exists := w.store[info.Name]; exists {
 		oldCtx.NetnsHandle.Close()
 		eventType = pb.PodLifecycleEvent_MODIFIED
-		fmt.Printf("[Watcher] Updated Netns for %s\n", info.Name)
-	} else {
-		fmt.Printf("[Watcher] Added Netns for %s\n", info.Name)
+		actionMsg = "Updated existing"
+		log.Printf("[Watcher] INFO Refreshed Netns handle for Pod %s. Closed old FD.", info.Name)
 	}
 
 	w.store[info.Name] = &PodContext{
 		Info:        info,
 		NetnsHandle: handle,
 	}
+
+	log.Printf("[Watcher] INFO %s Netns entry. Pod: %s | HostVeth: %s (idx: %d) | HandleFD: %d",
+		actionMsg, info.Name, info.HostVeth, info.HostIfIndex, int(handle))
 
 	// 3. Notify Agent
 	event := &pb.PodLifecycleEvent{
@@ -212,8 +234,9 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod) {
 	// Non-blocking send to avoid holding the lock or stalling informer
 	select {
 	case w.eventCh <- event:
+		// Log verbose trace if needed: log.Printf("[Watcher] DEBUG Sent event for %s", info.Name)
 	default:
-		fmt.Printf("[Watcher] Warning: Event channel full, dropping event for %s\n", info.Name)
+		log.Printf("[Watcher] WARN Event channel full! Dropping %s event for Pod: %s", eventType, info.Name)
 	}
 }
 
@@ -225,7 +248,8 @@ func (w *LocalWatcher) handlePodDelete(pod *corev1.Pod) {
 		// CRITICAL: Close the file descriptor
 		ctx.NetnsHandle.Close()
 		delete(w.store, pod.Name)
-		fmt.Printf("[Watcher] Cleaned up %s\n", pod.Name)
+
+		log.Printf("[Watcher] INFO Cleaned up Pod %s. Netns handle closed and removed from store.", pod.Name)
 
 		// Notify Agent
 		// Use cached info (ctx.Info) because the pod object from DeleteFunc
@@ -242,8 +266,11 @@ func (w *LocalWatcher) handlePodDelete(pod *corev1.Pod) {
 		select {
 		case w.eventCh <- event:
 		default:
-			fmt.Printf("[Watcher] Warning: Event channel full, dropping delete event for %s\n", pod.Name)
+			log.Printf("[Watcher] WARN Event channel full! Dropping DELETE event for Pod: %s", pod.Name)
 		}
+	} else {
+		// Log debug only, usually happens if we never tracked the pod (e.g. it failed startup)
+		log.Printf("[Watcher] INFO Received Delete event for untracked Pod: %s. Ignoring.", pod.Name)
 	}
 }
 

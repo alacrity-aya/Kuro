@@ -40,7 +40,7 @@ type IperfResultIso struct {
 }
 
 func TestTrafficIsolation(t *testing.T) {
-	setupCmd := exec.Command("./test/setup_topology.sh", isoNsName, isoHostVeth, isoPodVeth, isoPodIP+"/24", isoHostIP+"/24", isoIperfPort)
+	setupCmd := exec.Command("./test/bpf/setup_topology.sh", isoNsName, isoHostVeth, isoPodVeth, isoPodIP+"/24", isoHostIP+"/24", isoIperfPort)
 	if out, err := setupCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to setup topology: %v\nOutput: %s", err, string(out))
 	}
@@ -170,6 +170,6 @@ func validateSpeedIso(t *testing.T, actualBps float64, targetBps float64, mode s
 }
 
 func cleanupIso() {
-	exec.Command("./test/cleanup_topology.sh", isoNsName, isoHostVeth).Run()
+	exec.Command("./test/bpf/cleanup_topology.sh", isoNsName, isoHostVeth).Run()
 	os.Remove(fmt.Sprintf("/tmp/iperf_server_%s.log", isoNsName))
 }

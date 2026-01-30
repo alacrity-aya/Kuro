@@ -173,7 +173,7 @@ func reportMetrics(b *testing.B, method string, r BenchResult, targetRate uint64
 
 func setupBenchmarkEnv(b *testing.B) {
 	// Use BenchPodIP and BenchHostIP constants
-	cmd := exec.Command("./test/setup_topology.sh", BenchNsName, BenchHostVeth, BenchPodVeth, BenchPodIP+"/24", BenchHostIP+"/24", "5201")
+	cmd := exec.Command("./test/bpf/setup_topology.sh", BenchNsName, BenchHostVeth, BenchPodVeth, BenchPodIP+"/24", BenchHostIP+"/24", "5201")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		b.Fatalf("Setup failed: %v, %s", err, string(out))
 	}

@@ -531,3 +531,71 @@ func (m *BpfManager) CollectAllMetrics() ([]PodMetricsResult, error) {
 
 	return results, nil
 }
+
+// SyncPeers performs a full synchronization of the global whitelist.
+// It removes IPs that are no longer in the list and adds new ones.
+func (m *BpfManager) SyncPeers(newPeerIPs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 1. Convert new IPs to a Set (uint32) for O(1) lookups
+	// 'desired' holds all IPs that SHOULD be in the map.
+	desired := make(map[uint32]bool)
+	for _, ipStr := range newPeerIPs {
+		ipUint, err := ipToUint32(ipStr)
+		if err != nil {
+			log.Printf("[BPF] Warning: Skipping invalid peer IP '%s': %v", ipStr, err)
+			continue
+		}
+		desired[ipUint] = true
+	}
+
+	// 2. Identify stale peers to remove
+	// We iterate the current BPF map. If a key is NOT in 'desired', it must be deleted.
+	// If it IS in 'desired', we remove it from the 'desired' map to mark it as "already exists".
+	var toDelete []uint32
+
+	var key uint32
+	var val uint8
+	iter := m.objects.SimulationPeersMap.Iterate()
+
+	for iter.Next(&key, &val) {
+		if _, keep := desired[key]; keep {
+			// Peer exists in both BPF Map and New List.
+			// Remove from 'desired' so we don't try to add it again later.
+			delete(desired, key)
+		} else {
+			// Peer is in BPF Map but NOT in New List -> Mark for deletion.
+			toDelete = append(toDelete, key)
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return fmt.Errorf("map iteration failed: %w", err)
+	}
+
+	// 3. Perform Deletions
+	for _, ip := range toDelete {
+		if err := m.objects.SimulationPeersMap.Delete(ip); err != nil {
+			log.Printf("[BPF] Failed to delete stale peer IP: %v", err)
+		} else {
+			log.Printf("[BPF] Sync: Removed stale peer")
+		}
+	}
+
+	// 4. Perform Additions
+	// Any keys remaining in 'desired' are new peers that weren't in the map.
+	addedCount := 0
+	val = 1 // Whitelist flag
+	for ip := range desired {
+		if err := m.objects.SimulationPeersMap.Put(ip, val); err != nil {
+			log.Printf("[BPF] Failed to add new peer IP: %v", err)
+		} else {
+			addedCount++
+		}
+	}
+
+	log.Printf("[BPF] SyncPeers completed. Removed: %d, Added: %d, Total Active: %d",
+		len(toDelete), addedCount, len(newPeerIPs))
+
+	return nil
+}

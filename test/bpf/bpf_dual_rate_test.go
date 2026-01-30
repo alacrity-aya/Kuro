@@ -32,12 +32,12 @@ const (
 
 func TestDualRateEnforcement(t *testing.T) {
 	// 1. Setup
-	setupCmd := exec.Command("./test/setup_topology.sh", dualNsName, dualHostVeth, dualPodVeth, dualPodIP+"/24", dualHostIP+"/24", dualIperfPort)
+	setupCmd := exec.Command("./test/bpf/setup_topology.sh", dualNsName, dualHostVeth, dualPodVeth, dualPodIP+"/24", dualHostIP+"/24", dualIperfPort)
 	if out, err := setupCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Setup failed: %s", string(out))
 	}
 	defer func() {
-		exec.Command("./test/cleanup_topology.sh", dualNsName, dualHostVeth).Run()
+		exec.Command("./test/bpf/cleanup_topology.sh", dualNsName, dualHostVeth).Run()
 		os.Remove(fmt.Sprintf("/tmp/iperf_server_%s.log", dualNsName))
 	}()
 

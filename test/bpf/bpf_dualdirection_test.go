@@ -41,7 +41,7 @@ type IperfResult struct {
 }
 
 func TestDualDirectionTC(t *testing.T) {
-	setupCmd := exec.Command("./test/setup_topology.sh", nsName, hostVeth, podVeth, podIP+"/24", hostIP+"/24", iperfPort)
+	setupCmd := exec.Command("./test/bpf/setup_topology.sh", nsName, hostVeth, podVeth, podIP+"/24", hostIP+"/24", iperfPort)
 	if out, err := setupCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to setup topology: %v\nOutput: %s", err, string(out))
 	}
@@ -159,5 +159,5 @@ func validateSpeed(t *testing.T, actualBps float64, targetBps float64, direction
 }
 
 func cleanup() {
-	exec.Command("./test/cleanup_topology.sh", nsName, hostVeth).Run()
+	exec.Command("./test/bpf/cleanup_topology.sh", nsName, hostVeth).Run()
 }
