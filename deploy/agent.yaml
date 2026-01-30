@@ -63,7 +63,7 @@ spec:
         - name: kuro-agent
           image: kuro-agent:dev
           imagePullPolicy: IfNotPresent
-          command: ["./agent"]
+          command: ["/root/agent"]
           
           securityContext:
             privileged: true
@@ -73,7 +73,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            - name: CONTAINERD_ADDR
+            - name: CONTROLLER_ADDR
               value: "kuro-controller.kuro-system.svc:9090"
             - name: CONTAINERD_ADDRESS
               value: "/run/containerd/containerd.sock"

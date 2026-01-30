@@ -12,7 +12,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -53,6 +52,7 @@ func (c *Client) Start(ctx context.Context) error {
 		MinConnectTimeout: 20 * time.Second,
 	}
 
+	// 1. Create the client (Non-blocking by default)
 	conn, err := grpc.NewClient(c.serverAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithConnectParams(connectParams),
@@ -60,28 +60,23 @@ func (c *Client) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// Mimic blocking behavior to ensure connection is Ready
-	for {
-		state := conn.GetState()
-		if state == connectivity.Ready {
-			break
-		}
-		// Wait for state change or context timeout
-		if !conn.WaitForStateChange(ctx, state) {
-			// ctx.Done() or connection closed
-			return ctx.Err()
-		}
-	}
-
 	c.conn = conn
 
 	client := pb.NewSimulationAgentServiceClient(conn)
+
+	// 2. Open the Stream immediately.
+	// gRPC will try to connect in the background.
+	log.Printf("[Remote] Connecting to Controller at %s...", c.serverAddr)
 	stream, err := client.ControlStream(ctx)
 	if err != nil {
+		// NOTE: If the connection hasn't been established, this might fail immediately (depending on the configuration),
+		// or block until the context times out.
+		// For streaming RPCs, it usually returns an error immediately if the connection is unavailable.
 		return fmt.Errorf("failed to open stream: %w", err)
 	}
 	c.stream = stream
+
+	log.Println("[Remote] Stream opened, starting loops...")
 
 	// Start receiving loop
 	go c.recvLoop(stream)

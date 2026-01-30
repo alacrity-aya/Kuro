@@ -76,10 +76,10 @@ build-controller: proto
 
 ## images: Build images
 .PHONY: images
-images: build-agent
+images: build-agent build-controller
 	@printf "$(COLOR_BLUE)==> Building Docker images...$(COLOR_RESET)\n"
 	@docker build -f docker/Dockerfile.agent -t kuro-agent:dev .
-	# @docker build -f docker/Dockerfile.controller -t kuro-controller:dev .
+	@docker build -f docker/Dockerfile.controller -t kuro-controller:dev .
 	@printf "$(COLOR_GREEN)✓ Docker images built$(COLOR_RESET)\n"
 
 ## build: Build both Agent and Controller

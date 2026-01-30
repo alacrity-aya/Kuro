@@ -5,9 +5,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CLUSTER_NAME="kuro-dev"
-IMAGE_NAME="kuro-agent:dev" 
+AGENT_IMAGE_NAME="kuro-agent:dev" 
+CONTROLLER_IMAGE_NAME="kuro-controller:dev" 
 
 AGENT_YAML_PATH="$PROJECT_ROOT/deploy/agent.yaml"
+CONTROLLER_YAML_PATH="$PROJECT_ROOT/deploy/controller.yaml"
 
 # Flannel & CNI
 FLANNEL_URL="https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
@@ -73,10 +75,12 @@ EOF
     if [ -f "$PROJECT_ROOT/Makefile" ]; then
         echo -e "${YELLOW}Building and Loading Agent Image...${NC}"
         (cd "$PROJECT_ROOT" && make images)
-        kind load docker-image "$IMAGE_NAME" --name "$CLUSTER_NAME"
+        kind load docker-image "$AGENT_IMAGE_NAME" --name "$CLUSTER_NAME"
+        kind load docker-image "$CONTROLLER_IMAGE_NAME" --name "$CLUSTER_NAME"
     else
-        echo -e "${RED}Warning: Makefile not found. Assuming image $IMAGE_NAME exists locally.${NC}"
-        kind load docker-image "$IMAGE_NAME" --name "$CLUSTER_NAME"
+        echo -e "${RED}Warning: Makefile not found. Assuming image $AGENT_IMAGE_NAME and $CONTROLLER_IMAGE_NAME exists locally.${NC}"
+        kind load docker-image "$AGENT_IMAGE_NAME" --name "$CLUSTER_NAME"
+        kind load docker-image "$CONTROLLER_IMAGE_NAME" --name "$CLUSTER_NAME"
     fi
 
     if [ "$NEW_CLUSTER" = true ]; then
@@ -119,9 +123,12 @@ deploy_agent_external() {
     fi
 
     kubectl apply -f "$AGENT_YAML_PATH"
+    kubectl apply -f "$CONTROLLER_YAML_PATH"
 
     echo "Restarting Agent DaemonSet to pick up changes..."
     kubectl rollout restart daemonset/kuro-agent -n kuro-system
+
+    kubectl rollout restart deployment kuro-controller -n kuro-system
 
     echo "Waiting for Agents to be ready..."
     kubectl rollout status daemonset/kuro-agent -n kuro-system --timeout=60s

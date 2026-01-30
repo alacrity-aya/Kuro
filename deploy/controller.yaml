@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kuro-controller
+  namespace: kuro-system
+spec:
+  clusterIP: None
+  selector:
+    app: kuro-controller
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kuro-controller
+  namespace: kuro-system
+  labels:
+    app: kuro-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kuro-controller
+  template:
+    metadata:
+      labels:
+        app: kuro-controller
+    spec:
+      serviceAccountName: kuro-agent-sa 
+      containers:
+        - name: controller
+          image: kuro-controller:dev
+          imagePullPolicy: IfNotPresent
+          command: ["/root/controller"]
+          args: ["-grpc-port=9090", "-http-port=8080"]
+          ports:
+            - containerPort: 9090
+            - containerPort: 8080
+          env:
+            - name: GOLOG_LOG_LEVEL
+              value: "debug"

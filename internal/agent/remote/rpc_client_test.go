@@ -196,4 +196,3 @@ func TestClientCommunication(t *testing.T) {
 		t.Error("Timeout waiting for ACK")
 	}
 }
-
