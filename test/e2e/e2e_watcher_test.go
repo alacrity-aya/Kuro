@@ -1,10 +1,10 @@
-//go:build k8s_aaa
-
 package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,6 +59,7 @@ func TestAgentWatcherE2E(t *testing.T) {
 	// Verify Local Watcher
 	t.Run("Verify Pod Addition", func(t *testing.T) {
 		if !WaitFor(t, 20*time.Second, func() bool {
+			// This relies on the /debug/pods endpoint in http_service.go
 			pods, err := GetAgentPods(localPort)
 			if err != nil {
 				return false
@@ -82,18 +83,40 @@ func TestAgentWatcherE2E(t *testing.T) {
 		return err != nil
 	})
 
-	t.Run("Verify Pod Removal", func(t *testing.T) {
-		WaitFor(t, 20*time.Second, func() bool {
+	t.Run("Verify Pod Deletion", func(t *testing.T) {
+		if !WaitFor(t, 20*time.Second, func() bool {
 			pods, err := GetAgentPods(localPort)
 			if err != nil {
 				return false
 			}
 			for _, p := range pods {
 				if p.Info.Name == testPodName {
-					return false
+					return false // Still exists
 				}
 			}
-			return true
-		})
+			return true // Gone
+		}) {
+			t.Fatalf("Timeout waiting for Agent to remove pod %s", testPodName)
+		}
 	})
+}
+
+// Helper specific to this test
+type DebugPod struct {
+	Info struct {
+		Name string `json:"Name"`
+	} `json:"Info"`
+}
+
+func GetAgentPods(port string) ([]DebugPod, error) {
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%s/debug/pods", port))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var pods []DebugPod
+	if err := json.NewDecoder(resp.Body).Decode(&pods); err != nil {
+		return nil, err
+	}
+	return pods, nil
 }

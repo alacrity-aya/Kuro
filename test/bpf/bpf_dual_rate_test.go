@@ -3,11 +3,7 @@
 package test
 
 import (
-	"encoding/json"
-	"fmt"
 	"kuro/internal/agent/bpf"
-	"os"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -15,122 +11,77 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-const (
-	dualNsName    = "test_dual_ns"
-	dualHostVeth  = "veth_dual_host"
-	dualPodVeth   = "veth_dual_pod"
-	dualPodIP     = "10.50.1.2"
-	dualHostIP    = "10.50.1.1"
-	dualIperfPort = "5401"
-
-	// Define clearly distinguishable rates
-	// Sim: High Bandwidth (e.g., 200 Mbps)
-	// Sys: Low Bandwidth (e.g., 20 Mbps)
-	rateSimBits = 200 * 1000 * 1000
-	rateSysBits = 20 * 1000 * 1000
-)
-
 func TestDualRateEnforcement(t *testing.T) {
-	// 1. Setup
-	setupCmd := exec.Command("./test/bpf/setup_topology.sh", dualNsName, dualHostVeth, dualPodVeth, dualPodIP+"/24", dualHostIP+"/24", dualIperfPort)
-	if out, err := setupCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Setup failed: %s", string(out))
+	cfg := TopologyConfig{
+		NsName:    "test_dual_ns",
+		HostVeth:  "veth_dual_host",
+		PodVeth:   "veth_dual_pod",
+		PodIP:     "10.50.1.2",
+		HostIP:    "10.50.1.1",
+		IperfPort: "5401",
 	}
-	defer func() {
-		exec.Command("./test/bpf/cleanup_topology.sh", dualNsName, dualHostVeth).Run()
-		os.Remove(fmt.Sprintf("/tmp/iperf_server_%s.log", dualNsName))
-	}()
 
-	// 2. Init BPF
-	mgr, err := bpf.NewBpfManager()
-	if err != nil {
-		t.Fatalf("NewBpfManager: %v", err)
-	}
-	defer mgr.Close()
+	rateSim := 200.0 * Mb
+	rateSys := 20.0 * Mb
 
-	linkObj, _ := netlink.LinkByName(dualHostVeth)
-	nsHandle, _ := netns.GetFromPath("/var/run/netns/" + dualNsName)
+	SetupTopology(t, cfg)
+	mgr := InitBPFManager(t)
+
+	nsHandle, _ := netns.GetFromName(cfg.NsName)
 	defer nsHandle.Close()
+	hostLink, _ := netlink.LinkByName(cfg.HostVeth)
 
-	if err := mgr.AddPod(dualNsName, linkObj.Attrs().Index, nsHandle); err != nil {
-		t.Fatalf("AddPod: %v", err)
+	if err := mgr.AddPod("dual-pod", hostLink.Attrs().Index, nsHandle); err != nil {
+		t.Fatalf("AddPod failed: %v", err)
 	}
 
-	// 3. Configure Rules
-	// Sim = 200 Mbps, Sys = 20 Mbps
-	t.Logf("Configuring: Sim=%f Mbps, Sys=%f Mbps", rateSimBits/1e6, rateSysBits/1e6)
-	err = mgr.UpdateRule(linkObj.Attrs().Index, uint64(rateSimBits), uint64(rateSimBits), uint64(rateSysBits), uint64(rateSysBits))
+	t.Logf("[Test] Setting Rates - Sim: %.0f Mbps, Sys: %.0f Mbps", rateSim/Mb, rateSys/Mb)
+	err := mgr.UpdateRule(hostLink.Attrs().Index, uint64(rateSim), uint64(rateSim), uint64(rateSys), uint64(rateSys))
 	if err != nil {
-		t.Fatalf("UpdateRule: %v", err)
+		t.Fatalf("UpdateRule failed: %v", err)
 	}
 
 	time.Sleep(1 * time.Second)
 
-	// ==========================================
-	// Scenario 1: Sys Traffic (Default)
-	// ==========================================
+	// Scenario 1: Sys Traffic (Default - No Policy)
 	t.Run("Sys_Traffic_Check", func(t *testing.T) {
-		// Verify Whitelist Empty
-		p, _ := mgr.GetPeers()
-		if len(p) != 0 {
-			t.Fatalf("Whitelist not empty")
-		}
+		t.Log(">>> Scenario 1: System Traffic Enforcement")
 
-		// Run Download (Host->Pod)
-		bps := runDualIperf(t, false)
-		validateDualSpeed(t, bps, rateSysBits, "Sys-Down")
+		// Downstream
+		bpsDown := RunIperf(t, "", cfg.PodIP, cfg.IperfPort, "4", false)
+		ValidateTraffic(t, bpsDown, rateSys, "Sys-Down", 0.35)
 
-		// Run Upload (Pod->Host)
-		bps = runDualIperf(t, true)
-		validateDualSpeed(t, bps, rateSysBits, "Sys-Up")
+		time.Sleep(1 * time.Second)
+
+		// Upstream
+		bpsUp := RunIperf(t, "", cfg.PodIP, cfg.IperfPort, "4", true)
+		ValidateTraffic(t, bpsUp, rateSys, "Sys-Up", 0.35)
 	})
 
 	time.Sleep(2 * time.Second)
 
-	// ==========================================
-	// Scenario 2: Sim Traffic (Whitelisted)
-	// ==========================================
+	// Scenario 2: Sim Traffic (With Policy)
 	t.Run("Sim_Traffic_Check", func(t *testing.T) {
-		t.Logf("Whitelisting IPs...")
-		mgr.AddPeer(dualPodIP)
-		mgr.AddPeer(dualHostIP)
+		t.Log(">>> Scenario 2: Simulation Traffic Enforcement")
 
-		// Run Download
-		bps := runDualIperf(t, false)
-		validateDualSpeed(t, bps, rateSimBits, "Sim-Down")
+		policy := &bpf.TcLinkPolicy{BandwidthLimit: 0}
+		if err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, policy); err != nil {
+			t.Fatalf("SetPolicy Upload failed: %v", err)
+		}
+		if err := mgr.SetPolicy(cfg.HostIP, cfg.PodIP, policy); err != nil {
+			t.Fatalf("SetPolicy Download failed: %v", err)
+		}
 
-		// Run Upload
-		bps = runDualIperf(t, true)
-		validateDualSpeed(t, bps, rateSimBits, "Sim-Up")
+		time.Sleep(2 * time.Second)
+
+		// Downstream
+		bpsDown := RunIperf(t, "", cfg.PodIP, cfg.IperfPort, "4", false)
+		ValidateTraffic(t, bpsDown, rateSim, "Sim-Down", 0.30)
+
+		time.Sleep(1 * time.Second)
+
+		// Upstream
+		bpsUp := RunIperf(t, "", cfg.PodIP, cfg.IperfPort, "4", true)
+		ValidateTraffic(t, bpsUp, rateSim, "Sim-Up", 0.30)
 	})
-}
-
-func runDualIperf(t *testing.T, reverse bool) float64 {
-	args := []string{"-c", dualPodIP, "-p", dualIperfPort, "-t", "4", "-J"}
-	if reverse {
-		args = append(args, "-R")
-	}
-	cmd := exec.Command("iperf3", args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("iperf3 error: %v, out: %s", err, string(out))
-	}
-	var res IperfResult
-	json.Unmarshal(out, &res)
-	if res.End.SumSent.BitsPerSecond > res.End.SumReceived.BitsPerSecond {
-		return res.End.SumSent.BitsPerSecond
-	}
-	return res.End.SumReceived.BitsPerSecond
-}
-
-func validateDualSpeed(t *testing.T, actual float64, target uint64, tag string) {
-	mbps := actual / 1e6
-	tMb := float64(target) / 1e6
-	t.Logf("[%s] Got %.2f Mbps (Target %.2f)", tag, mbps, tMb)
-
-	if actual > float64(target)*1.35 {
-		t.Errorf("[%s] FAILED: Speed too high", tag)
-	} else if actual < float64(target)*0.65 {
-		t.Errorf("[%s] FAILED: Speed too low", tag)
-	}
 }

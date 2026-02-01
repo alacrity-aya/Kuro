@@ -1,22 +1,21 @@
 package remote
 
 import (
-	pb "kuro/api/v1"
+	"kuro/internal/domain"
 )
 
 // AgentHandler defines the interface for the Client to call Agent business logic.
-// This design ensures the "remote" package does not need to import "kuro/internal/agent",
-// effectively avoiding circular dependencies.
+// NOW: Completely decoupled from Protobuf.
 type AgentHandler interface {
-	// GetAgentStatus retrieves the current status of the Agent (used to construct heartbeats).
-	GetAgentStatus() *pb.Heartbeat
+	// GetAgentStatus retrieves the current status of the Agent.
+	GetAgentStatus() domain.Heartbeat
 
-	// ApplyPolicy handles Pod-level policies (e.g., Rate Limiting) received from the Controller.
-	ApplyPolicy(cmd *pb.ApplyPodPolicy) error
+	// ApplyPolicy handles Pod-level policies.
+	ApplyPolicy(cmd domain.PodPolicy) error
 
-	// ApplyNodePolicy handles Node-level policies (e.g., Ingress Protection) received from the Controller.
-	ApplyNodePolicy(cmd *pb.ApplyNodePolicy) error
+	// ApplyNodePolicy handles Node-level policies.
+	ApplyNodePolicy(cmd domain.NodePolicy) error
 
-	// SyncWhitelist handles peer whitelist synchronization issued by the Controller.
-	SyncWhitelist(cmd *pb.SyncPeerWhitelist) error
+	// ApplyLinkPolicy handles specific point-to-point link physics.
+	ApplyLinkPolicy(cmd domain.LinkPolicy) error
 }

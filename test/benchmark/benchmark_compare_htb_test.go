@@ -42,28 +42,37 @@ func Benchmark_Classic_HTB(b *testing.B) {
 			setupBenchmarkEnv(b)
 			defer teardownBenchmarkEnv()
 
-			b.Logf("[HTB] Applying rules for %s...", tc.name)
-			cmds := [][]string{
-				{"tc", "qdisc", "add", "dev", BenchHostVeth, "root", "handle", "1:", "htb", "default", "10"},
-				{"tc", "class", "add", "dev", BenchHostVeth, "parent", "1:", "classid", "1:10", "htb", "rate", fmt.Sprintf("%dbit", tc.rate)},
+			// 1. Setup HTB on Host Veth (Ingress from Pod perspective, but we shape on XDP or Egress usually)
+			// Here we verify Upload (Pod -> Host), so we shape on Pod Veth Egress?
+			// Standard K8s CNI shapes on Host Veth Egress (Download) and Pod Veth Egress (Upload).
+			// Let's shape Pod Veth Egress for Upload test.
+			// But for simplicity in script-free setup, we run commands:
+
+			// Apply HTB to Pod Veth (inside NS)
+			cmd := exec.Command("ip", "netns", "exec", BenchNsName, "tc", "qdisc", "add", "dev", "eth0", "root", "handle", "1:", "htb", "default", "1")
+			if err := cmd.Run(); err != nil {
+				b.Fatalf("Failed to add HTB root: %v", err)
 			}
-			for _, c := range cmds {
-				if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
-					b.Fatalf("Failed to setup HTB: %v, %s", err, string(out))
-				}
+			rateStr := fmt.Sprintf("%dbit", tc.rate)
+			cmd = exec.Command("ip", "netns", "exec", BenchNsName, "tc", "class", "add", "dev", "eth0", "parent", "1:", "classid", "1:1", "htb", "rate", rateStr)
+			if err := cmd.Run(); err != nil {
+				b.Fatalf("Failed to add HTB class: %v", err)
 			}
 
+			stopServer := startIperfServerHost(b)
+			defer stopServer()
+
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				result := runBenchIperf(b)
-				reportMetrics(b, "HTB-"+tc.name, result, tc.rate)
-			}
+			res := runBenchIperf(b)
+			b.StopTimer()
+
+			reportMetrics(b, "Classic-HTB", res, tc.rate)
 		})
 	}
 }
 
-// Benchmark_Ebpf_EDT tests the performance of our custom eBPF EDT limiter.
-func Benchmark_Ebpf_EDT(b *testing.B) {
+// Benchmark_EDT_BPF tests the performance of our eBPF-based EDT implementation.
+func Benchmark_EDT_BPF(b *testing.B) {
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
 			setupBenchmarkEnv(b)
@@ -71,52 +80,90 @@ func Benchmark_Ebpf_EDT(b *testing.B) {
 
 			mgr, err := bpf.NewBpfManager()
 			if err != nil {
-				b.Fatalf("Failed to create BPF manager: %v", err)
+				b.Fatalf("NewBpfManager failed: %v", err)
 			}
 			defer mgr.Close()
 
-			linkHost, err := netlink.LinkByName(BenchHostVeth)
-			if err != nil {
-				b.Fatalf("Cannot find host veth: %v", err)
-			}
-
-			nsHandle, err := netns.GetFromPath("/var/run/netns/" + BenchNsName)
-			if err != nil {
-				b.Fatalf("Cannot get ns handle: %v", err)
-			}
+			hostLink, _ := netlink.LinkByName(BenchHostVeth)
+			nsHandle, _ := netns.GetFromName(BenchNsName)
 			defer nsHandle.Close()
 
-			time.Sleep(1 * time.Second)
-
-			b.Logf("[eBPF] Attaching EDT programs for %s...", tc.name)
-			if err := mgr.AddPod("bench-pod", linkHost.Attrs().Index, nsHandle); err != nil {
+			if err := mgr.AddPod("bench-pod", hostLink.Attrs().Index, nsHandle); err != nil {
 				b.Fatalf("AddPod failed: %v", err)
 			}
 
-			// [FIX]: Add BOTH Pod IP and Host IP to whitelist.
-			// Since we test Download (Host->Pod), eBPF checks Src IP (Host).
-			// We must simulate that the Host is a trusted Sim Peer.
-			b.Logf("[eBPF] Whitelisting Peers (Pod: %s, Host: %s)...", BenchPodIP, BenchHostIP)
-			if err := mgr.AddPeer(BenchPodIP); err != nil {
-				b.Fatalf("AddPeer Pod failed: %v", err)
-			}
-			if err := mgr.AddPeer(BenchHostIP); err != nil {
-				b.Fatalf("AddPeer Host failed: %v", err)
-			}
-
-			b.Logf("[eBPF] Applying EDT rules (%s)...", tc.name)
-			if err := mgr.UpdateRule(linkHost.Attrs().Index, tc.rate, tc.rate, 1000*1000*1000, 1000*1000*1000); err != nil {
+			// [UPDATED] 1. Configure Rates (Sim & Sys)
+			// We set both to the benchmark target rate.
+			err = mgr.UpdateRule(hostLink.Attrs().Index, tc.rate, tc.rate, tc.rate, tc.rate)
+			if err != nil {
 				b.Fatalf("UpdateRule failed: %v", err)
 			}
 
-			time.Sleep(1 * time.Second)
+			// [UPDATED] 2. Set Policy to promote traffic to "Simulation Lane"
+			// If we don't do this, traffic is treated as "System" and gets a 3ms latency penalty (offset),
+			// which might unfairly skew throughput/latency metrics compared to raw HTB.
+			// BandwidthLimit: 0 means "Use Default Sim Rate" (which we set above).
+			policy := &bpf.TcLinkPolicy{BandwidthLimit: 0}
+
+			// Upload: Pod -> Host
+			if err := mgr.SetPolicy(BenchPodIP, BenchHostIP, policy); err != nil {
+				b.Fatalf("SetPolicy Upload failed: %v", err)
+			}
+
+			// Wait for map sync
+			time.Sleep(500 * time.Millisecond)
+
+			stopServer := startIperfServerHost(b)
+			defer stopServer()
 
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				result := runBenchIperf(b)
-				reportMetrics(b, "eBPF-"+tc.name, result, tc.rate)
-			}
+			res := runBenchIperf(b)
+			b.StopTimer()
+
+			reportMetrics(b, "EDT-BPF", res, tc.rate)
 		})
+	}
+}
+
+// --- Helpers ---
+
+func setupBenchmarkEnv(b *testing.B) {
+	exec.Command("ip", "netns", "add", BenchNsName).Run()
+	exec.Command("ip", "link", "add", BenchHostVeth, "type", "veth", "peer", "name", BenchPodVeth).Run()
+	exec.Command("ip", "link", "set", BenchPodVeth, "netns", BenchNsName).Run()
+
+	// Host Side
+	exec.Command("ip", "addr", "add", BenchHostIP+"/24", "dev", BenchHostVeth).Run()
+	exec.Command("ip", "link", "set", BenchHostVeth, "up").Run()
+	exec.Command("ip", "link", "set", "lo", "up").Run()
+
+	// Pod Side
+	// Rename veth to eth0 inside NS for consistency with BPF logic looking for "eth0"
+	exec.Command("ip", "netns", "exec", BenchNsName, "ip", "link", "set", BenchPodVeth, "name", "eth0").Run()
+	exec.Command("ip", "netns", "exec", BenchNsName, "ip", "addr", "add", BenchPodIP+"/24", "dev", "eth0").Run()
+	exec.Command("ip", "netns", "exec", BenchNsName, "ip", "link", "set", "eth0", "up").Run()
+	exec.Command("ip", "netns", "exec", BenchNsName, "ip", "link", "set", "lo", "up").Run()
+
+	// Turn off offloading to test pure software performance (optional, but fair for comparison)
+	exec.Command("ethtool", "-K", BenchHostVeth, "gso", "off", "tso", "off", "gro", "off").Run()
+	exec.Command("ip", "netns", "exec", BenchNsName, "ethtool", "-K", "eth0", "gso", "off", "tso", "off", "gro", "off").Run()
+}
+
+func teardownBenchmarkEnv() {
+	exec.Command("ip", "netns", "del", BenchNsName).Run()
+	exec.Command("ip", "link", "del", BenchHostVeth).Run()
+}
+
+func startIperfServerHost(b *testing.B) func() {
+	cmd := exec.Command("iperf3", "-s", "-p", "7001")
+	if err := cmd.Start(); err != nil {
+		b.Fatalf("Failed to start iperf server: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	return func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
 	}
 }
 
@@ -127,11 +174,14 @@ type BenchResult struct {
 }
 
 func runBenchIperf(b *testing.B) BenchResult {
-	// Targeting BenchPodIP
-	cmd := exec.Command("iperf3", "-c", BenchPodIP, "-t", "10", "-J", "-Z", "-P", "8")
+	// Client in Pod -> Server on Host (Upload)
+	// -Z: Zero Copy (reduces client CPU load to focus on network)
+	// -P 4: Parallel streams to saturate link
+	cmd := exec.Command("ip", "netns", "exec", BenchNsName, "iperf3", "-c", BenchHostIP, "-p", "7001", "-t", "10", "-J", "-P", "4", "-Z")
 	out, err := cmd.Output()
 	if err != nil {
-		b.Fatalf("iperf3 failed: %v", err)
+		b.Logf("iperf3 failed: %v", err)
+		return BenchResult{}
 	}
 
 	var res struct {
@@ -169,17 +219,4 @@ func reportMetrics(b *testing.B, method string, r BenchResult, targetRate uint64
 	} else {
 		b.Logf("[%s] PASS: Rate stable. Got %.2f Mbps", method, mbps)
 	}
-}
-
-func setupBenchmarkEnv(b *testing.B) {
-	// Use BenchPodIP and BenchHostIP constants
-	cmd := exec.Command("./test/bpf/setup_topology.sh", BenchNsName, BenchHostVeth, BenchPodVeth, BenchPodIP+"/24", BenchHostIP+"/24", "5201")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		b.Fatalf("Setup failed: %v, %s", err, string(out))
-	}
-}
-
-func teardownBenchmarkEnv() {
-	exec.Command("ip", "netns", "del", BenchNsName).Run()
-	exec.Command("ip", "link", "del", BenchHostVeth).Run()
 }

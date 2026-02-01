@@ -3,21 +3,33 @@
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 
+// =============================================================
+// 1. Data Structures
+// =============================================================
+
 struct global_config {
-    __u64 edt_horizon_ns; // Maximum allowable delay time window
+    __u64 edt_horizon_ns;
 };
 
-// Rate configuration: supports separate settings for upload and download
-// Upload: Pod -> Host; Download: Host -> Pod
+// Default Rate Configuration (Bandwidth Limits)
 struct io_rate {
-    __u64 cost_per_byte_sim_upload; // (8 * 10^9 / rate_bps) << 16
+    __u64 cost_per_byte_sim_upload; // e.g. 10Mbps
     __u64 cost_per_byte_sim_download;
-
-    __u64 cost_per_byte_sys_upload;
+    __u64 cost_per_byte_sys_upload; // e.g. 990Mbps
     __u64 cost_per_byte_sys_download;
 };
 
-// EDT State: records the last transmission time
+// TODO: can be improved
+// Physics Model (Per-Link Policy)
+struct link_policy {
+    __u64 bandwidth_limit; // bps (0 = Use Default Sim Rate)
+    __u64 queue_depth_ns; // Horizon (0 = Use Global)
+    __u64 base_latency_ns; // Propagation Delay
+    __u64 jitter_ns; // Jitter Amplitude
+    __u32 corruption_rate_ppm; // Packet Loss (Parts Per Million)
+    __u32 _padding; // Align to 8 bytes
+};
+
 struct edt_state {
     struct bpf_spin_lock lock;
     __u64 t_last;
@@ -58,13 +70,20 @@ struct {
     __uint(max_entries, MAX_STATE_ENTRIES);
 } edt_upload_state_map SEC(".maps");
 
-// Map 5: simulation pod white list (Key: IPv4 Address)
+struct policy_key {
+    __u32 src_ip;
+    __u32 dst_ip;
+};
+
+// Map 5: Topology Policy Map
+// Key: Policy Key (Network Byte Order)
+// Value: Physics Model
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, __u32); // IPv4 Address (Network Byte Order recommended)
-    __type(value, __u8); // 1 = Is Simulation Peer
+    __type(key, struct policy_key);
+    __type(value, struct link_policy);
     __uint(max_entries, 65535);
-} simulation_peers_map SEC(".maps");
+} topology_policy_map SEC(".maps");
 
 // =============================================================
 // XDP Ingress Protection Structures

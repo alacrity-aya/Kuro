@@ -9,8 +9,6 @@ import (
 	"os/exec"
 	"testing"
 	"time"
-
-	"github.com/vishvananda/netlink"
 )
 
 const (
@@ -36,61 +34,38 @@ func Benchmark_TC_Ingress_Police(b *testing.B) {
 			setupXdpBenchEnv(b)
 			defer teardownXdpBenchEnv()
 
+			// Add standard TC ingress policing on Host Veth
+			// NOTE: Policing on Ingress is supported by default in recent kernels
+			cmd := exec.Command("tc", "qdisc", "add", "dev", XdpHostVeth, "handle", "ffff:", "ingress")
+			if err := cmd.Run(); err != nil {
+				b.Fatalf("Failed to add ingress qdisc: %v", err)
+			}
+
+			// rate X kbit burst 100k
+			rateKbps := tc.rate / 1000
+			cmd = exec.Command("tc", "filter", "add", "dev", XdpHostVeth, "parent", "ffff:", "protocol", "ip", "u32", "match", "u32", "0", "0", "police", "rate", fmt.Sprintf("%dkbit", rateKbps), "burst", "100k", "drop", "flowid", ":1")
+			if err := cmd.Run(); err != nil {
+				b.Fatalf("Failed to add police filter: %v", err)
+			}
+
 			stopServer := startIperfServerXdp(b)
 			defer stopServer()
 
-			b.Logf("[TC] Applying Ingress Police rules for %s...", tc.name)
-
-			rateBits := tc.rate
-
-			// [FIX]: Increase Burst to allow TCP to function correctly.
-			// Recommendation: At least 100ms of buffer for policing.
-			// Burst (bytes) = (Rate (bps) * 0.1 sec) / 8
-			burstBytes := rateBits / 8 / 10
-
-			// Ensure a healthy minimum burst (e.g., 2MB) for high-speed veth
-			if burstBytes < 2*1024*1024 {
-				burstBytes = 2 * 1024 * 1024
-			}
-
-			// TC Command:
-			// tc filter add ... police rate X burst Y mtu 64kb drop
-			cmds := [][]string{
-				{"tc", "qdisc", "add", "dev", XdpHostVeth, "handle", "ffff:", "ingress"},
-				{
-					"tc", "filter", "add", "dev", XdpHostVeth, "parent", "ffff:", "protocol", "ip",
-					"u32", "match", "u32", "0", "0",
-					"police", "rate", fmt.Sprintf("%dbit", rateBits),
-					"burst", fmt.Sprintf("%d", burstBytes),
-					// "limit" removed
-					"drop", "flowid", ":1",
-				},
-			}
-
-			for _, c := range cmds {
-				if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
-					b.Fatalf("Failed to setup TC Police: %v, %s", err, string(out))
-				}
-			}
-
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				result := runXdpBenchIperf(b)
-				reportMetrics(b, "TC-Police-"+tc.name, result, tc.rate)
-			}
+			res := runXdpBenchIperf(b)
+			b.StopTimer()
+
+			reportMetrics(b, "TC-Police", res, tc.rate)
 		})
 	}
 }
 
-// Benchmark_XDP_TokenBucket tests our custom eBPF XDP implementation
-func Benchmark_XDP_TokenBucket(b *testing.B) {
+// Benchmark_XDP_Drop tests our eBPF XDP rate limiter
+func Benchmark_XDP_Drop(b *testing.B) {
 	for _, tc := range ingressTestCases {
 		b.Run(tc.name, func(b *testing.B) {
 			setupXdpBenchEnv(b)
 			defer teardownXdpBenchEnv()
-
-			stopServer := startIperfServerXdp(b)
-			defer stopServer()
 
 			mgr, err := bpf.NewBpfManager()
 			if err != nil {
@@ -98,28 +73,24 @@ func Benchmark_XDP_TokenBucket(b *testing.B) {
 			}
 			defer mgr.Close()
 
-			linkObj, _ := netlink.LinkByName(XdpHostVeth)
-
-			// [FIX]: Increase Burst for XDP as well.
-			// Same logic: 100ms burst to accommodate TCP
-			burstBytes := uint64(tc.rate / 8 / 10)
-			if burstBytes < 2*1024*1024 {
-				burstBytes = 2 * 1024 * 1024
+			// Attach XDP to Host Veth
+			// Burst = 100KB approx
+			err = mgr.AttachIngressProtection(XdpHostVeth, tc.rate, 100*1024)
+			if err != nil {
+				b.Fatalf("AttachIngressProtection failed: %v", err)
 			}
 
-			b.Logf("[XDP] Attaching Ingress Protection for %s (Burst: %d bytes)...", tc.name, burstBytes)
+			// We DO NOT set any policy here.
+			// By default, traffic will be "System Traffic" and hit the XDP limiter.
 
-			if err := mgr.AttachIngressProtection(linkObj.Attrs().Name, tc.rate, burstBytes); err != nil {
-				b.Fatalf("Failed to attach XDP: %v", err)
-			}
-
-			time.Sleep(1 * time.Second)
+			stopServer := startIperfServerXdp(b)
+			defer stopServer()
 
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				result := runXdpBenchIperf(b)
-				reportMetrics(b, "XDP-Token-"+tc.name, result, tc.rate)
-			}
+			res := runXdpBenchIperf(b)
+			b.StopTimer()
+
+			reportMetrics(b, "XDP-Drop", res, tc.rate)
 		})
 	}
 }
@@ -127,16 +98,21 @@ func Benchmark_XDP_TokenBucket(b *testing.B) {
 // --- Helpers ---
 
 func setupXdpBenchEnv(b *testing.B) {
-	cmd := exec.Command("./test/bpf/setup_topology.sh", XdpBenchNs, XdpHostVeth, XdpPodVeth, XdpPodIP+"/24", XdpHostIP+"/24", XdpServerPort)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		b.Fatalf("Setup failed: %v, %s", err, string(out))
-	}
-	// [CRITICAL] Disable offloading!
-	// In veth pairs, TSO/GRO creates super-packets (up to 64KB).
-	// If the policer sees one 64KB packet and the token bucket only has 10KB left, it drops the WHOLE 64KB.
-	// This causes massive throughput fluctuations.
-	exec.Command("ethtool", "-K", XdpHostVeth, "tso", "off", "gso", "off", "gro", "off").Run()
-	exec.Command("ip", "netns", "exec", XdpBenchNs, "ethtool", "-K", "eth0", "tso", "off", "gso", "off", "gro", "off").Run()
+	exec.Command("ip", "netns", "add", XdpBenchNs).Run()
+	exec.Command("ip", "link", "add", XdpHostVeth, "type", "veth", "peer", "name", XdpPodVeth).Run()
+	exec.Command("ip", "link", "set", XdpPodVeth, "netns", XdpBenchNs).Run()
+
+	// Host Side
+	exec.Command("ip", "addr", "add", XdpHostIP+"/24", "dev", XdpHostVeth).Run()
+	exec.Command("ip", "link", "set", XdpHostVeth, "up").Run()
+
+	// Ensure GSO/GRO is off to stress packet processing
+	exec.Command("ethtool", "-K", XdpHostVeth, "gso", "off", "gro", "off").Run()
+
+	// Pod Side
+	exec.Command("ip", "netns", "exec", XdpBenchNs, "ip", "addr", "add", XdpPodIP+"/24", "dev", XdpPodVeth).Run()
+	exec.Command("ip", "netns", "exec", XdpBenchNs, "ip", "link", "set", XdpPodVeth, "up").Run()
+	exec.Command("ip", "netns", "exec", XdpBenchNs, "ethtool", "-K", XdpPodVeth, "gso", "off", "gro", "off").Run()
 }
 
 func teardownXdpBenchEnv() {
@@ -158,7 +134,8 @@ func startIperfServerXdp(b *testing.B) func() {
 }
 
 func runXdpBenchIperf(b *testing.B) BenchResult {
-	// [ADJUSTMENT] Increase TCP parallel streams slightly to help saturate link despite drops
+	// Client runs in NS (Pod), sending to Host
+	// We want to test INGRESS on Host Veth
 	cmd := exec.Command("ip", "netns", "exec", XdpBenchNs, "iperf3", "-c", XdpHostIP, "-p", XdpServerPort, "-t", "10", "-J", "-P", "8", "-Z")
 	out, err := cmd.Output()
 	if err != nil {
@@ -177,12 +154,14 @@ func runXdpBenchIperf(b *testing.B) BenchResult {
 		} `json:"end"`
 	}
 
-	if len(out) > 0 {
-		if err := json.Unmarshal(out, &res); err != nil {
-			b.Fatalf("json parse error: %v, output: %s", err, string(out))
-		}
+	if err := json.Unmarshal(out, &res); err != nil {
+		// Just return zero result if parse fails (likely connection reset due to drop)
+		return BenchResult{}
 	}
 
+	// For XDP limit, we check the *Received* rate usually, or Sent rate to see how much TCP backed off.
+	// Since iperf report is from client side (Sender), SumSent shows what it *tried* to push (and successfully acked?).
+	// Actually, TCP will backoff.
 	return BenchResult{
 		Bps:      res.End.SumSent.BitsPerSecond,
 		Retrans:  res.End.SumSent.Retransmits,

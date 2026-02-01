@@ -4,71 +4,94 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 
 	pb "kuro/api/v1"
+	"kuro/internal/domain"
 )
 
-// AgentManager defines the methods the gRPC server needs to interact with the Controller logic.
+// AgentManager defines the business interface for the Controller layer (Pure Domain)
 type AgentManager interface {
-	// RegisterAgent stores the active stream for a node.
-	RegisterAgent(nodeName string, stream pb.SimulationAgentService_ControlStreamServer)
-	// UnregisterAgent removes the stream when disconnected.
+	RegisterAgent(nodeName string, sender domain.AgentSender)
 	UnregisterAgent(nodeName string)
-	// HandleHeartbeat processes status updates from agents.
-	HandleHeartbeat(nodeName string, hb *pb.Heartbeat)
-	// HandlePodEvent processes topology changes detected by agents.
-	HandlePodEvent(nodeName string, event *pb.PodLifecycleEvent)
-	// HandleAck processes command acknowledgements.
-	HandleAck(nodeName string, ack *pb.CommandAck)
+	HandleHeartbeat(nodeName string, hb domain.Heartbeat)
+	HandlePodEvent(nodeName string, event domain.PodEvent)
+	HandleAck(nodeName string, ack domain.CommandAck)
 }
 
-// Server implements the gRPC SimulationAgentService.
+// =============================================================
+// gRPC Stream Adapter (Implements domain.AgentSender)
+// =============================================================
+
+// GrpcStreamSender wraps the gRPC stream, implements the domain.AgentSender interface,
+// and handles concurrent write safety.
+type GrpcStreamSender struct {
+	stream pb.SimulationAgentService_ControlStreamServer
+	mu     sync.Mutex
+}
+
+func (s *GrpcStreamSender) Send(cmd domain.ControllerCommand) error {
+	// 1. Domain -> Proto
+	pbCmd := ToProtoCommand(cmd)
+
+	// 2. Thread-safe Send
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Send(pbCmd)
+}
+
+func (s *GrpcStreamSender) Close() {
+	// The gRPC server stream ends when the context is cancelled;
+	// no manual close is required here, so this is left empty.
+}
+
+// =============================================================
+// Server Implementation
+// =============================================================
+
 type Server struct {
 	pb.UnimplementedSimulationAgentServiceServer
 	manager AgentManager
 }
 
-// NewServer creates a new gRPC server instance.
 func NewServer(manager AgentManager) *Server {
 	return &Server{
 		manager: manager,
 	}
 }
 
-// ControlStream handles the bidirectional stream between Agent and Controller.
 func (s *Server) ControlStream(stream pb.SimulationAgentService_ControlStreamServer) error {
-	// 1. Wait for the initial Heartbeat to register the node.
-	// We expect the first message to be a Heartbeat containing the NodeName.
+	// 1. Initial Handshake (Wait for Heartbeat)
 	firstMsg, err := stream.Recv()
 	if err != nil {
 		return fmt.Errorf("failed to receive initial heartbeat: %w", err)
 	}
 
-	hb := firstMsg.GetHeartbeat()
-	if hb == nil {
+	pbHb := firstMsg.GetHeartbeat()
+	if pbHb == nil {
 		return fmt.Errorf("protocol violation: first message must be Heartbeat")
 	}
 
-	nodeName := hb.NodeName
+	nodeName := pbHb.NodeName
 	if nodeName == "" {
 		return fmt.Errorf("protocol violation: node name cannot be empty")
 	}
 
-	log.Printf("[RPC] Node connected: %s (IP: %s)", nodeName, hb.NodeIp)
+	log.Printf("[RPC] Node connected: %s (IP: %s)", nodeName, pbHb.NodeIp)
 
-	// 2. Register the stream in the manager
-	s.manager.RegisterAgent(nodeName, stream)
+	// 2. Create Sender Adapter and Register
+	sender := &GrpcStreamSender{stream: stream}
+	s.manager.RegisterAgent(nodeName, sender)
 
-	// Ensure cleanup on disconnect
 	defer func() {
 		log.Printf("[RPC] Node disconnected: %s", nodeName)
 		s.manager.UnregisterAgent(nodeName)
 	}()
 
-	// Process the initial heartbeat
-	s.manager.HandleHeartbeat(nodeName, hb)
+	// Process Initial Heartbeat (Proto -> Domain)
+	s.manager.HandleHeartbeat(nodeName, FromProtoHeartbeat(pbHb))
 
-	// 3. Start the Receive Loop
+	// 3. Receive Loop
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -79,14 +102,14 @@ func (s *Server) ControlStream(stream pb.SimulationAgentService_ControlStreamSer
 			return err
 		}
 
-		// Dispatch based on payload type
+		// Dispatch (Proto -> Domain)
 		switch payload := msg.Payload.(type) {
 		case *pb.AgentMsg_Heartbeat:
-			s.manager.HandleHeartbeat(nodeName, payload.Heartbeat)
+			s.manager.HandleHeartbeat(nodeName, FromProtoHeartbeat(payload.Heartbeat))
 		case *pb.AgentMsg_PodEvent:
-			s.manager.HandlePodEvent(nodeName, payload.PodEvent)
+			s.manager.HandlePodEvent(nodeName, FromProtoPodEvent(payload.PodEvent))
 		case *pb.AgentMsg_Ack:
-			s.manager.HandleAck(nodeName, payload.Ack)
+			s.manager.HandleAck(nodeName, FromProtoAck(payload.Ack))
 		default:
 			log.Printf("[RPC] Unknown message type from %s", nodeName)
 		}

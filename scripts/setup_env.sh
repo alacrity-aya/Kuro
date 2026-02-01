@@ -11,8 +11,10 @@ CONTROLLER_IMAGE_NAME="kuro-controller:dev"
 AGENT_YAML_PATH="$PROJECT_ROOT/deploy/agent.yaml"
 CONTROLLER_YAML_PATH="$PROJECT_ROOT/deploy/controller.yaml"
 
-# Flannel & CNI
-FLANNEL_URL="https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
+# Flannel & CNI (Pinned to v0.28.0)
+FLANNEL_VERSION="v0.28.0"
+FLANNEL_URL="https://github.com/flannel-io/flannel/releases/download/${FLANNEL_VERSION}/kube-flannel.yml"
+
 CNI_PLUGINS_VERSION="v1.3.0"
 CNI_ARCHIVE="cni-plugins-linux-amd64-${CNI_PLUGINS_VERSION}.tgz"
 CNI_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/${CNI_ARCHIVE}"
@@ -98,7 +100,7 @@ EOF
         done
 
         # Flannel Setup
-        echo -e "${YELLOW}Installing Flannel (Host-GW mode)...${NC}"
+        echo -e "${YELLOW}Installing Flannel ${FLANNEL_VERSION} (Host-GW mode)...${NC}"
         curl -sL "$FLANNEL_URL" | \
         sed 's/"Type": "vxlan"/"Type": "host-gw"/' | \
         sed '/- --kube-subnet-mgr/a \        - --iface=eth0' | \

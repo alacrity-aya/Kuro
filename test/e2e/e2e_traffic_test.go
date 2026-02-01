@@ -1,5 +1,3 @@
-//go:build k8s_aaa
-
 package test
 
 import (
@@ -9,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -42,22 +39,12 @@ func TestTrafficShapingHTTP(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: ServerPodName, Labels: map[string]string{"app": "iperf-server"}},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "s", Image: IperfImage, Command: []string{"iperf3", "-s"}}}},
 	}
-	clientset.CoreV1().Pods(TargetNamespace).Create(ctx, serverPod, metav1.CreateOptions{})
-	// Service
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: "iperf-service"},
-		Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "iperf-server"}, Ports: []corev1.ServicePort{{Port: 5201}}},
-	}
-	if _, err := clientset.CoreV1().Services(TargetNamespace).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			t.Fatal(err)
-		}
-	}
 	// Client
 	clientPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: ClientPodName},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: IperfImage, Command: []string{"sleep", "3600"}}}},
 	}
+	clientset.CoreV1().Pods(TargetNamespace).Create(ctx, serverPod, metav1.CreateOptions{})
 	clientset.CoreV1().Pods(TargetNamespace).Create(ctx, clientPod, metav1.CreateOptions{})
 
 	WaitPodRunning(t, clientset, ServerPodName)
@@ -79,23 +66,30 @@ func TestTrafficShapingHTTP(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// 4. Set Limit via HTTP
+	// [UPDATED] With new architecture, traffic without Policy is "Sys Traffic".
+	// So we must limit "sys_up" to verify the shaper works.
+	// We also set "sim_up" just in case.
 
 	limit := 50 * 1000 * 1000 // 50 Mbps
 	t.Logf(">>> Applying Limit: %d bps", limit)
 
-	url := fmt.Sprintf("http://127.0.0.1:%s/ops/limit?sim_up=%d&sim_down=%d&sys_up=%d&sys_down=%d",
-		localPort, limit, limit, limit, limit)
+	// New Query Params: sim_up, sim_down, sys_up, sys_down
+	url := fmt.Sprintf("http://localhost:%s/ops/limit?sim_up=%d&sys_up=%d", localPort, limit, limit)
 
 	resp, err := http.Get(url)
-	if err != nil || resp.StatusCode != 200 {
-		t.Fatalf("Failed to call agent API: %v", err)
+	if err != nil {
+		t.Fatalf("Failed to call agent: %v", err)
 	}
-	resp.Body.Close()
-	time.Sleep(1 * time.Second)
+	if resp.StatusCode != 200 {
+		t.Fatalf("Agent returned error: %d", resp.StatusCode)
+	}
+	defer resp.Body.Close()
+
+	time.Sleep(2 * time.Second)
 
 	// 5. Verify
-	t.Run("Upload", func(t *testing.T) {
-		bps := RunIperfRemote(t, ClientPodName, "iperf-service", false)
-		VerifySpeed(t, bps, float64(limit), "HTTP Upload")
-	})
+	srv, _ := clientset.CoreV1().Pods(TargetNamespace).Get(ctx, ServerPodName, metav1.GetOptions{})
+
+	bps := RunIperfRemote(t, ClientPodName, srv.Status.PodIP, false)
+	VerifySpeed(t, bps, float64(limit), "Agent-Direct-HTTP")
 }

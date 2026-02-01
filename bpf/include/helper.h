@@ -63,10 +63,57 @@ static __always_inline int parse_ipv4(struct __sk_buff* skb, __u32* src_ip, __u3
         return 0;
     }
 
+    //TODO: remove if statement
+
     if (src_ip)
         *src_ip = iph->saddr;
     if (dst_ip)
         *dst_ip = iph->daddr;
+
+    return 1;
+}
+
+static __always_inline int parse_ports(struct __sk_buff* skb, __u16* src_port, __u16* dst_port) {
+    void* data_end = (void*)(long)skb->data_end;
+    void* data = (void*)(long)skb->data;
+
+    struct ethhdr* eth = data;
+    if ((void*)(eth + 1) > data_end)
+        return 0;
+
+    struct iphdr* iph = (void*)(eth + 1);
+    if ((void*)(iph + 1) > data_end)
+        return 0;
+
+    int ip_hlen = iph->ihl * 4;
+    if (ip_hlen < 20)
+        return 0;
+
+    void* trans_header = (void*)iph + ip_hlen;
+
+    if (iph->protocol == IPPROTO_TCP) {
+        struct tcphdr* tcph = trans_header;
+        if ((void*)(tcph + 1) > data_end)
+            return 0;
+
+        if (src_port)
+            *src_port = bpf_ntohs(tcph->source);
+        if (dst_port)
+            *dst_port = bpf_ntohs(tcph->dest);
+
+    } else if (iph->protocol == IPPROTO_UDP) {
+        struct udphdr* udph = trans_header;
+        if ((void*)(udph + 1) > data_end)
+            return 0;
+
+        if (src_port)
+            *src_port = bpf_ntohs(udph->source);
+        if (dst_port)
+            *dst_port = bpf_ntohs(udph->dest);
+
+    } else {
+        return 0;
+    }
 
     return 1;
 }
@@ -143,4 +190,15 @@ static __always_inline void update_latency_hist(__u32 ifindex, __u64 latency_ns)
     }
 
     hist->buckets[slot]++;
+}
+
+#define PORT_SSH 22
+#define PORT_KUBELET 10250
+#define PORT_METRICS 9100 // Prometheus Node Exporter / Agent //TODO: remove this
+
+// Check if the port belongs to critical system services
+static __always_inline int is_system_port(__u16 port) {
+    if (port == PORT_SSH || port == PORT_KUBELET || port == PORT_METRICS)
+        return 1;
+    return 0;
 }

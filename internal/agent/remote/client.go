@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pb "kuro/api/v1"
+	"kuro/internal/domain"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -24,7 +25,7 @@ type Client struct {
 	stream pb.SimulationAgentService_ControlStreamClient
 
 	// Used to receive events from the Watcher and send them to the gRPC stream
-	eventCh chan *pb.PodLifecycleEvent
+	eventCh chan domain.PodEvent
 	stopCh  chan struct{}
 	mu      sync.Mutex
 }
@@ -34,7 +35,7 @@ func NewClient(addr, nodeName string, handler AgentHandler) (*Client, error) {
 		serverAddr: addr,
 		nodeName:   nodeName,
 		handler:    handler,
-		eventCh:    make(chan *pb.PodLifecycleEvent, 100), // Buffered to prevent blocking the Watcher
+		eventCh:    make(chan domain.PodEvent, 100), // Buffered to prevent blocking the Watcher
 		stopCh:     make(chan struct{}),
 	}, nil
 }
@@ -65,13 +66,9 @@ func (c *Client) Start(ctx context.Context) error {
 	client := pb.NewSimulationAgentServiceClient(conn)
 
 	// 2. Open the Stream immediately.
-	// gRPC will try to connect in the background.
 	log.Printf("[Remote] Connecting to Controller at %s...", c.serverAddr)
 	stream, err := client.ControlStream(ctx)
 	if err != nil {
-		// NOTE: If the connection hasn't been established, this might fail immediately (depending on the configuration),
-		// or block until the context times out.
-		// For streaming RPCs, it usually returns an error immediately if the connection is unavailable.
 		return fmt.Errorf("failed to open stream: %w", err)
 	}
 	c.stream = stream
@@ -93,8 +90,8 @@ func (c *Client) Stop() {
 	}
 }
 
-// EnqueueEvent is called by LocalWatcher to put events into the outbound queue
-func (c *Client) EnqueueEvent(event *pb.PodLifecycleEvent) {
+// EnqueueEvent now accepts a Domain Object
+func (c *Client) EnqueueEvent(event domain.PodEvent) {
 	select {
 	case c.eventCh <- event:
 	default:
@@ -144,13 +141,19 @@ func (c *Client) sendLoop(ctx context.Context, stream pb.SimulationAgentService_
 }
 
 func (c *Client) sendHeartbeat(stream pb.SimulationAgentService_ControlStreamClient) {
-	hb := c.handler.GetAgentStatus()
-	// Supplement NodeName to ensure the Controller identifies this agent
-	hb.NodeName = c.nodeName
+	// 1. Get Domain object
+	hbDomain := c.handler.GetAgentStatus()
+
+	// 2. Use Mapper to convert to Proto
+	pbHb := ToProtoHeartbeat(hbDomain)
+
+	// Supplement Proto-specific transport layer fields (if any)
+	// Here we assume NodeName in Domain is sufficient, or force override to ensure consistency
+	pbHb.NodeName = c.nodeName
 
 	msg := &pb.AgentMsg{
 		Timestamp: time.Now().UnixNano(),
-		Payload:   &pb.AgentMsg_Heartbeat{Heartbeat: hb},
+		Payload:   &pb.AgentMsg_Heartbeat{Heartbeat: pbHb},
 	}
 
 	if err := stream.Send(msg); err != nil {
@@ -158,10 +161,13 @@ func (c *Client) sendHeartbeat(stream pb.SimulationAgentService_ControlStreamCli
 	}
 }
 
-func (c *Client) sendPodEvent(stream pb.SimulationAgentService_ControlStreamClient, event *pb.PodLifecycleEvent) {
+func (c *Client) sendPodEvent(stream pb.SimulationAgentService_ControlStreamClient, event domain.PodEvent) {
+	// Convert using Mapper
+	pbEvent := ToProtoPodEvent(event)
+
 	msg := &pb.AgentMsg{
 		Timestamp: time.Now().UnixNano(),
-		Payload:   &pb.AgentMsg_PodEvent{PodEvent: event},
+		Payload:   &pb.AgentMsg_PodEvent{PodEvent: pbEvent},
 	}
 
 	if err := stream.Send(msg); err != nil {
@@ -174,18 +180,23 @@ func (c *Client) handleCommand(cmd *pb.ControllerCmd) {
 	var err error
 	var msg string
 
+	// Core logic for converting Proto to Domain and executing calls
 	switch payload := cmd.Payload.(type) {
-	case *pb.ControllerCmd_SyncPeers:
-		log.Printf("[Remote] Cmd: SyncPeers (%d IPs)", len(payload.SyncPeers.PeerIps))
-		err = c.handler.SyncWhitelist(payload.SyncPeers)
+
+	case *pb.ControllerCmd_ApplyLinkPolicy:
+		domainPolicy := FromProtoLinkPolicy(payload.ApplyLinkPolicy)
+		log.Printf("[Remote] Cmd: ApplyLinkPolicy (%s -> %s)", domainPolicy.SrcIP, domainPolicy.DstIP)
+		err = c.handler.ApplyLinkPolicy(domainPolicy)
 
 	case *pb.ControllerCmd_ApplyPolicy:
-		log.Printf("[Remote] Cmd: ApplyPolicy (Pod: %s)", payload.ApplyPolicy.PodName)
-		err = c.handler.ApplyPolicy(payload.ApplyPolicy)
+		domainPolicy := FromProtoPodPolicy(payload.ApplyPolicy)
+		log.Printf("[Remote] Cmd: ApplyPolicy (Pod: %s)", domainPolicy.PodName)
+		err = c.handler.ApplyPolicy(domainPolicy)
 
 	case *pb.ControllerCmd_ApplyNodePolicy:
+		domainPolicy := FromProtoNodePolicy(payload.ApplyNodePolicy)
 		log.Printf("[Remote] Cmd: ApplyNodePolicy")
-		err = c.handler.ApplyNodePolicy(payload.ApplyNodePolicy)
+		err = c.handler.ApplyNodePolicy(domainPolicy)
 
 	default:
 		log.Printf("[Remote] Unknown command type received")
@@ -200,15 +211,17 @@ func (c *Client) handleCommand(cmd *pb.ControllerCmd) {
 		log.Printf("[Remote] Command execution failed: %v", err)
 	}
 
-	ack := &pb.AgentMsg{
+	domainAck := domain.CommandAck{
+		CommandID: cmd.CommandId,
+		Success:   success,
+		Message:   msg,
+	}
+
+	ackMsg := &pb.AgentMsg{
 		Timestamp: time.Now().UnixNano(),
 		Payload: &pb.AgentMsg_Ack{
-			Ack: &pb.CommandAck{
-				CommandId: cmd.CommandId,
-				Success:   success,
-				Message:   msg,
-			},
+			Ack: ToProtoAck(domainAck),
 		},
 	}
-	c.stream.Send(ack)
+	c.stream.Send(ackMsg)
 }

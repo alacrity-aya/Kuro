@@ -5,51 +5,55 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"testing"
 	"time"
 
 	pb "kuro/api/v1"
 	"kuro/internal/controller"
+	"kuro/internal/controller/api"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Free ports for testing to avoid conflicts
 const (
 	testGrpcPort = 50051
 	testHTTPPort = 50052
 	testNodeName = "test-worker-node"
 )
 
-// TestControllerFlow performs a full integration test:
-// 1. Starts Controller Server
-// 2. Simulates an Agent connecting (gRPC)
-// 3. Sends an HTTP Command to Controller
-// 4. Verifies Agent receives the command via gRPC
-func TestControllerFlow(t *testing.T) {
-	// --- Step 1: Start Controller ---
-	mgr := controller.NewControllerManager(testGrpcPort, testHTTPPort)
-
-	// Run controller in a goroutine
+func TestControllerLinkPolicyFlow(t *testing.T) {
+	// 1. Start Controller (RPC Server)
+	// no longer responsible for starting HTTP.
+	mgr := controller.NewControllerManager(testGrpcPort)
 	go func() {
-		if err := mgr.Run(); err != nil {
-			// It might fail if ports are taken, but for test logic we assume success
-			t.Logf("Controller stopped: %v", err)
+		if err := mgr.RunAgentServer(); err != nil {
+			t.Errorf("AgentServer failed: %v", err)
 		}
 	}()
-	// Give it a moment to bind ports
+
+	// 2. Start HTTP Server (API Layer)
+	// [UPDATED] Start HTTP Server independently and inject the Manager dependency.
+	httpServer := api.NewHTTPServer(mgr, testHTTPPort)
+	go func() {
+		if err := httpServer.Run(); err != nil {
+			t.Errorf("HTTPServer failed: %v", err)
+		}
+	}()
+
+	// Wait for services to start
 	time.Sleep(100 * time.Millisecond)
 
-	// --- Step 2: Simulate Agent Connection (gRPC) ---
+	// 3. Simulate Agent (Real gRPC Client)
+	// We still use the Protobuf (PB) client here because we are testing
+	// whether the Wire Protocol issued by the Controller is correct.
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", testGrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		t.Fatalf("Failed to connect to controller: %v", err)
+		t.Fatalf("Failed to dial grpc: %v", err)
 	}
 	defer conn.Close()
 
@@ -59,62 +63,40 @@ func TestControllerFlow(t *testing.T) {
 		t.Fatalf("Failed to open stream: %v", err)
 	}
 
-	// Send Initial Heartbeat (Registration)
-	initHb := &pb.AgentMsg{
-		Timestamp: time.Now().UnixNano(),
+	// Handshake
+	stream.Send(&pb.AgentMsg{
 		Payload: &pb.AgentMsg_Heartbeat{
-			Heartbeat: &pb.Heartbeat{
-				NodeName:        testNodeName, // CRITICAL: Identifies the stream
-				NodeIp:          "127.0.0.1",
-				ManagedPodCount: 5,
-			},
+			Heartbeat: &pb.Heartbeat{NodeName: testNodeName},
 		},
-	}
-	if err = stream.Send(initHb); err != nil {
-		t.Fatalf("Failed to send handshake: %v", err)
-	}
+	})
 
-	// Channel to capture commands received by the Fake Agent
-	commandCh := make(chan *pb.ControllerCmd, 1)
-
-	// Start a goroutine to listen for commands from Controller
+	// Command Listener (Async)
+	cmdCh := make(chan *pb.ControllerCmd, 1)
 	go func() {
 		for {
 			cmd, err := stream.Recv()
-			if err == io.EOF {
-				return
-			}
 			if err != nil {
-				t.Logf("Stream recv error: %v", err)
 				return
 			}
-			commandCh <- cmd
+			cmdCh <- cmd
 		}
 	}()
-
-	// Wait briefly to ensure registration is processed
 	time.Sleep(100 * time.Millisecond)
 
-	// --- Step 3: Trigger Command via HTTP ---
-
-	// API Payload: Apply Pod Policy
-	apiPayload := map[string]any{
-		"node_name": testNodeName,
-		"pod_name":  "nginx-pod",
-		"namespace": "default",
-		"sim_rate": map[string]int{
-			"upload":   1024,
-			"download": 2048,
-		},
-		"sys_rate": map[string]int{
-			"upload":   1000000,
-			"download": 1000000,
-		},
+	// 4. Trigger Link Policy via HTTP
+	// [UPDATED] JSON Payload must match the flattened structure in api/server.go
+	payload := map[string]any{
+		"node_name":       testNodeName,
+		"src_ip":          "10.0.0.1",
+		"dst_ip":          "10.0.0.2",
+		"bandwidth_limit": 5000000,
+		"base_latency_ns": 10000000,
+		// "is_delete": false, // Optional, defaults to false
 	}
-	body, _ := json.Marshal(apiPayload)
+	body, _ := json.Marshal(payload)
 
 	resp, err := http.Post(
-		fmt.Sprintf("http://localhost:%d/api/v1/policy/pod", testHTTPPort),
+		fmt.Sprintf("http://localhost:%d/api/v1/policy/link", testHTTPPort),
 		"application/json",
 		bytes.NewBuffer(body),
 	)
@@ -122,103 +104,35 @@ func TestControllerFlow(t *testing.T) {
 		t.Fatalf("HTTP request failed: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		t.Fatalf("HTTP Error %d: %s", resp.StatusCode, string(bodyBytes))
+		t.Fatalf("HTTP Error: %d", resp.StatusCode)
 	}
-	resp.Body.Close()
 
-	// --- Step 4: Verify Reception ---
+	// 5. Verify Reception (Wire Protocol Check)
 	select {
-	case cmd := <-commandCh:
-		// Validate the command is what we expected
-		payload, ok := cmd.Payload.(*pb.ControllerCmd_ApplyPolicy)
+	case cmd := <-cmdCh:
+		// Verify if the Controller correctly converted the Domain object back to a Proto object
+		pl, ok := cmd.Payload.(*pb.ControllerCmd_ApplyLinkPolicy)
 		if !ok {
-			t.Fatalf("Received wrong command type: %T", cmd.Payload)
+			t.Fatalf("Wrong command type received: %T", cmd.Payload)
 		}
 
-		policy := payload.ApplyPolicy
-		if policy.PodName != "nginx-pod" {
-			t.Errorf("Expected PodName 'nginx-pod', got '%s'", policy.PodName)
+		linkPl := pl.ApplyLinkPolicy
+		if linkPl.SrcIp != "10.0.0.1" {
+			t.Errorf("Expected SrcIP 10.0.0.1, got %s", linkPl.SrcIp)
 		}
-		if policy.SimRate.DownloadBps != 2048 {
-			t.Errorf("Expected Download 2048, got %d", policy.SimRate.DownloadBps)
+
+		// Check Policy details
+		if linkPl.Policy == nil {
+			t.Fatal("Expected Policy struct, got nil (Deletion?)")
 		}
-		t.Logf("Success! Received command ID: %s", cmd.CommandId)
-
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout: Fake Agent did not receive command from Controller")
-	}
-}
-
-// TestWhitelistBroadcast verifies that a whitelist update without a node_name
-// is broadcast to all connected agents.
-func TestWhitelistBroadcast(t *testing.T) {
-	// Re-init controller for clean state (using different ports to avoid TIME_WAIT issues)
-	grpcPort := 50053
-	httpPort := 50054
-	mgr := controller.NewControllerManager(grpcPort, httpPort)
-	go mgr.Run()
-	time.Sleep(100 * time.Millisecond)
-
-	// Helper to create a fake agent
-	createAgent := func(name string) (pb.SimulationAgentService_ControlStreamClient, chan *pb.ControllerCmd) {
-		conn, _ := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", grpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		client := pb.NewSimulationAgentServiceClient(conn)
-		stream, _ := client.ControlStream(context.Background())
-
-		// Handshake
-		stream.Send(&pb.AgentMsg{
-			Payload: &pb.AgentMsg_Heartbeat{
-				Heartbeat: &pb.Heartbeat{NodeName: name},
-			},
-		})
-
-		ch := make(chan *pb.ControllerCmd, 10)
-		go func() {
-			for {
-				cmd, err := stream.Recv()
-				if err != nil {
-					return
-				}
-				ch <- cmd
-			}
-		}()
-		return stream, ch
-	}
-
-	// Create 2 agents
-	_, ch1 := createAgent("worker-1")
-	_, ch2 := createAgent("worker-2")
-	time.Sleep(100 * time.Millisecond) // Allow registration
-
-	// Send Broadcast HTTP Request (no node_name)
-	payload := map[string]any{
-		"ips": []string{"10.0.0.1", "10.0.0.2"},
-	}
-	body, _ := json.Marshal(payload)
-	http.Post(
-		fmt.Sprintf("http://localhost:%d/api/v1/whitelist", httpPort),
-		"application/json",
-		bytes.NewBuffer(body),
-	)
-
-	// Verify both received it
-	timeout := time.After(1 * time.Second)
-
-	check := func(ch chan *pb.ControllerCmd, name string) {
-		select {
-		case cmd := <-ch:
-			if _, ok := cmd.Payload.(*pb.ControllerCmd_SyncPeers); !ok {
-				t.Errorf("%s received wrong command", name)
-			}
-		case <-timeout:
-			t.Errorf("%s did not receive broadcast", name)
+		if linkPl.Policy.BandwidthBps != 5000000 {
+			t.Errorf("Expected BW 5Mbps, got %d", linkPl.Policy.BandwidthBps)
 		}
-	}
+		if linkPl.Policy.BaseLatencyNs != 10000000 {
+			t.Errorf("Expected Latency 10ms, got %d", linkPl.Policy.BaseLatencyNs)
+		}
 
-	check(ch1, "worker-1")
-	check(ch2, "worker-2")
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for command")
+	}
 }

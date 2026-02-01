@@ -1,14 +1,9 @@
-//go:build k8s
-
 package test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"os/exec"
 	"testing"
 	"time"
@@ -26,6 +21,8 @@ const (
 	IperfImage      = "nicolaka/netshoot"
 	LimitTolerance  = 0.3
 )
+
+// --- Structs ---
 
 type PodContext struct {
 	Info struct {
@@ -51,102 +48,82 @@ type IperfJSONOutput struct {
 // --- Debug Helpers ---
 
 func DumpAgentLogs(t *testing.T, namespace string) {
-	t.Logf(">>> [Debug] Dumping logs for Agent in namespace %s...", namespace)
-	cmd := exec.Command("kubectl", "logs", "-n", namespace, "-l", "app=kuro-agent", "--tail=100")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Logf("Failed to get logs: %v", err)
-	} else {
-		t.Logf("\n=== AGENT LOGS START ===\n%s\n=== AGENT LOGS END ===", string(out))
+	out, err := exec.Command("kubectl", "logs", "-n", namespace, "-l", "app=kuro-agent", "--tail=50").CombinedOutput()
+	if err == nil {
+		t.Logf(">>> Agent Logs:\n%s", string(out))
 	}
 }
 
-// --- Helpers ---
+// --- K8s Helpers ---
 
-func CleanupAndWait(t *testing.T, client *kubernetes.Clientset) {
+func CleanupAndWait(t *testing.T, clientset *kubernetes.Clientset) {
 	t.Logf(">>> [Utils] Cleaning up resources...")
 	ctx := context.Background()
-	grace := int64(0)
-	delOpt := metav1.DeleteOptions{GracePeriodSeconds: &grace}
+	_ = clientset.CoreV1().Namespaces().Delete(ctx, TargetNamespace, metav1.DeleteOptions{})
 
-	resources := []string{ServerPodName, ClientPodName, "e2e-verify-pod"}
-	for _, name := range resources {
-		_ = client.CoreV1().Pods(TargetNamespace).Delete(ctx, name, delOpt)
-	}
-	_ = client.CoreV1().Services(TargetNamespace).Delete(ctx, "iperf-service", delOpt)
-
-	WaitFor(t, 60*time.Second, func() bool {
-		pending := 0
-		for _, name := range resources {
-			if _, err := client.CoreV1().Pods(TargetNamespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
-				pending++
-			}
-		}
-		return pending == 0
+	WaitFor(t, 120*time.Second, func() bool {
+		_, err := clientset.CoreV1().Namespaces().Get(ctx, TargetNamespace, metav1.GetOptions{})
+		return err != nil
 	})
-}
 
-func WaitPodRunning(t *testing.T, client *kubernetes.Clientset, podName string) {
-	t.Logf(">>> [Utils] Waiting for pod %s to be RUNNING...", podName)
-	if !WaitFor(t, 120*time.Second, func() bool {
-		p, err := client.CoreV1().Pods(TargetNamespace).Get(context.Background(), podName, metav1.GetOptions{})
-		if err != nil {
-			return false
-		}
-		return p.Status.Phase == corev1.PodRunning && p.Status.PodIP != ""
-	}) {
-		t.Fatalf("Timeout waiting for Pod %s to run. Check 'kubectl describe pod %s -n %s'", podName, podName, TargetNamespace)
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: TargetNamespace}}
+	if _, err := clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil {
+		t.Logf("Namespace creation warning: %v", err)
 	}
 }
 
-func GetAgentPodOnNode(ctx context.Context, client *kubernetes.Clientset, nodeName string) (string, error) {
-	var podName string
-	err := WaitForError(10*time.Second, func() error {
-		pods, err := client.CoreV1().Pods(AgentNamespace).List(ctx, metav1.ListOptions{
-			LabelSelector: "app=kuro-agent",
-			FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
-		})
+func GetAgentPodOnNode(ctx context.Context, clientset *kubernetes.Clientset, nodeName string) (string, error) {
+	pods, err := clientset.CoreV1().Pods(AgentNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=kuro-agent",
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, p := range pods.Items {
+		if p.Spec.NodeName == nodeName {
+			return p.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no agent found on node %s", nodeName)
+}
+
+func WaitPodRunning(t *testing.T, clientset *kubernetes.Clientset, podName string, ns ...string) {
+	targetNs := TargetNamespace
+	if len(ns) > 0 {
+		targetNs = ns[0]
+	}
+
+	t.Logf(">>> [Utils] Waiting for pod %s/%s to be RUNNING...", targetNs, podName)
+	ctx := context.Background()
+
+	err := WaitForError(120*time.Second, func() error {
+		p, err := clientset.CoreV1().Pods(targetNs).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
-		if len(pods.Items) == 0 {
-			return fmt.Errorf("no agent pod found")
+		if p.Status.Phase == corev1.PodRunning {
+			return nil
 		}
-
-		p := pods.Items[0]
-		if p.Status.Phase != corev1.PodRunning {
-			return fmt.Errorf("agent pod %s is %s", p.Name, p.Status.Phase)
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "ErrImagePull" {
+				return fmt.Errorf("image pull failed")
+			}
 		}
-		podName = p.Name
-		return nil
+		return fmt.Errorf("status: %s", p.Status.Phase)
 	})
-	return podName, err
-}
-
-func GetAgentPods(port string) ([]PodContext, error) {
-	url := fmt.Sprintf("http://127.0.0.1:%s/debug/pods", port)
-	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(url)
 	if err != nil {
-		return nil, err
+		events, _ := exec.Command("kubectl", "get", "events", "-n", targetNs, "--field-selector", "involvedObject.name="+podName).CombinedOutput()
+		t.Logf(">>> Pod Events:\n%s", string(events))
+		t.Fatalf("Timeout waiting for Pod %s to run: %v", podName, err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status code %d", resp.StatusCode)
-	}
-
-	var pods []PodContext
-	if err := json.NewDecoder(resp.Body).Decode(&pods); err != nil {
-		return nil, err
-	}
-	return pods, nil
 }
 
-func RunIperfRemote(t *testing.T, clientPod, serverHost string, reverse bool) float64 {
+// --- Iperf Helpers ---
+
+func RunIperfRemote(t *testing.T, clientPodName, serverIP string, reverse bool) float64 {
 	cmdArgs := []string{
-		"exec", "-n", TargetNamespace, clientPod, "--",
-		"iperf3", "-c", serverHost, "-t", "5", "-J", "--connect-timeout", "5000",
+		"exec", "-n", TargetNamespace, clientPodName, "--",
+		"iperf3", "-c", serverIP, "-t", "5", "-J", "--connect-timeout", "2000",
 	}
 	if reverse {
 		cmdArgs = append(cmdArgs, "-R")
@@ -154,22 +131,16 @@ func RunIperfRemote(t *testing.T, clientPod, serverHost string, reverse bool) fl
 
 	var lastErr error
 	for i := 0; i < 3; i++ {
-		cmd := exec.Command("kubectl", cmdArgs...)
-		var out, stderr bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = &stderr
-
-		t.Logf("Running iperf3 (Attempt %d)...", i+1)
-		if err := cmd.Run(); err != nil {
-			lastErr = fmt.Errorf("iperf3 error: %v | stderr: %s", err, stderr.String())
+		out, err := exec.Command("kubectl", cmdArgs...).CombinedOutput()
+		if err != nil {
+			lastErr = fmt.Errorf("exec failed: %w, out: %s", err, string(out))
 			time.Sleep(2 * time.Second)
 			continue
 		}
 
 		var result IperfJSONOutput
-		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-			lastErr = fmt.Errorf("json parse error: %v | raw: %s", err, out.String())
-			time.Sleep(1 * time.Second)
+		if err := json.Unmarshal(out, &result); err != nil {
+			lastErr = fmt.Errorf("json parse error: %w", err)
 			continue
 		}
 		bps := result.End.SumReceived.BitsPerSecond
@@ -218,21 +189,6 @@ func WaitForError(timeout time.Duration, op func() error) error {
 		if time.Since(start) > timeout {
 			return err
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
-}
-
-func GetHostLANIP(t *testing.T) string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		t.Logf("Warning: No internet connection to determine LAN IP: %v", err)
-		return "172.18.0.1"
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	ip := localAddr.IP.String()
-
-	t.Logf(">>> Detected Host LAN IP: %s", ip)
-	return ip
 }

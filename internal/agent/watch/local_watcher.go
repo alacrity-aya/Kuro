@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	pb "kuro/api/v1"
+	"kuro/internal/domain"
 
 	"github.com/vishvananda/netns"
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +53,7 @@ type LocalWatcher struct {
 	mu    sync.RWMutex
 	store map[string]*PodContext // Key: PodName (since we are scoped to 1 namespace)
 
-	eventCh chan *pb.PodLifecycleEvent
+	eventCh chan domain.PodEvent
 }
 
 // NewLocalWatcher creates a watcher optimized for a specific Node and Namespace.
@@ -66,7 +66,7 @@ func NewLocalWatcher(client kubernetes.Interface, containerRuntime *ContainerRun
 		containerRuntime: containerRuntime,
 		stopCh:           make(chan struct{}),
 		store:            make(map[string]*PodContext),
-		eventCh:          make(chan *pb.PodLifecycleEvent, 100), // Buffer size 100
+		eventCh:          make(chan domain.PodEvent, 100),
 	}
 }
 
@@ -202,15 +202,11 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod, source string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	eventType := pb.PodLifecycleEvent_ADDED
-	actionMsg := "Added new"
+	eventType := domain.EventAdd
 
-	// If entry exists, close the OLD handle to prevent FD leak
 	if oldCtx, exists := w.store[info.Name]; exists {
 		oldCtx.NetnsHandle.Close()
-		eventType = pb.PodLifecycleEvent_MODIFIED
-		actionMsg = "Updated existing"
-		log.Printf("[Watcher] INFO Refreshed Netns handle for Pod %s. Closed old FD.", info.Name)
+		eventType = domain.EventModify
 	}
 
 	w.store[info.Name] = &PodContext{
@@ -218,25 +214,19 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod, source string) {
 		NetnsHandle: handle,
 	}
 
-	log.Printf("[Watcher] INFO %s Netns entry. Pod: %s | HostVeth: %s (idx: %d) | HandleFD: %d",
-		actionMsg, info.Name, info.HostVeth, info.HostIfIndex, int(handle))
-
-	// 3. Notify Agent
-	event := &pb.PodLifecycleEvent{
+	event := domain.PodEvent{
 		Type:        eventType,
 		PodName:     info.Name,
 		Namespace:   info.Namespace,
-		PodIp:       info.IP,
-		ContainerId: info.ContainerID,
-		HostIfindex: int32(info.HostIfIndex),
+		PodIP:       info.IP,
+		ContainerID: info.ContainerID,
+		HostIfIndex: int32(info.HostIfIndex),
 	}
 
-	// Non-blocking send to avoid holding the lock or stalling informer
 	select {
 	case w.eventCh <- event:
-		// Log verbose trace if needed: log.Printf("[Watcher] DEBUG Sent event for %s", info.Name)
 	default:
-		log.Printf("[Watcher] WARN Event channel full! Dropping %s event for Pod: %s", eventType, info.Name)
+		log.Printf("[Watcher] WARN Event channel full! Dropping event for Pod: %s", info.Name)
 	}
 }
 
@@ -254,13 +244,13 @@ func (w *LocalWatcher) handlePodDelete(pod *corev1.Pod) {
 		// Notify Agent
 		// Use cached info (ctx.Info) because the pod object from DeleteFunc
 		// might miss some details if it's a DeletedFinalStateUnknown object
-		event := &pb.PodLifecycleEvent{
-			Type:        pb.PodLifecycleEvent_DELETED,
+		event := domain.PodEvent{
+			Type:        domain.EventDelete,
 			PodName:     ctx.Info.Name,
 			Namespace:   ctx.Info.Namespace,
-			PodIp:       ctx.Info.IP,
-			ContainerId: ctx.Info.ContainerID,
-			HostIfindex: int32(ctx.Info.HostIfIndex),
+			PodIP:       ctx.Info.IP,
+			ContainerID: ctx.Info.ContainerID,
+			HostIfIndex: int32(ctx.Info.HostIfIndex),
 		}
 
 		select {
@@ -299,7 +289,7 @@ func (w *LocalWatcher) GetAllPods() []*PodContext {
 	return list
 }
 
-func (w *LocalWatcher) GetEventCh() <-chan *pb.PodLifecycleEvent {
+func (w *LocalWatcher) GetEventCh() <-chan domain.PodEvent {
 	return w.eventCh
 }
 

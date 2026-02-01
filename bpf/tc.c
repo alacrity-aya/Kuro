@@ -5,12 +5,12 @@
 // Constant Definitions
 // =============================================================
 
-// TODO: there constant variables should be configurable
+// TODO: these constant variables should be configurable
 
 // Burst Allowance: 5ms
 // Allows simulation traffic a small burst after an idle period (e.g., TCP handshake or ACKs).
 // This avoids excessively high initial latency caused by strict pacing.
-#define BURST_WINDOW_NS (5ULL * 1000000ULL)
+#define BURST_WINDOW_NS (2ULL * 1000000ULL)
 
 // Sys Traffic Latency Offset: 3ms
 // Artificial delay added to "System" (business) traffic.
@@ -34,40 +34,31 @@ static __always_inline int throttle_flow(
     __u64 cost_per_byte_scaled,
     void* state_map,
     __u32 target_idx,
-    __u64 now
+    __u64 now,
+    __u64 horizon_ns
 ) {
     if (cost_per_byte_scaled == 0)
-        return TC_ACT_SHOT;
+        return TC_ACT_OK; // No Limit
 
     struct edt_state* st = bpf_map_lookup_elem(state_map, &target_idx);
     if (!st)
         return TC_ACT_OK;
 
-    __u64 horizon_ns;
-    get_global_config(&horizon_ns);
-
     __u64 packet_len = skb->len;
-
-    // Time = (Bytes * ScaledCost) >> 16
     __u64 packet_time_ns = (packet_len * cost_per_byte_scaled) >> 16;
-
     __u64 t_send;
 
     bpf_spin_lock(&st->lock);
-
     __u64 t_last = st->t_last;
-
     __u64 burst_start = (now > BURST_WINDOW_NS) ? (now - BURST_WINDOW_NS) : 0;
 
-    if (t_last < burst_start) {
+    if (t_last < burst_start)
         t_last = burst_start;
-    }
-
     t_send = t_last + packet_time_ns;
 
     if (unlikely(t_send > now + horizon_ns)) {
         bpf_spin_unlock(&st->lock);
-        return TC_ACT_SHOT;
+        return TC_ACT_SHOT; // Queue Overflow
     }
 
     st->t_last = t_send;
@@ -89,46 +80,77 @@ int handle_edt_download(struct __sk_buff* skb) {
 
     if (unlikely(ifindex >= MAX_IFINDEX_CAP))
         return TC_ACT_OK;
-
     struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
     if (!rates)
         return TC_ACT_OK;
 
+    // 1. Parse IP and Ports
     __u32 src_ip = 0;
-    if (unlikely(!parse_ipv4(skb, &src_ip, NULL)))
+    __u32 dst_ip = 0;
+    if (unlikely(!parse_ipv4(skb, &src_ip, &dst_ip)))
         return TC_ACT_OK;
 
-    __u8* is_sim_ptr = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
-    int is_sim = (is_sim_ptr != NULL);
+    __u16 src_port = 0;
+    __u16 dst_port = 0;
+    parse_ports(skb, &src_port, &dst_port);
 
-    __u64 target_cost;
-    __u32 state_key;
+    // 2. Traffic Classification
+    int is_sim_traffic = 0;
 
-    if (is_sim) {
-        target_cost = rates->cost_per_byte_sim_download;
-        state_key = ifindex * 2 + 1;
+    // A. Port Bypass (Escape)
+    if (is_system_port(src_port) || is_system_port(dst_port)) {
+        is_sim_traffic = 0;
+    }
+    // B. Identity Verification (Verify if sender is part of the topology)
+    else {
+        // Build Key: {Src=Sender, Dst=Receiver(Self)}
+        struct policy_key key;
+        key.src_ip = src_ip;
+        key.dst_ip = dst_ip;
+
+        // If a policy is found, it indicates a predefined simulation link
+        void* policy_exists = bpf_map_lookup_elem(&topology_policy_map, &key);
+        if (policy_exists) {
+            is_sim_traffic = 1;
+        } else {
+            is_sim_traffic = 0;
+        }
+    }
+
+    // 3. Configuration Parameters
+    __u64 target_cost = 0;
+    __u64 horizon_ns = 0;
+    __u64 offset_ns = 0;
+    get_global_config(&horizon_ns);
+
+    if (is_sim_traffic) {
+        // [SIM]
         skb->priority = 1;
+        offset_ns = 0;
+        // In the download direction, we usually only limit the receive rate (to prevent flooding).
+        // Instead of recalculating specific LinkPolicy bandwidth, use the Pod's uniform SimDownload limit.
+        // (You could also look up specific link bandwidth here if needed; usually Upload-side control is more accurate.)
+        target_cost = rates->cost_per_byte_sim_download;
     } else {
-        target_cost = rates->cost_per_byte_sys_download;
-        state_key = ifindex * 2;
+        // [SYS]
         skb->priority = 0;
+        offset_ns = SYS_LATENCY_OFFSET_NS;
+        target_cost = rates->cost_per_byte_sys_download; // Limit system traffic!
     }
 
-    int ret = throttle_flow(skb, target_cost, &edt_download_state_map, state_key, now);
+    // 4. Execute EDT
+    __u32 state_key = ifindex * 2 + (is_sim_traffic ? 1 : 0);
+    int ret = throttle_flow(skb, target_cost, &edt_download_state_map, state_key, now, horizon_ns);
 
-    if (ret == TC_ACT_OK && !is_sim) {
-        __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
-        if (skb->tstamp < min_tstamp)
-            skb->tstamp = min_tstamp;
+    // 5. Post-processing (Offset only)
+    if (ret == TC_ACT_OK) {
+        skb->tstamp += offset_ns;
+        // Do not stack physical Latency/Jitter in Download direction to avoid double calculation.
     }
 
-    if (is_sim || (bpf_get_prandom_u32() & 0x3F) == 0) {
-        update_metrics(ifindex, skb->len, ret, is_sim, 0);
-    }
-
-    if (ret == TC_ACT_OK && (bpf_get_prandom_u32() & 0x7F) == 0) {
-        __u64 latency = (skb->tstamp > now) ? (skb->tstamp - now) : 0;
-        update_latency_hist(ifindex, latency);
+    // 6. Metrics
+    if (is_sim_traffic || (bpf_get_prandom_u32() & 0x3F) == 0) {
+        update_metrics(ifindex, skb->len, ret, is_sim_traffic, 0); // 0=Download
     }
 
     return ret;
@@ -144,46 +166,118 @@ int handle_edt_upload(struct __sk_buff* skb) {
     __u64 now = bpf_ktime_get_ns();
     __u32 ifindex = skb->ifindex;
 
+    // 1. Basic Checks
     if (unlikely(ifindex >= MAX_IFINDEX_CAP))
         return TC_ACT_OK;
-
     struct io_rate* rates = bpf_map_lookup_elem(&rate_map, &ifindex);
     if (!rates)
         return TC_ACT_OK;
 
+    // 2. Parse IP and Ports
+    __u32 src_ip = 0;
     __u32 dst_ip = 0;
-    if (unlikely(!parse_ipv4(skb, NULL, &dst_ip)))
+    // Must obtain both Src and Dst to build a unique link Key
+    if (unlikely(!parse_ipv4(skb, &src_ip, &dst_ip)))
         return TC_ACT_OK;
 
-    __u8* is_sim_ptr = bpf_map_lookup_elem(&simulation_peers_map, &dst_ip);
-    int is_sim = (is_sim_ptr != NULL);
+    __u16 src_port = 0;
+    __u16 dst_port = 0;
+    parse_ports(skb, &src_port, &dst_port);
 
-    __u64 target_cost;
-    __u32 state_key;
+    // 3. Traffic Classification
+    int is_sim_traffic = 0;
+    struct link_policy* policy = NULL;
 
-    if (is_sim) {
-        target_cost = rates->cost_per_byte_sim_upload;
-        state_key = ifindex * 2 + 1;
-        skb->priority = 1;
+    // A. Port Bypass - Highest priority
+    if (is_system_port(src_port) || is_system_port(dst_port)) {
+        is_sim_traffic = 0;
+    }
+    // B. Policy Lookup
+    else {
+        // Build composite Key: {Who Sent, Who Receives}
+        struct policy_key key;
+        key.src_ip = src_ip;
+        key.dst_ip = dst_ip;
+
+        policy = bpf_map_lookup_elem(&topology_policy_map, &key);
+
+        if (policy) {
+            is_sim_traffic = 1;
+        } else {
+            is_sim_traffic = 0; // Undefined link = System traffic
+        }
+    }
+
+    // 4. Dual-Lane Configuration
+    __u64 target_cost = 0;
+    __u64 horizon_ns = 0;
+    __u64 offset_ns = 0;
+
+    get_global_config(&horizon_ns);
+
+    if (is_sim_traffic) {
+        // === [Simulation Lane] ===
+        skb->priority = 1; // High Priority
+        offset_ns = 0; // Send on time
+
+        if (policy) {
+            // Use specific link policy
+            if (policy->bandwidth_limit > 0) {
+                // Cost = (10^9 * 8 * 65536) / bw
+                target_cost = (8000000000ULL << 16) / policy->bandwidth_limit;
+            } else {
+                target_cost =
+                    rates->cost_per_byte_sim_upload; // Default Sim rate if policy unspecified
+            }
+
+            if (policy->queue_depth_ns > 0) {
+                horizon_ns = policy->queue_depth_ns;
+            }
+
+            // Packet Corruption/Loss Simulation (Signal interference)
+            if (policy->corruption_rate_ppm > 0) {
+                if ((bpf_get_prandom_u32() % 1000000) < policy->corruption_rate_ppm)
+                    return TC_ACT_SHOT;
+            }
+        } else {
+            // Defensive code: theoretically unreachable as is_sim_traffic=1 implies policy!=NULL
+            target_cost = rates->cost_per_byte_sim_upload;
+        }
     } else {
-        target_cost = rates->cost_per_byte_sys_upload;
-        state_key = ifindex * 2;
-        skb->priority = 0;
+        // === [System Lane] ===
+        skb->priority = 0; // Low Priority
+        offset_ns = SYS_LATENCY_OFFSET_NS; // +3ms Physical avoidance
+        target_cost = rates->cost_per_byte_sys_upload; // Bandwidth limit (e.g., 990Mbps)
     }
 
-    int ret = throttle_flow(skb, target_cost, &edt_upload_state_map, state_key, now);
+    // 5. Execute EDT Pacing (The Enforcer)
+    // State Key: Sim=Odd, Sys=Even
+    __u32 state_key = ifindex * 2 + (is_sim_traffic ? 1 : 0);
+    int ret = throttle_flow(skb, target_cost, &edt_upload_state_map, state_key, now, horizon_ns);
 
-    if (ret == TC_ACT_OK && !is_sim) {
-        __u64 min_tstamp = now + SYS_LATENCY_OFFSET_NS;
-        if (skb->tstamp < min_tstamp)
-            skb->tstamp = min_tstamp;
+    // 6. Post-processing: Physical Simulation & Offsets
+    if (ret == TC_ACT_OK) {
+        // Apply offset for system traffic
+        skb->tstamp += offset_ns;
+
+        // Apply physical delay for simulation traffic (Sim only)
+        if (is_sim_traffic && policy) {
+            skb->tstamp += policy->base_latency_ns;
+
+            if (policy->jitter_ns > 0) {
+                // Simple jitter simulation: + Random(0, Jitter)
+                skb->tstamp += (bpf_get_prandom_u32() % policy->jitter_ns);
+            }
+        }
     }
 
-    if (is_sim || (bpf_get_prandom_u32() & 0x3F) == 0) {
-        update_metrics(ifindex, skb->len, ret, is_sim, 1);
+    // 7. Statistics & Metrics
+    if (is_sim_traffic || (bpf_get_prandom_u32() & 0x3F) == 0) {
+        update_metrics(ifindex, skb->len, ret, is_sim_traffic, 1); // 1=Upload
     }
 
-    if (ret == TC_ACT_OK && (bpf_get_prandom_u32() & 0x7F) == 0) {
+    // Latency Histogram (Record successful Sim traffic only)
+    if (is_sim_traffic && ret == TC_ACT_OK && (bpf_get_prandom_u32() & 0x7F) == 0) {
         __u64 latency = (skb->tstamp > now) ? (skb->tstamp - now) : 0;
         update_latency_hist(ifindex, latency);
     }
@@ -237,7 +331,7 @@ int handle_xdp_ingress(struct xdp_md* ctx) {
         return XDP_PASS;
     }
 
-    // Pass non-IP packets (ARP, etc.) to avoid connectivity loss
+    // Pass non-IP packets
     if (eth->h_proto != bpf_htons(ETH_P_IP)) {
         return XDP_PASS;
     }
@@ -245,32 +339,66 @@ int handle_xdp_ingress(struct xdp_md* ctx) {
     // 2. Parse IPv4 Header
     struct iphdr* iph = (void*)(eth + 1);
     if ((void*)(iph + 1) > data_end) {
-        return XDP_DROP; // Malformed IP packet
+        return XDP_DROP;
     }
 
-    // 3. Whitelist Check: Is Source IP a Simulation Peer?
-    __u32 src_ip = iph->saddr;
-    __u8* is_sim = bpf_map_lookup_elem(&simulation_peers_map, &src_ip);
+    // ============================================================
+    // NEW: Port Parsing and System Traffic Identification (Port Bypass Logic)
+    // ============================================================
+    int is_sys_traffic = 0;
+    __u16 src_port = 0;
+    __u16 dst_port = 0;
+
+    int ip_hlen = iph->ihl * 4;
+    void* trans = (void*)iph + ip_hlen; // Transport layer header position
+
+    if (iph->protocol == IPPROTO_TCP) {
+        struct tcphdr* tcph = trans;
+        if ((void*)(tcph + 1) <= data_end) {
+            src_port = bpf_ntohs(tcph->source);
+            dst_port = bpf_ntohs(tcph->dest);
+        }
+    } else if (iph->protocol == IPPROTO_UDP) {
+        struct udphdr* udph = trans;
+        if ((void*)(udph + 1) <= data_end) {
+            src_port = bpf_ntohs(udph->source);
+            dst_port = bpf_ntohs(udph->dest);
+        }
+    }
+
+    // If matches SSH/K8s/Monitoring ports, force into rate-limiting channel (System Traffic)
+    if (is_system_port(src_port) || is_system_port(dst_port)) {
+        is_sys_traffic = 1;
+    }
+
+    int is_sim = 0;
+
+    // Only check for simulation traffic if it's not a management port
+    if (!is_sys_traffic) {
+        struct policy_key key;
+        key.src_ip = iph->saddr; // Network Byte Order
+        key.dst_ip = iph->daddr; // Network Byte Order
+
+        // Lookup: Does a defined simulation link exist between this IP pair?
+        // Note: XDP executes at the physical NIC ingress. Dst IP could be Host IP or Pod IP (depending on network mode).
+        // If a policy is matched, treat as simulation traffic.
+        if (bpf_map_lookup_elem(&topology_policy_map, &key)) {
+            is_sim = 1;
+        }
+    }
 
     if (is_sim) {
-        // [SIM Traffic] Unconditional Pass
         return XDP_PASS;
     }
 
-    // 4. [SYS Traffic] Token Bucket Rate Limiting
     __u32 key = 0;
     struct ingress_config* cfg = bpf_map_lookup_elem(&ingress_config_map, &key);
     struct ingress_state* st = bpf_map_lookup_elem(&ingress_state_map, &key);
 
-    // If config or state is missing, fail open (Pass)
-    if (!cfg || !st) {
+    if (!cfg || !st)
         return XDP_PASS;
-    }
-
-    // Check if limit is disabled (0)
-    if (cfg->cost_per_byte_ns_scaled == 0) {
+    if (cfg->cost_per_byte_ns_scaled == 0)
         return XDP_PASS;
-    }
 
     __u64 now = bpf_ktime_get_ns();
     __u64 pkt_len = (__u64)(data_end - data);
@@ -284,21 +412,13 @@ int handle_xdp_ingress(struct xdp_md* ctx) {
     }
 
     __u64 delta_ns = now - st->last_updated;
-
-    // NOTE: max time = 1s
-    if (delta_ns > NSEC_PER_SEC) {
+    if (delta_ns > NSEC_PER_SEC)
         delta_ns = NSEC_PER_SEC;
-    }
 
     st->tokens_ns += delta_ns;
-
-    // Cap at Burst
-    if (st->tokens_ns > cfg->burst_ns) {
+    if (st->tokens_ns > cfg->burst_ns)
         st->tokens_ns = cfg->burst_ns;
-    }
 
-    // Consume
-    // Cost = (Len * CostPerByteScaled) / 65536
     __u64 packet_cost_ns = (pkt_len * cfg->cost_per_byte_ns_scaled) >> 16;
 
     if (st->tokens_ns >= packet_cost_ns) {
@@ -309,7 +429,6 @@ int handle_xdp_ingress(struct xdp_md* ctx) {
     }
 
     st->last_updated = now;
-
     bpf_spin_unlock(&st->lock);
 
     return action;

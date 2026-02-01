@@ -28,22 +28,17 @@ type Agent struct {
 }
 
 func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string, targetNs string, controllerAddr string) (*Agent, error) {
-	// 1. Initialize Container Runtime Client
 	containerRuntime, err := watch.NewContainerRuntime(socketpath)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Initialize BPF Manager
 	manager, err := bpf.NewBpfManager()
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Initialize Local Watcher
 	localWatcher := watch.NewLocalWatcher(clientSet, containerRuntime, nodeName, targetNs)
-
-	// 4. Initialize HTTP Service (Inject dependencies)
 	httpSvc := opsapi.NewHTTPService(localWatcher, manager)
 
 	a := &Agent{
@@ -54,8 +49,7 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 		errCh:        make(chan error, 1),
 	}
 
-	// 5. Initialize gRPC Client
-	// Note: 'a' implements the AgentHandler interface (defined in grpc_impl.go)
+	// 'a' implements AgentHandler interface (using domain objects now)
 	grpcClient, err := remote.NewClient(controllerAddr, nodeName, a)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init grpc client: %w", err)
@@ -76,9 +70,7 @@ func (a *Agent) watchLocalEvents(ctx context.Context) {
 			return
 		case event := <-eventCh:
 			// Send to gRPC transmission queue
-			if event != nil {
-				a.grpcClient.EnqueueEvent(event)
-			}
+			a.grpcClient.EnqueueEvent(event)
 		}
 	}
 }

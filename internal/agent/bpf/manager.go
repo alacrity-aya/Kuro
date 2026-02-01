@@ -42,7 +42,6 @@ type BpfProgram struct {
 	hostIfIndex int
 	podIfIndex  int // The interface index inside the container
 	netnsHandle netns.NsHandle
-	// TODO: store rate limiation here
 }
 
 // NewBpfManager loads the BPF programs and initializes global configurations.
@@ -58,9 +57,10 @@ func NewBpfManager() (*BpfManager, error) {
 		return nil, fmt.Errorf("loading tc objects: %w", err)
 	}
 
+	// Initialize Global Config
 	key := uint32(0)
 	config := TcGlobalConfig{
-		EdtHorizonNs: 5 * 100 * 1000 * 1000, // 500 ms
+		EdtHorizonNs: 500 * 1000 * 1000, // 500 ms default horizon
 	}
 	if err := objs.ConfigMap.Put(&key, &config); err != nil {
 		objs.Close()
@@ -75,6 +75,7 @@ func NewBpfManager() (*BpfManager, error) {
 	return mgr, nil
 }
 
+// AttachNICEgress attaches the eth0 egress program (Global Sys Latency Enforcer)
 func (m *BpfManager) AttachNICEgress(hostInterface string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -85,8 +86,14 @@ func (m *BpfManager) AttachNICEgress(hostInterface string) error {
 	}
 	hostIfIndex := hostLink.Attrs().Index
 
+	// Ensure FQ qdisc is present for EDT to work
 	if err = m.ensureFQ(hostIfIndex, 0); err != nil {
 		return fmt.Errorf("failed to ensure fq on %s: %w", hostInterface, err)
+	}
+
+	// Detach existing if any (simplistic approach)
+	if m.eth0EgressLink != nil {
+		m.eth0EgressLink.Close()
 	}
 
 	m.eth0EgressLink, err = link.AttachTCX(link.TCXOptions{
@@ -100,16 +107,22 @@ func (m *BpfManager) AttachNICEgress(hostInterface string) error {
 	return nil
 }
 
+// AttachIngressProtection attaches the XDP program for Sys traffic rate limiting
 func (m *BpfManager) AttachIngressProtection(hostInterface string, limitBps uint64, burstBytes uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Default limit if 0
 	if limitBps == 0 {
 		speedMbps, err := getInterfaceSpeed(hostInterface)
 		if err != nil || speedMbps == 0 {
-			speedMbps = 1000
+			speedMbps = 1000 // Assume 1Gbps
 		}
+		// Limit Sys traffic to 90% of physical capacity
 		limitBps = (speedMbps * 1000 * 1000) * 90 / 100
+	}
+	if burstBytes == 0 {
+		burstBytes = 100 * 1024 // 100KB default burst
 	}
 
 	hostLink, err := netlink.LinkByName(hostInterface)
@@ -118,12 +131,8 @@ func (m *BpfManager) AttachIngressProtection(hostInterface string, limitBps uint
 	}
 	hostIfIndex := hostLink.Attrs().Index
 
-	const (
-		NsecPerSec  = 1000000000
-		ScaleFactor = 65536 // 2^16
-	)
-
-	costPerByteScaled := uint64((float64(8*NsecPerSec) * float64(ScaleFactor)) / float64(limitBps))
+	// Calculate Cost & Burst for Ingress Map
+	costPerByteScaled := bpsToScaledCost(limitBps)
 	burstNs := (burstBytes * 8 * NsecPerSec) / limitBps
 
 	ingressCfg := TcIngressConfig{
@@ -136,6 +145,7 @@ func (m *BpfManager) AttachIngressProtection(hostInterface string, limitBps uint
 		return fmt.Errorf("update ingress config: %w", err)
 	}
 
+	// Initialize Ingress State
 	ingressState := TcIngressState{
 		LastUpdated: 0,
 		TokensNs:    burstNs,
@@ -148,12 +158,14 @@ func (m *BpfManager) AttachIngressProtection(hostInterface string, limitBps uint
 		m.eth0IngressLink.Close()
 	}
 
+	// Try XDP Driver Mode first, then Generic
 	m.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
 		Program:   m.objects.HandleXdpIngress,
 		Interface: hostIfIndex,
 		Flags:     link.XDPDriverMode,
 	})
 	if err != nil {
+		log.Printf("[BPF] Driver XDP failed, trying Generic: %v", err)
 		m.eth0IngressLink, err = link.AttachXDP(link.XDPOptions{
 			Program:   m.objects.HandleXdpIngress,
 			Interface: hostIfIndex,
@@ -168,6 +180,7 @@ func (m *BpfManager) AttachIngressProtection(hostInterface string, limitBps uint
 	return nil
 }
 
+// AddPod configures eBPF for a new simulation Pod
 func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -177,7 +190,7 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	}
 
 	if _, ok := m.programs[hostIfIndex]; ok {
-		return nil
+		return nil // Already added
 	}
 
 	log.Printf("[BPF] Setting up Pod %s (HostIfIndex: %d)", podName, hostIfIndex)
@@ -188,11 +201,13 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 		netnsHandle: nsHandle,
 	}
 
-	// 1. Ensure FQ and Attach Download Prog
+	// 1. Host Side Setup (Download Control)
+	// Ensure FQ
 	if err := m.ensureFQ(hostIfIndex, 0); err != nil {
 		return fmt.Errorf("host fq: %w", err)
 	}
 
+	// Attach handle_edt_download to Host Veth Egress
 	hostLink, err := link.AttachTCX(link.TCXOptions{
 		Program:   m.objects.HandleEdtDownload,
 		Interface: hostIfIndex,
@@ -203,7 +218,7 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	}
 	prog.hostEgressLink = hostLink
 
-	// Init State Maps
+	// Init State Maps for Download (Sys=Even, Sim=Odd)
 	initEdtState := TcEdtState{}
 	keyHostSys := uint32(hostIfIndex * 2)
 	keyHostSim := uint32(hostIfIndex*2 + 1)
@@ -217,7 +232,7 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 		return fmt.Errorf("init download sim state: %w", err)
 	}
 
-	// 2. Setup Pod Egress
+	// 2. Pod Side Setup (Upload Control)
 	podIfIndex, podLink, err := m.setupPodEgress(nsHandle)
 	if err != nil {
 		hostLink.Close()
@@ -227,7 +242,7 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	prog.podIfIndex = podIfIndex
 	prog.podEgressLink = podLink
 
-	// Init Upload State Maps
+	// Init State Maps for Upload (Sys=Even, Sim=Odd)
 	keyPodSys := uint32(prog.podIfIndex * 2)
 	keyPodSim := uint32(prog.podIfIndex*2 + 1)
 
@@ -242,14 +257,13 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 		return fmt.Errorf("init upload sim state: %w", err)
 	}
 
-	// 3. Initialize Metrics Map (PerCPU)
+	// 3. Initialize Metrics & Latency Maps (PerCPU)
 	zeroStats := make([]TcPodStats, runtime.NumCPU())
 	key := uint32(hostIfIndex)
 	if err := m.objects.MetricsMap.Put(&key, zeroStats); err != nil {
 		log.Printf("[BPF] Warning: Failed to init metrics map for %s: %v", podName, err)
 	}
 
-	// 4. Initialize Latency Histogram Map (PerCPU)
 	zeroHist := make([]TcLatencyHist, runtime.NumCPU())
 	if err := m.objects.LatencyMap.Put(&key, zeroHist); err != nil {
 		log.Printf("[BPF] Warning: Failed to init latency map for %s: %v", podName, err)
@@ -259,6 +273,7 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	return nil
 }
 
+// setupPodEgress enters the Pod namespace and attaches the upload program
 func (m *BpfManager) setupPodEgress(podNsHandle netns.NsHandle) (int, link.Link, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -286,6 +301,7 @@ func (m *BpfManager) setupPodEgress(podNsHandle netns.NsHandle) (int, link.Link,
 
 	var targetLink netlink.Link
 	for _, l := range links {
+		// Typically eth0, avoiding loopback
 		if l.Attrs().Name != "lo" {
 			targetLink = l
 			break
@@ -297,6 +313,7 @@ func (m *BpfManager) setupPodEgress(podNsHandle netns.NsHandle) (int, link.Link,
 
 	podIfIndex := targetLink.Attrs().Index
 
+	// Ensure FQ inside Pod
 	if err = m.ensureFQ(podIfIndex, 0); err != nil {
 		return 0, nil, fmt.Errorf("pod fq: %w", err)
 	}
@@ -313,7 +330,9 @@ func (m *BpfManager) setupPodEgress(podNsHandle netns.NsHandle) (int, link.Link,
 	return podIfIndex, ulLink, nil
 }
 
-func (m *BpfManager) UpdateRule(hostIfIndex int, upSim, downSim, upSys, downSys uint64) error {
+// UpdateRule updates the bandwidth limits (Sim & Sys) for a specific Pod.
+// This sets the base rates in the RateMap.
+func (m *BpfManager) UpdateRule(hostIfIndex int, simUploadBps, simDownloadBps, sysUploadBps, sysDownloadBps uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -323,25 +342,77 @@ func (m *BpfManager) UpdateRule(hostIfIndex int, upSim, downSim, upSys, downSys 
 	}
 
 	if hostIfIndex >= MaxIfIndexCap {
-		return fmt.Errorf("ifindex %d exceeds max capacity %d", hostIfIndex, MaxIfIndexCap)
+		return fmt.Errorf("ifindex %d exceeds max capacity", hostIfIndex)
 	}
 
+	// 1. Update Host Side (Download Control)
+	// For Download, we primarily use the Sim/Sys Download limits
 	keyHost := uint32(hostIfIndex)
 	rateCfgDown := TcIoRate{
-		CostPerByteSimDownload: bpsToScaledCost(downSim),
-		CostPerByteSysDownload: bpsToScaledCost(downSys),
+		CostPerByteSimDownload: bpsToScaledCost(simDownloadBps),
+		CostPerByteSysDownload: bpsToScaledCost(sysDownloadBps),
+		// Upload fields on Host map entry are generally unused by the Download Hook,
+		// but we can zero them or set them symmetrically. Keeping them 0 for clarity.
+		CostPerByteSimUpload: 0,
+		CostPerByteSysUpload: 0,
 	}
 	if err := m.objects.RateMap.Update(&keyHost, &rateCfgDown, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("update download rate: %w", err)
 	}
 
+	// 2. Update Pod Side (Upload Control)
+	// For Upload, we primarily use the Sim/Sys Upload limits
 	keyPod := uint32(prog.podIfIndex)
 	rateCfgUp := TcIoRate{
-		CostPerByteSimUpload: bpsToScaledCost(upSim),
-		CostPerByteSysUpload: bpsToScaledCost(upSys),
+		CostPerByteSimUpload: bpsToScaledCost(simUploadBps),
+		CostPerByteSysUpload: bpsToScaledCost(sysUploadBps),
+		// Download fields on Pod map entry are unused by Upload Hook
+		CostPerByteSimDownload: 0,
+		CostPerByteSysDownload: 0,
 	}
 	if err := m.objects.RateMap.Update(&keyPod, &rateCfgUp, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("update upload rate: %w", err)
+	}
+
+	return nil
+}
+
+// SetPolicy sets or removes a specific physical link policy between two IPs.
+// srcIP: The source IP (should match the Pod managed by this call context, or generic)
+// dstIP: The destination IP
+// policy: The policy struct. If nil, the policy is deleted (reverting to System Traffic).
+func (m *BpfManager) SetPolicy(srcIP string, dstIP string, policy *TcLinkPolicy) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sIpUint, err := ipToUint32(srcIP)
+	if err != nil {
+		return err
+	}
+	dIpUint, err := ipToUint32(dstIP)
+	if err != nil {
+		return err
+	}
+
+	// Construct the Composite Key
+	key := TcPolicyKey{
+		SrcIp: sIpUint,
+		DstIp: dIpUint,
+	}
+
+	if policy == nil {
+		// Delete Policy
+		if err := m.objects.TopologyPolicyMap.Delete(key); err != nil {
+			if err != ebpf.ErrKeyNotExist {
+				return fmt.Errorf("failed to delete policy for %s->%s: %w", srcIP, dstIP, err)
+			}
+		}
+		return nil
+	}
+
+	// Add/Update Policy
+	if err := m.objects.TopologyPolicyMap.Put(key, policy); err != nil {
+		return fmt.Errorf("failed to put policy for %s->%s: %w", srcIP, dstIP, err)
 	}
 
 	return nil
@@ -356,6 +427,7 @@ func (m *BpfManager) RemovePod(hostIfIndex int) error {
 		return nil
 	}
 
+	// Close Links
 	if prog.hostEgressLink != nil {
 		prog.hostEgressLink.Close()
 	}
@@ -363,16 +435,17 @@ func (m *BpfManager) RemovePod(hostIfIndex int) error {
 		prog.podEgressLink.Close()
 	}
 
+	// Cleanup Maps
 	zeroRate := TcIoRate{}
 	zeroState := TcEdtState{}
 
-	// Rate Map Clean
+	// Clear Rate Map
 	keyHost := uint32(hostIfIndex)
 	keyPod := uint32(prog.podIfIndex)
 	_ = m.objects.RateMap.Update(&keyHost, &zeroRate, ebpf.UpdateAny)
 	_ = m.objects.RateMap.Update(&keyPod, &zeroRate, ebpf.UpdateAny)
 
-	// State Map Clean
+	// Clear State Maps (both Sim and Sys slots)
 	keyHostSys := uint32(hostIfIndex * 2)
 	keyHostSim := uint32(hostIfIndex*2 + 1)
 	_ = m.objects.EdtDownloadStateMap.Update(&keyHostSys, &zeroState, ebpf.UpdateAny)
@@ -383,6 +456,7 @@ func (m *BpfManager) RemovePod(hostIfIndex int) error {
 	_ = m.objects.EdtUploadStateMap.Update(&keyPodSys, &zeroState, ebpf.UpdateAny)
 	_ = m.objects.EdtUploadStateMap.Update(&keyPodSim, &zeroState, ebpf.UpdateAny)
 
+	// Clear Metrics
 	_ = m.objects.MetricsMap.Delete(&keyHost)
 	_ = m.objects.LatencyMap.Delete(&keyHost)
 
@@ -413,53 +487,11 @@ func (m *BpfManager) Close() error {
 	return m.objects.Close()
 }
 
-func (m *BpfManager) AddPeer(ipStr string) error {
-	ipUint, err := ipToUint32(ipStr)
-	if err != nil {
-		return err
-	}
-	val := uint8(1)
-	if err := m.objects.SimulationPeersMap.Put(ipUint, val); err != nil {
-		return fmt.Errorf("failed to add peer ip %s: %w", ipStr, err)
-	}
-	return nil
-}
-
-func (m *BpfManager) RemovePeer(ipStr string) error {
-	ipUint, err := ipToUint32(ipStr)
-	if err != nil {
-		return err
-	}
-	if err := m.objects.SimulationPeersMap.Delete(ipUint); err != nil {
-		if err != ebpf.ErrKeyNotExist {
-			return fmt.Errorf("failed to remove peer ip %s: %w", ipStr, err)
-		}
-	}
-	return nil
-}
-
-func (m *BpfManager) GetPeers() ([]string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var key uint32
-	var val uint8
-	var ips []string
-	iter := m.objects.SimulationPeersMap.Iterate()
-	for iter.Next(&key, &val) {
-		ip := uint32ToIP(key)
-		ips = append(ips, ip.String())
-	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("map iteration: %w", err)
-	}
-	return ips, nil
-}
-
-// PodMetricsResult includes latency data now
+// PodMetricsResult structure for JSON export
 type PodMetricsResult struct {
 	PodName     string        `json:"pod_name"`
 	HostIfIndex int           `json:"host_ifindex"`
-	Timestamp   int64         `json:"timestamp"` // Unix Nano
+	Timestamp   int64         `json:"timestamp"`
 	Stats       TcPodStats    `json:"stats"`
 	Latency     TcLatencyHist `json:"latency"`
 }
@@ -473,34 +505,30 @@ func (m *BpfManager) CollectAllMetrics() ([]PodMetricsResult, error) {
 	for ifIndex, prog := range m.programs {
 		key := uint32(ifIndex)
 
-		// 1. Collect Flow Stats
+		// 1. Collect Flow Stats (PerCPU aggregation)
 		var statsPerCPU []TcPodStats
 		if err := m.objects.MetricsMap.Lookup(&key, &statsPerCPU); err != nil {
-			log.Printf("Failed to lookup metrics for pod %s: %v", prog.podName, err)
 			continue
 		}
 
 		var totalStats TcPodStats
 		for _, cpuStat := range statsPerCPU {
-			// Sim Download
+			// Aggregate fields
 			totalStats.SimDownload.Packets += cpuStat.SimDownload.Packets
 			totalStats.SimDownload.Bytes += cpuStat.SimDownload.Bytes
 			totalStats.SimDownload.DropPackets += cpuStat.SimDownload.DropPackets
 			totalStats.SimDownload.DropBytes += cpuStat.SimDownload.DropBytes
-
-			// Sim Upload
+			// ... (Repeat for SimUpload, SysDownload, SysUpload)
 			totalStats.SimUpload.Packets += cpuStat.SimUpload.Packets
 			totalStats.SimUpload.Bytes += cpuStat.SimUpload.Bytes
 			totalStats.SimUpload.DropPackets += cpuStat.SimUpload.DropPackets
 			totalStats.SimUpload.DropBytes += cpuStat.SimUpload.DropBytes
 
-			// Sys Download
 			totalStats.SysDownload.Packets += cpuStat.SysDownload.Packets
 			totalStats.SysDownload.Bytes += cpuStat.SysDownload.Bytes
 			totalStats.SysDownload.DropPackets += cpuStat.SysDownload.DropPackets
 			totalStats.SysDownload.DropBytes += cpuStat.SysDownload.DropBytes
 
-			// Sys Upload
 			totalStats.SysUpload.Packets += cpuStat.SysUpload.Packets
 			totalStats.SysUpload.Bytes += cpuStat.SysUpload.Bytes
 			totalStats.SysUpload.DropPackets += cpuStat.SysUpload.DropPackets
@@ -510,8 +538,6 @@ func (m *BpfManager) CollectAllMetrics() ([]PodMetricsResult, error) {
 		// 2. Collect Latency Histogram
 		var latHists []TcLatencyHist
 		var totalLatency TcLatencyHist
-
-		// Best effort lookup for latency map
 		if err := m.objects.LatencyMap.Lookup(&key, &latHists); err == nil {
 			for _, h := range latHists {
 				for i := range 16 {
@@ -530,72 +556,4 @@ func (m *BpfManager) CollectAllMetrics() ([]PodMetricsResult, error) {
 	}
 
 	return results, nil
-}
-
-// SyncPeers performs a full synchronization of the global whitelist.
-// It removes IPs that are no longer in the list and adds new ones.
-func (m *BpfManager) SyncPeers(newPeerIPs []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// 1. Convert new IPs to a Set (uint32) for O(1) lookups
-	// 'desired' holds all IPs that SHOULD be in the map.
-	desired := make(map[uint32]bool)
-	for _, ipStr := range newPeerIPs {
-		ipUint, err := ipToUint32(ipStr)
-		if err != nil {
-			log.Printf("[BPF] Warning: Skipping invalid peer IP '%s': %v", ipStr, err)
-			continue
-		}
-		desired[ipUint] = true
-	}
-
-	// 2. Identify stale peers to remove
-	// We iterate the current BPF map. If a key is NOT in 'desired', it must be deleted.
-	// If it IS in 'desired', we remove it from the 'desired' map to mark it as "already exists".
-	var toDelete []uint32
-
-	var key uint32
-	var val uint8
-	iter := m.objects.SimulationPeersMap.Iterate()
-
-	for iter.Next(&key, &val) {
-		if _, keep := desired[key]; keep {
-			// Peer exists in both BPF Map and New List.
-			// Remove from 'desired' so we don't try to add it again later.
-			delete(desired, key)
-		} else {
-			// Peer is in BPF Map but NOT in New List -> Mark for deletion.
-			toDelete = append(toDelete, key)
-		}
-	}
-	if err := iter.Err(); err != nil {
-		return fmt.Errorf("map iteration failed: %w", err)
-	}
-
-	// 3. Perform Deletions
-	for _, ip := range toDelete {
-		if err := m.objects.SimulationPeersMap.Delete(ip); err != nil {
-			log.Printf("[BPF] Failed to delete stale peer IP: %v", err)
-		} else {
-			log.Printf("[BPF] Sync: Removed stale peer")
-		}
-	}
-
-	// 4. Perform Additions
-	// Any keys remaining in 'desired' are new peers that weren't in the map.
-	addedCount := 0
-	val = 1 // Whitelist flag
-	for ip := range desired {
-		if err := m.objects.SimulationPeersMap.Put(ip, val); err != nil {
-			log.Printf("[BPF] Failed to add new peer IP: %v", err)
-		} else {
-			addedCount++
-		}
-	}
-
-	log.Printf("[BPF] SyncPeers completed. Removed: %d, Added: %d, Total Active: %d",
-		len(toDelete), addedCount, len(newPeerIPs))
-
-	return nil
 }

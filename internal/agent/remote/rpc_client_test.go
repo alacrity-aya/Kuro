@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pb "kuro/api/v1"
+	"kuro/internal/domain"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -16,32 +17,45 @@ import (
 
 // --- Mocks ---
 
-// MockAgentHandler simulates the Agent's business logic
+// MockAgentHandler simulates the Agent's business logic using DOMAIN types
 type MockAgentHandler struct {
+	LastPodPolicy  domain.PodPolicy
+	LastLinkPolicy domain.LinkPolicy
+	LastNodePolicy domain.NodePolicy
+
 	PolicyApplied     bool
-	WhitelistSynced   bool
-	LastHeartbeatSent *pb.Heartbeat
+	LinkPolicyApplied bool
 }
 
-func (m *MockAgentHandler) GetAgentStatus() *pb.Heartbeat {
-	return &pb.Heartbeat{ManagedPodCount: 10}
+// [UPDATED] Interface Implementation using Domain
+func (m *MockAgentHandler) GetAgentStatus() domain.Heartbeat {
+	return domain.Heartbeat{
+		NodeName:        "test-node",
+		ManagedPodCount: 10,
+	}
 }
 
-func (m *MockAgentHandler) ApplyPolicy(cmd *pb.ApplyPodPolicy) error {
+// [UPDATED] Interface Implementation using Domain
+func (m *MockAgentHandler) ApplyPolicy(cmd domain.PodPolicy) error {
+	m.LastPodPolicy = cmd
 	m.PolicyApplied = true
 	return nil
 }
 
-func (m *MockAgentHandler) ApplyNodePolicy(cmd *pb.ApplyNodePolicy) error {
+// [UPDATED] Interface Implementation using Domain
+func (m *MockAgentHandler) ApplyNodePolicy(cmd domain.NodePolicy) error {
+	m.LastNodePolicy = cmd
 	return nil
 }
 
-func (m *MockAgentHandler) SyncWhitelist(cmd *pb.SyncPeerWhitelist) error {
-	m.WhitelistSynced = true
+// [UPDATED] Interface Implementation using Domain
+func (m *MockAgentHandler) ApplyLinkPolicy(cmd domain.LinkPolicy) error {
+	m.LastLinkPolicy = cmd
+	m.LinkPolicyApplied = true
 	return nil
 }
 
-// MockControllerServer simulates the Controller's gRPC service
+// MockControllerServer simulates the Controller's gRPC service (Wire Level - Still PB)
 type MockControllerServer struct {
 	pb.UnimplementedSimulationAgentServiceServer
 	cmdCh chan *pb.ControllerCmd
@@ -49,7 +63,6 @@ type MockControllerServer struct {
 }
 
 func (s *MockControllerServer) ControlStream(stream pb.SimulationAgentService_ControlStreamServer) error {
-	// Sending goroutine: Reads commands from the channel and sends them to the Agent
 	go func() {
 		for cmd := range s.cmdCh {
 			if err := stream.Send(cmd); err != nil {
@@ -58,7 +71,6 @@ func (s *MockControllerServer) ControlStream(stream pb.SimulationAgentService_Co
 		}
 	}()
 
-	// Receiving loop: Reads messages sent by the Agent
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -83,7 +95,7 @@ func bufDialer(context.Context, string) (net.Conn, error) {
 }
 
 func TestClientCommunication(t *testing.T) {
-	// 1. Setup Mock Controller
+	// 1. Setup Mock Controller (Wire Level)
 	s := grpc.NewServer()
 	mockController := &MockControllerServer{
 		cmdCh: make(chan *pb.ControllerCmd, 10),
@@ -98,7 +110,7 @@ func TestClientCommunication(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	// 2. Setup Agent Client
+	// 2. Setup Agent Client with Mock Domain Handler
 	mockAgent := &MockAgentHandler{}
 	client, err := NewClient("bufnet", "test-node", mockAgent)
 	if err != nil {
@@ -108,7 +120,6 @@ func TestClientCommunication(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Use NewClient with the passthrough scheme to bypass DNS resolution for bufconn
 	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(bufDialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -118,7 +129,6 @@ func TestClientCommunication(t *testing.T) {
 	}
 	client.conn = conn
 
-	// Manually start the Stream for testing
 	cl := pb.NewSimulationAgentServiceClient(conn)
 	stream, err := cl.ControlStream(ctx)
 	if err != nil {
@@ -126,11 +136,11 @@ func TestClientCommunication(t *testing.T) {
 	}
 	client.stream = stream
 
-	// Start internal processing loops
 	go client.recvLoop(stream)
 	go client.sendLoop(ctx, stream)
 
 	// --- Test Case 1: Heartbeat (Agent -> Controller) ---
+	// Assert that the domain heartbeat from MockAgent was converted to PB correctly
 	select {
 	case msg := <-mockController.msgCh:
 		if hb := msg.GetHeartbeat(); hb == nil {
@@ -145,27 +155,32 @@ func TestClientCommunication(t *testing.T) {
 	}
 
 	// --- Test Case 2: Send Event (Agent -> Controller) ---
-	event := &pb.PodLifecycleEvent{
-		Type:    pb.PodLifecycleEvent_ADDED,
-		PodName: "pod-1",
-		PodIp:   "10.0.0.1",
+	// Input: Domain Object
+	event := domain.PodEvent{
+		Type:      domain.EventAdd,
+		PodName:   "pod-1",
+		PodIP:     "10.0.0.1",
+		Namespace: "default",
 	}
 	client.EnqueueEvent(event)
 
+	// Output: PB Object (Verification)
 	select {
 	case msg := <-mockController.msgCh:
-		// Note: Heartbeats may arrive before the event; in a production test,
-		// you might want to filter messages. For this test, we assume order.
 		if podEv := msg.GetPodEvent(); podEv != nil {
 			if podEv.PodName != "pod-1" {
 				t.Errorf("Expected pod-1, got %s", podEv.PodName)
+			}
+			if podEv.Type != pb.PodLifecycleEvent_ADDED {
+				t.Errorf("Expected ADDED event type")
 			}
 		}
 	case <-time.After(1 * time.Second):
 		t.Error("Timeout waiting for event")
 	}
 
-	// --- Test Case 3: Receive Command (Controller -> Agent) ---
+	// --- Test Case 3: Receive ApplyPolicy Command (Controller -> Agent) ---
+	// Input: PB Object (Network)
 	cmd := &pb.ControllerCmd{
 		CommandId: "cmd-1",
 		Payload: &pb.ControllerCmd_ApplyPolicy{
@@ -177,11 +192,17 @@ func TestClientCommunication(t *testing.T) {
 	}
 	mockController.cmdCh <- cmd
 
-	// Allow a brief moment for goroutines to process
 	time.Sleep(100 * time.Millisecond)
 
+	// Verification: Domain Object (Business Logic)
 	if !mockAgent.PolicyApplied {
 		t.Error("AgentHandler.ApplyPolicy was not called")
+	}
+	if mockAgent.LastPodPolicy.PodName != "pod-1" {
+		t.Errorf("Expected PodName pod-1, got %s", mockAgent.LastPodPolicy.PodName)
+	}
+	if mockAgent.LastPodPolicy.SimRate.UploadBps != 1000 {
+		t.Errorf("Expected UploadBps 1000, got %d", mockAgent.LastPodPolicy.SimRate.UploadBps)
 	}
 
 	// --- Test Case 4: Verify ACK (Agent -> Controller) ---
@@ -194,5 +215,34 @@ func TestClientCommunication(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Error("Timeout waiting for ACK")
+	}
+
+	// --- Test Case 5: Receive ApplyLinkPolicy Command (Controller -> Agent) ---
+	// Input: PB Object
+	cmdLink := &pb.ControllerCmd{
+		CommandId: "cmd-2",
+		Payload: &pb.ControllerCmd_ApplyLinkPolicy{
+			ApplyLinkPolicy: &pb.ApplyLinkPolicy{
+				SrcIp: "10.0.0.1",
+				DstIp: "10.0.0.2",
+				Policy: &pb.LinkPolicy{
+					BandwidthBps: 1000000,
+				},
+			},
+		},
+	}
+	mockController.cmdCh <- cmdLink
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verification: Domain Object
+	if !mockAgent.LinkPolicyApplied {
+		t.Error("AgentHandler.ApplyLinkPolicy was not called")
+	}
+	if mockAgent.LastLinkPolicy.SrcIP != "10.0.0.1" {
+		t.Errorf("Expected SrcIP 10.0.0.1, got %s", mockAgent.LastLinkPolicy.SrcIP)
+	}
+	if mockAgent.LastLinkPolicy.BandwidthBps != 1000000 {
+		t.Errorf("Expected Bandwidth 1M, got %d", mockAgent.LastLinkPolicy.BandwidthBps)
 	}
 }

@@ -4,32 +4,31 @@ import (
 	"fmt"
 	"log"
 
-	pb "kuro/api/v1"
+	"kuro/internal/agent/bpf"
+	"kuro/internal/domain"
 )
 
 // =============================================================
 // Implementation of the remote.AgentHandler Interface
-// This file is specifically for handling callbacks or commands
-// sent from the Controller via gRPC.
 // =============================================================
 
-// GetAgentStatus constructs a heartbeat packet.
-// Corresponds to the AgentStatus retrieval logic required by remote.Client.
-func (a *Agent) GetAgentStatus() *pb.Heartbeat {
+// GetAgentStatus constructs a domain heartbeat.
+func (a *Agent) GetAgentStatus() domain.Heartbeat {
 	pods := a.localWatcher.GetAllPods()
-	// TODO: Retrieve the actual Node IP if needed
-	return &pb.Heartbeat{
+	return domain.Heartbeat{
 		NodeName:        a.nodeName,
-		NodeIp:          "127.0.0.1",
-		ManagedPodCount: int32(len(pods)),
+		NodeIP:          "127.0.0.1", // In production use real IP
+		ManagedPodCount: len(pods),
+		// Timestamp is handled by the transport layer (remote/client.go) usually,
+		// or here if business logic dictates it.
 	}
 }
 
-// ApplyPolicy handles the delivery of Pod-level traffic control policies.
-func (a *Agent) ApplyPolicy(cmd *pb.ApplyPodPolicy) error {
-	podName := cmd.PodName
+// ApplyPolicy handles Pod-level interface rate limits (Default Sim/Sys rates).
+func (a *Agent) ApplyPolicy(policy domain.PodPolicy) error {
+	podName := policy.PodName
 
-	// 1. Retrieve Pod Context (Netns)
+	// 1. Retrieve Pod Context
 	podCtx, ok := a.localWatcher.GetPodContext(podName)
 	if !ok {
 		return fmt.Errorf("pod %s not found in local cache", podName)
@@ -39,41 +38,57 @@ func (a *Agent) ApplyPolicy(cmd *pb.ApplyPodPolicy) error {
 		return fmt.Errorf("netns for %s is closed", podName)
 	}
 
-	// 2. Ensure BPF program is attached (idempotent operation)
+	// 2. Ensure BPF program is attached
 	if err := a.bpfManager.AddPod(podName, podCtx.Info.HostIfIndex, podCtx.NetnsHandle); err != nil {
 		return fmt.Errorf("attach bpf failed: %w", err)
 	}
 
-	// 3. Update rules in BPF Map
+	// 3. Update Rate Map
 	var simUp, simDown, sysUp, sysDown uint64
-	if cmd.SimRate != nil {
-		simUp = cmd.SimRate.UploadBps
-		simDown = cmd.SimRate.DownloadBps
+	if policy.SimRate != nil {
+		simUp = policy.SimRate.UploadBps
+		simDown = policy.SimRate.DownloadBps
 	}
-	if cmd.SysRate != nil {
-		sysUp = cmd.SysRate.UploadBps
-		sysDown = cmd.SysRate.DownloadBps
+	if policy.SysRate != nil {
+		sysUp = policy.SysRate.UploadBps
+		sysDown = policy.SysRate.DownloadBps
 	}
 
 	return a.bpfManager.UpdateRule(podCtx.Info.HostIfIndex, simUp, simDown, sysUp, sysDown)
 }
 
-// ApplyNodePolicy handles node-level network interface policies (Ingress Protection).
-func (a *Agent) ApplyNodePolicy(cmd *pb.ApplyNodePolicy) error {
-	log.Printf("[Agent] Applying Node Policy: Limit=%d bps, Burst=%d bytes", cmd.IngressLimitBps, cmd.IngressBurstBytes)
-	return a.bpfManager.AttachIngressProtection(hostInterface, cmd.IngressLimitBps, cmd.IngressBurstBytes)
+// ApplyLinkPolicy handles specific point-to-point link physics.
+func (a *Agent) ApplyLinkPolicy(policy domain.LinkPolicy) error {
+	if policy.SrcIP == "" || policy.DstIP == "" {
+		return fmt.Errorf("invalid link policy: missing src or dst ip")
+	}
+
+	var tcPolicy *bpf.TcLinkPolicy
+
+	// Check the IsDelete flag we added to the Domain model
+	if !policy.IsDelete {
+		tcPolicy = &bpf.TcLinkPolicy{
+			BandwidthLimit:    policy.BandwidthBps,
+			BaseLatencyNs:     policy.BaseLatencyNs,
+			JitterNs:          policy.JitterNs,
+			CorruptionRatePpm: policy.CorruptionRatePpm,
+			QueueDepthNs:      policy.QueueDepthNs,
+		}
+	}
+
+	log.Printf("[Agent] Applying Link Policy: %s -> %s (Delete=%v)",
+		policy.SrcIP, policy.DstIP, policy.IsDelete)
+
+	return a.bpfManager.SetPolicy(policy.SrcIP, policy.DstIP, tcPolicy)
 }
 
-// SyncWhitelist handles global peer whitelist synchronization.
-func (a *Agent) SyncWhitelist(cmd *pb.SyncPeerWhitelist) error {
-	if cmd == nil {
-		return nil
-	}
+// ApplyNodePolicy handles node-level XDP ingress protection.
+func (a *Agent) ApplyNodePolicy(policy domain.NodePolicy) error {
+	log.Printf("[Agent] Applying Node Policy: Limit=%d bps, Burst=%d bytes",
+		policy.IngressLimitBps, policy.IngressBurstBytes)
 
-	// Delegate the Diff logic entirely to the BpfManager
-	if err := a.bpfManager.SyncPeers(cmd.PeerIps); err != nil {
-		return fmt.Errorf("failed to sync peers to bpf map: %w", err)
-	}
-
-	return nil
+	// Assuming hostInterface is available in Agent struct or global config
+	// You might need to pass it when initializing Agent
+	hostIf := "eth0" // Replace with a.hostInterface
+	return a.bpfManager.AttachIngressProtection(hostIf, policy.IngressLimitBps, policy.IngressBurstBytes)
 }

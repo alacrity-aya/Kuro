@@ -3,11 +3,7 @@
 package test
 
 import (
-	"encoding/json"
-	"fmt"
 	"kuro/internal/agent/bpf"
-	"os"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -15,161 +11,73 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-const (
-	isoNsName    = "test_iso_ns"
-	isoHostVeth  = "veth_iso_host"
-	isoPodVeth   = "veth_iso_pod"
-	isoPodIP     = "10.30.1.2"
-	isoHostIP    = "10.30.1.1"
-	isoIperfPort = "5301"
-
-	// Define distinct rates to verify isolation
-	simLimitRateBits = 10 * 1000 * 1000 // 10 Mbps
-	sysLimitRateBits = 50 * 1000 * 1000 // 50 Mbps (Different from Sim to distinguish)
-)
-
-type IperfResultIso struct {
-	End struct {
-		SumSent struct {
-			BitsPerSecond float64 `json:"bits_per_second"`
-		} `json:"sum_sent"`
-		SumReceived struct {
-			BitsPerSecond float64 `json:"bits_per_second"`
-		} `json:"sum_received"`
-	} `json:"end"`
-}
-
 func TestTrafficIsolation(t *testing.T) {
-	setupCmd := exec.Command("./test/bpf/setup_topology.sh", isoNsName, isoHostVeth, isoPodVeth, isoPodIP+"/24", isoHostIP+"/24", isoIperfPort)
-	if out, err := setupCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to setup topology: %v\nOutput: %s", err, string(out))
+	cfg := TopologyConfig{
+		NsName:    "test_iso_ns",
+		HostVeth:  "veth_iso_host",
+		PodVeth:   "veth_iso_pod",
+		PodIP:     "10.30.1.2",
+		HostIP:    "10.30.1.1",
+		IperfPort: "5301",
 	}
-	defer cleanupIso()
 
-	t.Logf("Topology %s created.", isoNsName)
+	SetupTopology(t, cfg)
+	mgr := InitBPFManager(t)
 
-	mgr, err := bpf.NewBpfManager()
-	if err != nil {
-		t.Fatalf("Failed to create BPF manager: %v", err)
-	}
-	defer mgr.Close()
-
-	linkObj, err := netlink.LinkByName(isoHostVeth)
-	if err != nil {
-		t.Fatalf("Failed to find host veth: %v", err)
-	}
-	hostIfIndex := linkObj.Attrs().Index
-
-	nsHandle, err := netns.GetFromPath("/var/run/netns/" + isoNsName)
-	if err != nil {
-		t.Fatalf("Failed to get netns handle: %v", err)
-	}
+	// BPF Specific Setup
+	nsHandle, _ := netns.GetFromName(cfg.NsName)
 	defer nsHandle.Close()
+	hostLink, _ := netlink.LinkByName(cfg.HostVeth)
 
-	if err := mgr.AddPod(isoNsName, hostIfIndex, nsHandle); err != nil {
+	t.Log("[Test] Attaching BPF programs to Pod...")
+	if err := mgr.AddPod("iso-pod", hostLink.Attrs().Index, nsHandle); err != nil {
 		t.Fatalf("AddPod failed: %v", err)
 	}
 
-	// [UPDATE] Configure Dual Rates
-	// Sim: 10Mbps, Sys: 50Mbps
-	if err := mgr.UpdateRule(hostIfIndex, uint64(simLimitRateBits), uint64(simLimitRateBits), uint64(sysLimitRateBits), uint64(sysLimitRateBits)); err != nil {
+	simRate := 10.0 * Mb
+	sysRate := 50.0 * Mb
+
+	// [UPDATED] Set both rates
+	t.Logf("[Test] Configuring Rates - Sim: %.0f Mbps, Sys: %.0f Mbps", simRate/Mb, sysRate/Mb)
+	err := mgr.UpdateRule(hostLink.Attrs().Index, uint64(simRate), uint64(simRate), uint64(sysRate), uint64(sysRate))
+	if err != nil {
 		t.Fatalf("UpdateRule failed: %v", err)
 	}
-	t.Logf("Configured Rates: Sim=10Mbps, Sys=50Mbps")
 
-	time.Sleep(1 * time.Second)
-
-	// Phase A: Sys Traffic (Host IP NOT whitelisted)
-	// Expectation: Should match Sys Limit (50Mbps)
-	t.Run("Phase_A_Sys_Traffic_Limit", func(t *testing.T) {
-		t.Log("Testing Sys Traffic (Whitelist Empty)...")
-		// Verify whitelist is empty
-		peers, _ := mgr.GetPeers()
-		if len(peers) != 0 {
-			t.Fatalf("Expected empty whitelist, got: %v", peers)
-		}
-
-		bps := runIperfIso(t, true) // Upload (Pod->Host)
-		validateSpeedIso(t, bps, sysLimitRateBits, "Sys")
+	// --- Phase 1: Default System Traffic ---
+	t.Run("Phase1_SysDefault", func(t *testing.T) {
+		t.Log(">>> Testing Phase 1: Default System Traffic (Expected High Speed)")
+		// Reverse=true means Server(Pod) sends to Client(Host), testing Upload/Egress from Pod
+		bps := RunIperf(t, "", cfg.PodIP, cfg.IperfPort, "4", true)
+		ValidateTraffic(t, bps, sysRate, "Sys-Default", 0.3)
 	})
 
-	time.Sleep(2 * time.Second)
-
-	// Phase B: Sim Traffic (Host IP Whitelisted)
-	// Expectation: Should match Sim Limit (10Mbps)
-	t.Run("Phase_B_Sim_Traffic_Limit", func(t *testing.T) {
-		t.Logf("Adding HOST IP %s to Whitelist (Switching to Sim Mode)...", isoHostIP)
-		if err := mgr.AddPeer(isoHostIP); err != nil {
-			t.Fatalf("Failed to add peer: %v", err)
+	// --- Phase 2: Promote to Simulation Traffic ---
+	t.Run("Phase2_SimPromoted", func(t *testing.T) {
+		t.Log(">>> Testing Phase 2: Applying Policy (Sim Traffic - Expected Low Speed)")
+		err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, &bpf.TcLinkPolicy{BandwidthLimit: 0})
+		if err != nil {
+			t.Fatalf("SetPolicy failed: %v", err)
 		}
 
-		bps := runIperfIso(t, true)
-		validateSpeedIso(t, bps, simLimitRateBits, "Sim")
+		// Wait for map update
+		time.Sleep(500 * time.Millisecond)
+
+		bps := RunIperf(t, "", cfg.PodIP, cfg.IperfPort, "4", true)
+		ValidateTraffic(t, bps, simRate, "Sim-Active", 0.3)
 	})
 
-	time.Sleep(2 * time.Second)
-
-	// Phase C: Sys Traffic Restored
-	// Expectation: Should return to Sys Limit (50Mbps)
-	t.Run("Phase_C_Sys_Traffic_Restored", func(t *testing.T) {
-		t.Logf("Removing HOST IP %s from Whitelist (Switching back to Sys Mode)...", isoHostIP)
-		if err := mgr.RemovePeer(isoHostIP); err != nil {
-			t.Fatalf("Failed to remove peer: %v", err)
+	// --- Phase 3: Revert to System Traffic ---
+	t.Run("Phase3_SysReverted", func(t *testing.T) {
+		t.Log(">>> Testing Phase 3: Removing Policy (Revert to Sys - Expected High Speed)")
+		err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, nil)
+		if err != nil {
+			t.Fatalf("Failed to remove policy: %v", err)
 		}
 
-		bps := runIperfIso(t, true)
-		validateSpeedIso(t, bps, sysLimitRateBits, "Sys-Restored")
+		time.Sleep(500 * time.Millisecond)
+
+		bps := RunIperf(t, "", cfg.PodIP, cfg.IperfPort, "4", true)
+		ValidateTraffic(t, bps, sysRate, "Sys-Restored", 0.3)
 	})
-}
-
-func runIperfIso(t *testing.T, reverse bool) float64 {
-	args := []string{
-		"-c", isoPodIP,
-		"-p", isoIperfPort,
-		"-t", "5",
-		"-J",
-	}
-	if reverse {
-		args = append(args, "-R")
-	}
-
-	cmd := exec.Command("iperf3", args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("iperf3 failed: %v, Output: %s", err, string(out))
-	}
-
-	var result IperfResultIso
-	if err := json.Unmarshal(out, &result); err != nil {
-		t.Fatalf("Failed to parse iperf output: %v", err)
-	}
-
-	bpsSent := result.End.SumSent.BitsPerSecond
-	bpsRecv := result.End.SumReceived.BitsPerSecond
-	if bpsSent > bpsRecv {
-		return bpsSent
-	}
-	return bpsRecv
-}
-
-func validateSpeedIso(t *testing.T, actualBps float64, targetBps float64, mode string) {
-	mbps := actualBps / 1000000.0
-	t.Logf("[%s] Actual Speed: %.2f Mbps, Target: %.2f Mbps", mode, mbps, targetBps/1000000.0)
-
-	// Tolerance
-	upperLimit := targetBps * 1.3
-	lowerLimit := targetBps * 0.7
-
-	if actualBps > upperLimit {
-		t.Errorf("[%s] FAILED: Speed too high! Got: %.2f Mbps", mode, mbps)
-	} else if actualBps < lowerLimit {
-		t.Errorf("[%s] FAILED: Speed too low! Got: %.2f Mbps", mode, mbps)
-	} else {
-		t.Logf("[%s] PASS: Speed accurate.", mode)
-	}
-}
-
-func cleanupIso() {
-	exec.Command("./test/bpf/cleanup_topology.sh", isoNsName, isoHostVeth).Run()
-	os.Remove(fmt.Sprintf("/tmp/iperf_server_%s.log", isoNsName))
 }
