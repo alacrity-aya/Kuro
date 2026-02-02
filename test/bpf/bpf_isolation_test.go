@@ -55,7 +55,7 @@ func TestTrafficIsolation(t *testing.T) {
 	// --- Phase 2: Promote to Simulation Traffic ---
 	t.Run("Phase2_SimPromoted", func(t *testing.T) {
 		t.Log(">>> Testing Phase 2: Applying Policy (Sim Traffic - Expected Low Speed)")
-		err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, &bpf.TcLinkPolicy{BandwidthLimit: 0})
+		err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, &bpf.NetworkPolicyConfig{BandwidthLimit: 0})
 		if err != nil {
 			t.Fatalf("SetPolicy failed: %v", err)
 		}

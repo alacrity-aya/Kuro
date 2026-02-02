@@ -64,7 +64,7 @@ func TestDualRateEnforcement(t *testing.T) {
 	t.Run("Sim_Traffic_Check", func(t *testing.T) {
 		t.Log(">>> Scenario 2: Simulation Traffic Enforcement")
 
-		policy := &bpf.TcLinkPolicy{BandwidthLimit: 0}
+		policy := &bpf.NetworkPolicyConfig{BandwidthLimit: 0}
 		if err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, policy); err != nil {
 			t.Fatalf("SetPolicy Upload failed: %v", err)
 		}

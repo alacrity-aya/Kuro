@@ -4,6 +4,7 @@ package bpf
 import (
 	"fmt"
 	"log"
+	"math"
 	"runtime"
 	"sync"
 	"time"
@@ -20,6 +21,14 @@ const (
 	ScaleFactor   = 65536
 	MaxIfIndexCap = 4096
 )
+
+type NetworkPolicyConfig struct {
+	BandwidthLimit    uint64 // bps (0 = Default)
+	QueueDepthNs      uint64 // ns (0 = Global)
+	BaseLatencyNs     uint64 // ns
+	JitterNs          uint64 // ns
+	CorruptionRatePpm uint32 // ppm (0-1,000,000)
+}
 
 // BpfManager manages eBPF programs and maps for traffic control.
 type BpfManager struct {
@@ -381,38 +390,58 @@ func (m *BpfManager) UpdateRule(hostIfIndex int, simUploadBps, simDownloadBps, s
 // srcIP: The source IP (should match the Pod managed by this call context, or generic)
 // dstIP: The destination IP
 // policy: The policy struct. If nil, the policy is deleted (reverting to System Traffic).
-func (m *BpfManager) SetPolicy(srcIP string, dstIP string, policy *TcLinkPolicy) error {
+func (m *BpfManager) SetPolicy(srcIP string, dstIP string, config *NetworkPolicyConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	sIpUint, err := ipToUint32(srcIP)
+	sIPUint, err := ipToUint32(srcIP)
 	if err != nil {
 		return err
 	}
-	dIpUint, err := ipToUint32(dstIP)
+	dIPUint, err := ipToUint32(dstIP)
 	if err != nil {
 		return err
 	}
 
-	// Construct the Composite Key
-	key := TcPolicyKey{
-		SrcIp: sIpUint,
-		DstIp: dIpUint,
-	}
+	key := TcPolicyKey{SrcIp: sIPUint, DstIp: dIPUint}
 
-	if policy == nil {
-		// Delete Policy
+	if config == nil {
 		if err := m.objects.TopologyPolicyMap.Delete(key); err != nil {
 			if err != ebpf.ErrKeyNotExist {
-				return fmt.Errorf("failed to delete policy for %s->%s: %w", srcIP, dstIP, err)
+				return fmt.Errorf("failed to delete policy: %w", err)
 			}
 		}
 		return nil
 	}
 
-	// Add/Update Policy
-	if err := m.objects.TopologyPolicyMap.Put(key, policy); err != nil {
-		return fmt.Errorf("failed to put policy for %s->%s: %w", srcIP, dstIP, err)
+	// === Conversion Logic (User -> Kernel) ===
+	policyMapVal := TcLinkPolicy{
+		QueueDepthNs:  config.QueueDepthNs,
+		BaseLatencyNs: config.BaseLatencyNs,
+		JitterNs:      config.JitterNs,
+		Padding:       0,
+	}
+
+	// 1. Convert Bandwidth (bps) -> Cost
+	if config.BandwidthLimit > 0 {
+		policyMapVal.CostPerByteScaled = bpsToScaledCost(config.BandwidthLimit)
+	} else {
+		policyMapVal.CostPerByteScaled = 0 // Signal kernel to use default
+	}
+
+	// 2. Convert PPM -> Threshold
+	// Threshold = (ppm / 1,000,000) * UINT32_MAX
+	if config.CorruptionRatePpm > 0 {
+		// Use uint64 to prevent overflow during multiplication
+		// MaxUint32 is 4,294,967,295
+		val := (uint64(config.CorruptionRatePpm) * uint64(math.MaxUint32)) / 1_000_000
+		policyMapVal.CorruptionThreshold = uint32(val)
+	} else {
+		policyMapVal.CorruptionThreshold = 0
+	}
+
+	if err := m.objects.TopologyPolicyMap.Put(key, &policyMapVal); err != nil {
+		return fmt.Errorf("failed to put policy: %w", err)
 	}
 
 	return nil

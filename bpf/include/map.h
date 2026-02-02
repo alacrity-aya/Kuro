@@ -22,12 +22,24 @@ struct io_rate {
 // TODO: can be improved
 // Physics Model (Per-Link Policy)
 struct link_policy {
-    __u64 bandwidth_limit; // bps (0 = Use Default Sim Rate)
-    __u64 queue_depth_ns; // Horizon (0 = Use Global)
-    __u64 base_latency_ns; // Propagation Delay
-    __u64 jitter_ns; // Jitter Amplitude
-    __u32 corruption_rate_ppm; // Packet Loss (Parts Per Million)
-    __u32 _padding; // Align to 8 bytes
+    // Logic: cost = (NSEC_PER_SEC * 8 * 65536) / bandwidth_bps
+    // 0 = Use Default Sim Rate
+    __u64 cost_per_byte_scaled;
+
+    // Horizon (0 = Use Global)
+    __u64 queue_depth_ns;
+
+    // Propagation Delay
+    __u64 base_latency_ns;
+
+    // Jitter Amplitude
+    __u64 jitter_ns;
+
+    // (ppm * UINT32_MAX) / 1,000,000.
+    __u32 corruption_threshold;
+
+    // Align to 8 bytes
+    __u32 _padding;
 };
 
 struct edt_state {

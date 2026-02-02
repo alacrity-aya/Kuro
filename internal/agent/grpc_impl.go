@@ -63,16 +63,16 @@ func (a *Agent) ApplyLinkPolicy(policy domain.LinkPolicy) error {
 		return fmt.Errorf("invalid link policy: missing src or dst ip")
 	}
 
-	var tcPolicy *bpf.TcLinkPolicy
+	var tcPolicy *bpf.NetworkPolicyConfig
 
 	// Check the IsDelete flag we added to the Domain model
 	if !policy.IsDelete {
-		tcPolicy = &bpf.TcLinkPolicy{
+		tcPolicy = &bpf.NetworkPolicyConfig{
 			BandwidthLimit:    policy.BandwidthBps,
+			QueueDepthNs:      policy.QueueDepthNs,
 			BaseLatencyNs:     policy.BaseLatencyNs,
 			JitterNs:          policy.JitterNs,
 			CorruptionRatePpm: policy.CorruptionRatePpm,
-			QueueDepthNs:      policy.QueueDepthNs,
 		}
 	}
 

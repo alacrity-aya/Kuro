@@ -46,10 +46,10 @@ func TestDualDirectionTC(t *testing.T) {
 	}
 
 	t.Log("[Test] Applying bidirectional Sim Policy...")
-	if err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, &bpf.TcLinkPolicy{BandwidthLimit: 0}); err != nil {
+	if err := mgr.SetPolicy(cfg.PodIP, cfg.HostIP, &bpf.NetworkPolicyConfig{BandwidthLimit: 0}); err != nil {
 		t.Fatalf("SetPolicy Upload failed: %v", err)
 	}
-	if err := mgr.SetPolicy(cfg.HostIP, cfg.PodIP, &bpf.TcLinkPolicy{BandwidthLimit: 0}); err != nil {
+	if err := mgr.SetPolicy(cfg.HostIP, cfg.PodIP, &bpf.NetworkPolicyConfig{BandwidthLimit: 0}); err != nil {
 		t.Fatalf("SetPolicy Download failed: %v", err)
 	}
 

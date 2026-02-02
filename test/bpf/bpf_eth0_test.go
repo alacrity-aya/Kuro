@@ -62,7 +62,7 @@ func TestEth0Protection(t *testing.T) {
 	t.Run("Sim_Traffic_Bypass", func(t *testing.T) {
 		t.Log(">>> Applying Policy (Expect Bypass / No Limit)...")
 
-		policy := &bpf.TcLinkPolicy{BandwidthLimit: 0}
+		policy := &bpf.NetworkPolicyConfig{BandwidthLimit: 0}
 		if err := mgr.SetPolicy(Eth0WorldIP, Eth0HostIP, policy); err != nil {
 			t.Fatalf("SetPolicy failed: %v", err)
 		}

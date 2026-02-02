@@ -103,7 +103,7 @@ func Benchmark_EDT_BPF(b *testing.B) {
 			// If we don't do this, traffic is treated as "System" and gets a 3ms latency penalty (offset),
 			// which might unfairly skew throughput/latency metrics compared to raw HTB.
 			// BandwidthLimit: 0 means "Use Default Sim Rate" (which we set above).
-			policy := &bpf.TcLinkPolicy{BandwidthLimit: 0}
+			policy := &bpf.NetworkPolicyConfig{BandwidthLimit: 0}
 
 			// Upload: Pod -> Host
 			if err := mgr.SetPolicy(BenchPodIP, BenchHostIP, policy); err != nil {

@@ -222,9 +222,9 @@ int handle_edt_upload(struct __sk_buff* skb) {
 
         if (policy) {
             // Use specific link policy
-            if (policy->bandwidth_limit > 0) {
+            if (policy->cost_per_byte_scaled > 0) {
                 // Cost = (10^9 * 8 * 65536) / bw
-                target_cost = (8000000000ULL << 16) / policy->bandwidth_limit;
+                target_cost = policy->cost_per_byte_scaled;
             } else {
                 target_cost =
                     rates->cost_per_byte_sim_upload; // Default Sim rate if policy unspecified
@@ -235,8 +235,8 @@ int handle_edt_upload(struct __sk_buff* skb) {
             }
 
             // Packet Corruption/Loss Simulation (Signal interference)
-            if (policy->corruption_rate_ppm > 0) {
-                if ((bpf_get_prandom_u32() % 1000000) < policy->corruption_rate_ppm)
+            if (policy->corruption_threshold > 0) {
+                if (bpf_get_prandom_u32() < policy->corruption_threshold)
                     return TC_ACT_SHOT;
             }
         } else {

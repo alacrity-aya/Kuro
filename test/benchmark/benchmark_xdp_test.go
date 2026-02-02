@@ -34,16 +34,18 @@ func Benchmark_TC_Ingress_Police(b *testing.B) {
 			setupXdpBenchEnv(b)
 			defer teardownXdpBenchEnv()
 
-			// Add standard TC ingress policing on Host Veth
-			// NOTE: Policing on Ingress is supported by default in recent kernels
+			// Add standard TC ingress policing
 			cmd := exec.Command("tc", "qdisc", "add", "dev", XdpHostVeth, "handle", "ffff:", "ingress")
 			if err := cmd.Run(); err != nil {
 				b.Fatalf("Failed to add ingress qdisc: %v", err)
 			}
 
-			// rate X kbit burst 100k
+			// [FIXED] Burst adjusted.
+			// TC 'burst' unit is bytes. A safe rule of thumb for TCP is rate / 1000 * buffer_ms.
+			// Ideally for 1Gbps, we want > 1MB burst to be nice to TCP, but for UDP test 100KB is acceptable.
+			// We increase it slightly to 200k to ensure stability.
 			rateKbps := tc.rate / 1000
-			cmd = exec.Command("tc", "filter", "add", "dev", XdpHostVeth, "parent", "ffff:", "protocol", "ip", "u32", "match", "u32", "0", "0", "police", "rate", fmt.Sprintf("%dkbit", rateKbps), "burst", "100k", "drop", "flowid", ":1")
+			cmd = exec.Command("tc", "filter", "add", "dev", XdpHostVeth, "parent", "ffff:", "protocol", "ip", "u32", "match", "u32", "0", "0", "police", "rate", fmt.Sprintf("%dkbit", rateKbps), "burst", "200k", "drop", "flowid", ":1")
 			if err := cmd.Run(); err != nil {
 				b.Fatalf("Failed to add police filter: %v", err)
 			}
@@ -52,7 +54,8 @@ func Benchmark_TC_Ingress_Police(b *testing.B) {
 			defer stopServer()
 
 			b.ResetTimer()
-			res := runXdpBenchIperf(b)
+			// [FIXED] Use UDP
+			res := runXdpBenchIperfUDP(b, tc.rate)
 			b.StopTimer()
 
 			reportMetrics(b, "TC-Police", res, tc.rate)
@@ -73,21 +76,23 @@ func Benchmark_XDP_Drop(b *testing.B) {
 			}
 			defer mgr.Close()
 
-			// Attach XDP to Host Veth
-			// Burst = 100KB approx
-			err = mgr.AttachIngressProtection(XdpHostVeth, tc.rate, 100*1024)
+			// [FIXED] Increase Burst for XDP
+			// 100KB is too small for 1Gbps (0.8ms).
+			// We set burst to ~2ms worth of data or min 200KB.
+			// 1Gbps = 125MB/s. 2ms = 250KB.
+			burstBytes := uint64(256 * 1024)
+
+			err = mgr.AttachIngressProtection(XdpHostVeth, tc.rate, burstBytes)
 			if err != nil {
 				b.Fatalf("AttachIngressProtection failed: %v", err)
 			}
-
-			// We DO NOT set any policy here.
-			// By default, traffic will be "System Traffic" and hit the XDP limiter.
 
 			stopServer := startIperfServerXdp(b)
 			defer stopServer()
 
 			b.ResetTimer()
-			res := runXdpBenchIperf(b)
+			// [FIXED] Use UDP
+			res := runXdpBenchIperfUDP(b, tc.rate)
 			b.StopTimer()
 
 			reportMetrics(b, "XDP-Drop", res, tc.rate)
@@ -102,14 +107,11 @@ func setupXdpBenchEnv(b *testing.B) {
 	exec.Command("ip", "link", "add", XdpHostVeth, "type", "veth", "peer", "name", XdpPodVeth).Run()
 	exec.Command("ip", "link", "set", XdpPodVeth, "netns", XdpBenchNs).Run()
 
-	// Host Side
 	exec.Command("ip", "addr", "add", XdpHostIP+"/24", "dev", XdpHostVeth).Run()
 	exec.Command("ip", "link", "set", XdpHostVeth, "up").Run()
-
-	// Ensure GSO/GRO is off to stress packet processing
+	// Disable Offloading for accurate XDP testing
 	exec.Command("ethtool", "-K", XdpHostVeth, "gso", "off", "gro", "off").Run()
 
-	// Pod Side
 	exec.Command("ip", "netns", "exec", XdpBenchNs, "ip", "addr", "add", XdpPodIP+"/24", "dev", XdpPodVeth).Run()
 	exec.Command("ip", "netns", "exec", XdpBenchNs, "ip", "link", "set", XdpPodVeth, "up").Run()
 	exec.Command("ip", "netns", "exec", XdpBenchNs, "ethtool", "-K", XdpPodVeth, "gso", "off", "gro", "off").Run()
@@ -133,21 +135,28 @@ func startIperfServerXdp(b *testing.B) func() {
 	}
 }
 
-func runXdpBenchIperf(b *testing.B) BenchResult {
-	// Client runs in NS (Pod), sending to Host
-	// We want to test INGRESS on Host Veth
-	cmd := exec.Command("ip", "netns", "exec", XdpBenchNs, "iperf3", "-c", XdpHostIP, "-p", XdpServerPort, "-t", "10", "-J", "-P", "8", "-Z")
+// [NEW] Helper for UDP Benchmark
+func runXdpBenchIperfUDP(b *testing.B, targetRate uint64) BenchResult {
+	// Push 1.2x traffic to force dropping
+	sendRateBps := float64(targetRate) * 1.2
+	sendRateStr := fmt.Sprintf("%.0f", sendRateBps)
+
+	// -u: UDP
+	// -b: Bandwidth
+	// -R: Reverse? No, Client(Pod) -> Host(Ingress). Normal mode.
+	cmd := exec.Command("ip", "netns", "exec", XdpBenchNs, "iperf3", "-c", XdpHostIP, "-p", XdpServerPort, "-u", "-b", sendRateStr, "-t", "5", "-J", "-P", "4")
 	out, err := cmd.Output()
 	if err != nil {
-		b.Logf("iperf3 failed (expected if drops are too high?): %v", err)
+		b.Logf("iperf3 UDP failed: %v", err)
 	}
 
 	var res struct {
 		End struct {
-			SumSent struct {
+			Sum struct {
+				// For UDP, Sum contains the aggregated stats
 				BitsPerSecond float64 `json:"bits_per_second"`
-				Retransmits   int     `json:"retransmits"`
-			} `json:"sum_sent"`
+				LostPercent   float64 `json:"lost_percent"`
+			} `json:"sum"`
 			CpuUtilizationPercent struct {
 				HostTotal float64 `json:"host_total"`
 			} `json:"cpu_utilization_percent"`
@@ -155,16 +164,13 @@ func runXdpBenchIperf(b *testing.B) BenchResult {
 	}
 
 	if err := json.Unmarshal(out, &res); err != nil {
-		// Just return zero result if parse fails (likely connection reset due to drop)
-		return BenchResult{}
+		b.Fatalf("json parse error: %v, output: %s", err, string(out))
 	}
 
-	// For XDP limit, we check the *Received* rate usually, or Sent rate to see how much TCP backed off.
-	// Since iperf report is from client side (Sender), SumSent shows what it *tried* to push (and successfully acked?).
-	// Actually, TCP will backoff.
+	// For UDP, bits_per_second in 'sum' is the received bandwidth (Goodput)
 	return BenchResult{
-		Bps:      res.End.SumSent.BitsPerSecond,
-		Retrans:  res.End.SumSent.Retransmits,
+		Bps:      res.End.Sum.BitsPerSecond,
+		Retrans:  0, // UDP has no retransmits
 		CpuUsage: res.End.CpuUtilizationPercent.HostTotal,
 	}
 }
