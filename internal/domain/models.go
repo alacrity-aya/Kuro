@@ -81,7 +81,7 @@ type NodePolicy struct {
 // ControllerCommand represents a generic instruction sent from the Controller to an Agent.
 type ControllerCommand struct {
 	ID      string
-	Payload interface{} // Can be LinkPolicy, PodPolicy, or NodePolicy
+	Payload any // Can be LinkPolicy, PodPolicy, or NodePolicy
 }
 
 // AgentSender defines the abstract interface for sending data to an Agent.

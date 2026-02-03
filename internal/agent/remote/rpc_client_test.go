@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	pb "kuro/api/v1"
+	pb "kuro/api/proto/v1"
 	"kuro/internal/domain"
 
 	"google.golang.org/grpc"

@@ -10,6 +10,7 @@ CONTROLLER_IMAGE_NAME="kuro-controller:dev"
 
 AGENT_YAML_PATH="$PROJECT_ROOT/deploy/agent.yaml"
 CONTROLLER_YAML_PATH="$PROJECT_ROOT/deploy/controller.yaml"
+CRD_YAML_DIR="$PROJECT_ROOT/deploy/crd"
 
 # Flannel & CNI (Pinned to v0.28.0)
 FLANNEL_VERSION="v0.28.0"
@@ -18,6 +19,9 @@ FLANNEL_URL="https://github.com/flannel-io/flannel/releases/download/${FLANNEL_V
 CNI_PLUGINS_VERSION="v1.3.0"
 CNI_ARCHIVE="cni-plugins-linux-amd64-${CNI_PLUGINS_VERSION}.tgz"
 CNI_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/${CNI_ARCHIVE}"
+
+# Default Network Mode
+FLANNEL_BACKEND="host-gw"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -29,8 +33,27 @@ NC='\033[0m'
 parse_args() {
     while [[ "$#" -gt 0 ]]; do
         case $1 in
-            -h|--help) echo "Usage: $0"; exit 0 ;;
-            *) echo -e "${RED}Unknown: $1${NC}"; exit 1 ;;
+            -h|--help) 
+                echo "Usage: $0 [options]"
+                echo "Options:"
+                echo "  --mode <mode>   Set Flannel backend mode: 'host-gw' (default) or 'vxlan'"
+                echo "  -h, --help      Show this help message"
+                exit 0 
+                ;;
+            --mode)
+                if [[ "$2" == "vxlan" || "$2" == "host-gw" ]]; then
+                    FLANNEL_BACKEND="$2"
+                    shift 2
+                else
+                    echo -e "${RED}Error: Mode must be 'host-gw' or 'vxlan'.${NC}"
+                    exit 1
+                fi
+                ;;
+            *) 
+                echo -e "${RED}Unknown argument: $1${NC}"
+                echo "Use --help for usage information."
+                exit 1 
+                ;;
         esac
     done
 }
@@ -50,6 +73,7 @@ setup_proxy_env() {
 
 setup_infrastructure() {
     echo -e "${GREEN}>>> [Phase 1] Infrastructure Setup${NC}"
+    echo -e "${GREEN}>>> Network Mode Selected: ${FLANNEL_BACKEND}${NC}"
     
     NEW_CLUSTER=false
 
@@ -75,8 +99,10 @@ EOF
     fi
 
     if [ -f "$PROJECT_ROOT/Makefile" ]; then
-        echo -e "${YELLOW}Building and Loading Agent Image...${NC}"
-        (cd "$PROJECT_ROOT" && make images)
+        echo -e "${YELLOW}Compiling and Building Images...${NC}"
+        (cd "$PROJECT_ROOT" && make generate && make images)
+        
+        echo -e "${YELLOW}Loading Images into Kind...${NC}"
         kind load docker-image "$AGENT_IMAGE_NAME" --name "$CLUSTER_NAME"
         kind load docker-image "$CONTROLLER_IMAGE_NAME" --name "$CLUSTER_NAME"
     else
@@ -94,46 +120,63 @@ EOF
         for node in $NODES; do
             docker cp "/tmp/${CNI_ARCHIVE}" "$node:/root/${CNI_ARCHIVE}"
             docker exec "$node" bash -c "mkdir -p /opt/cni/bin && tar -C /opt/cni/bin -xzf /root/${CNI_ARCHIVE} && rm /root/${CNI_ARCHIVE}"
+            
             docker exec --privileged "$node" modprobe br_netfilter || true
             docker exec --privileged "$node" sysctl -w net.bridge.bridge-nf-call-iptables=1 >/dev/null
             docker exec --privileged "$node" sysctl -w net.ipv4.ip_forward=1 >/dev/null
         done
 
         # Flannel Setup
-        echo -e "${YELLOW}Installing Flannel ${FLANNEL_VERSION} (Host-GW mode)...${NC}"
-        curl -sL "$FLANNEL_URL" | \
-        sed 's/"Type": "vxlan"/"Type": "host-gw"/' | \
-        sed '/- --kube-subnet-mgr/a \        - --iface=eth0' | \
-        kubectl apply -f -
+        echo -e "${YELLOW}Installing Flannel ${FLANNEL_VERSION} (${FLANNEL_BACKEND} mode)...${NC}"
+        
+        if [ "$FLANNEL_BACKEND" == "host-gw" ]; then
+            curl -sL "$FLANNEL_URL" | \
+            sed 's/"Type": "vxlan"/"Type": "host-gw"/' | \
+            sed '/- --kube-subnet-mgr/a \        - --iface=eth0' | \
+            kubectl apply -f -
+        else
+            curl -sL "$FLANNEL_URL" | \
+            sed '/- --kube-subnet-mgr/a \        - --iface=eth0' | \
+            kubectl apply -f -
+        fi
         
         kubectl rollout status daemonset/kube-flannel-ds -n kube-flannel --timeout=180s
     fi
 }
 
 deploy_agent_external() {
-    echo -e "${GREEN}>>> [Phase 2] Deploying Agent from ${AGENT_YAML_PATH}${NC}"
+    echo -e "${GREEN}>>> [Phase 2] Deploying Components${NC}"
     kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
 
     echo "Creating Namespaces..."
     kubectl create ns kuro-experiment --dry-run=client -o yaml | kubectl apply -f -
     kubectl create ns kuro-system --dry-run=client -o yaml | kubectl apply -f -
 
-    if [ ! -f "$AGENT_YAML_PATH" ]; then
-        echo -e "${RED}Error: Agent configuration file not found at: $AGENT_YAML_PATH${NC}"
-        echo -e "${RED}Please save your agent.yaml content to that path.${NC}"
+    if [ -d "$CRD_YAML_DIR" ]; then
+        echo -e "${YELLOW}Applying CRDs from $CRD_YAML_DIR...${NC}"
+        kubectl apply -f "$CRD_YAML_DIR"
+    else
+        echo -e "${RED}CRD directory not found at $CRD_YAML_DIR. Did 'make generate' fail?${NC}"
         exit 1
     fi
 
-    kubectl apply -f "$AGENT_YAML_PATH"
-    kubectl apply -f "$CONTROLLER_YAML_PATH"
+    if [ ! -f "$AGENT_YAML_PATH" ]; then
+        echo -e "${RED}Error: Agent configuration file not found at: $AGENT_YAML_PATH${NC}"
+        exit 1
+    fi
 
-    echo "Restarting Agent DaemonSet to pick up changes..."
+    echo -e "${YELLOW}Applying Agent and Controller manifests...${NC}"
+    kubectl apply -f "$CONTROLLER_YAML_PATH" # RBAC, SA, Deployment
+    kubectl apply -f "$AGENT_YAML_PATH"      # DaemonSet
+
+    echo "Restarting components to pick up new images..."
     kubectl rollout restart daemonset/kuro-agent -n kuro-system
-
-    kubectl rollout restart deployment kuro-controller -n kuro-system
+    kubectl rollout restart deployment/kuro-controller -n kuro-system
 
     echo "Waiting for Agents to be ready..."
     kubectl rollout status daemonset/kuro-agent -n kuro-system --timeout=60s
+    
+    kubectl rollout status deployment/kuro-controller -n kuro-system --timeout=60s
 }
 
 # ================= Execution =================
@@ -142,4 +185,4 @@ parse_args "$@"
 setup_infrastructure
 deploy_agent_external
 
-echo -e "\n${GREEN}>>> All Systems Go! Cluster is running in Host-GW mode with External Agent Config.${NC}"
+echo -e "\n${GREEN}>>> All Systems Go! Cluster is running in [${FLANNEL_BACKEND}] mode.${NC}"

@@ -1,9 +1,5 @@
 ## Architectural Roles of the Simulation Controller
 
-Your understanding is spot on. In a production-grade distributed simulation system, the **Controller** acts as the central intelligence hub, typically operating as a "monolith" or a "collection of microservices" that must simultaneously fulfill these three critical roles:
-
----
-
 ### 1. gRPC Server (Agent-Facing)
 
 * **Responsibilities:** Maintains long-lived connections with hundreds or thousands of Agents; receives heartbeats and Pod events reported by Agents; pushes global whitelists and traffic control policies to the Agents.

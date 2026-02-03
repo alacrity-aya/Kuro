@@ -1,6 +1,8 @@
 /internal/agent/bpf/*.o
 /internal/agent/bpf/*bpf*.go
 /bin
-/api/v1/*.go
+/api/proto/v1/*.go
 /bpf/include/vmlinux.h
 /todo.md
+/deploy/crd/
+/api/crd/v1alpha1/zz*

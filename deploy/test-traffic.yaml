@@ -1,0 +1,16 @@
+apiVersion: simulation.kuro.io/v1alpha1
+kind: TrafficControl
+metadata:
+  name: weak-signal
+  namespace: default
+spec:
+  source:
+    matchLabels:
+      role: follower
+  destination:
+    matchLabels:
+      role: leader
+  policy:
+    bandwidth: "1Mbps"  
+    latency: "200ms"    
+    packetLoss: "1.5%"  

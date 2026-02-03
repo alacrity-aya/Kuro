@@ -6,16 +6,20 @@ import (
 	"log"
 	"net/http"
 
-	"kuro/internal/controller"
 	"kuro/internal/domain"
 )
 
+type Manager interface {
+	SendCommand(nodeName string, payload any) (string, error)
+	ListAgents() []string
+}
+
 type HTTPServer struct {
-	manager *controller.ControllerManager
+	manager Manager
 	port    int
 }
 
-func NewHTTPServer(manager *controller.ControllerManager, port int) *HTTPServer {
+func NewHTTPServer(manager Manager, port int) *HTTPServer {
 	return &HTTPServer{
 		manager: manager,
 		port:    port,
@@ -56,8 +60,8 @@ func (s *HTTPServer) ApplyLinkPolicyAPI(w http.ResponseWriter, r *http.Request) 
 	// Define Request DTO (Can be local or defined in api/types.go)
 	var req struct {
 		NodeName          string `json:"node_name"`
-		SrcIp             string `json:"src_ip"`
-		DstIp             string `json:"dst_ip"`
+		SrcIP             string `json:"src_ip"`
+		DstIP             string `json:"dst_ip"`
 		BandwidthLimit    uint64 `json:"bandwidth_limit"`
 		BaseLatencyNs     uint64 `json:"base_latency_ns"`
 		JitterNs          uint64 `json:"jitter_ns"`
@@ -74,8 +78,8 @@ func (s *HTTPServer) ApplyLinkPolicyAPI(w http.ResponseWriter, r *http.Request) 
 
 	// Construct Domain Object
 	policy := domain.LinkPolicy{
-		SrcIP:             req.SrcIp,
-		DstIP:             req.DstIp,
+		SrcIP:             req.SrcIP,
+		DstIP:             req.DstIP,
 		BandwidthBps:      req.BandwidthLimit,
 		BaseLatencyNs:     req.BaseLatencyNs,
 		JitterNs:          req.JitterNs,
@@ -158,7 +162,7 @@ func (s *HTTPServer) ApplyPodPolicyAPI(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[API] Applied Pod Policy for %s/%s on Node %s", req.Namespace, req.PodName, req.NodeName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`{"status": "ok", "command_id": "%s"}`, cmdID)))
+	fmt.Fprintf(w, `{"status": "ok", "command_id": "%s"}`, cmdID)
 }
 
 // ApplyNodePolicyAPI configures node-level ingress protection (XDP).
@@ -203,5 +207,5 @@ func (s *HTTPServer) ApplyNodePolicyAPI(w http.ResponseWriter, r *http.Request) 
 	log.Printf("[API] Applied Node Policy on %s (Limit: %d bps)", req.NodeName, req.IngressLimitBps)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`{"status": "ok", "command_id": "%s"}`, cmdID)))
+	fmt.Fprintf(w, `{"status": "ok", "command_id": "%s"}`, cmdID)
 }

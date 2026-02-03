@@ -14,13 +14,13 @@
 1. **Configurable Bandwidth:** Bandwidth between containers must be adjustable to simulate different network scenarios. This traffic control (shaping) is to be implemented using eBPF.
 2. **Traffic Isolation:** Simulated communication between containers (or even physical hosts in certain scenarios) must maintain strict traffic isolation. Since containers may handle non-simulation business traffic simultaneously, eBPF hooks should be used to bifurcate traffic. For example, on a 1Gbps link, simulation traffic could be restricted to 10Mbps while other traffic is limited to 990Mbps.
 3. **GUI Technology Stack:** Which technology stack offers the best visual performance? The solution needs to support diverse scenarios:
-* **Mobile Swarm Networks:** (e.g., UAV or robot dog swarms) where 3D visualization is likely essential.
-* **Industrial IoT (IIoT):** Support for the design and verification of Time-Sensitive Networking (TSN).
-* **Microservices:** Network design and performance validation.
-* **On-board/Robotic Networks:** Vehicular and robotic communication systems.
+    * **Mobile Swarm Networks:** (e.g., UAV or robot dog swarms) where 3D visualization is likely essential.
+    * **Industrial IoT (IIoT):** Support for the design and verification of Time-Sensitive Networking (TSN).
+    * **Microservices:** Network design and performance validation.
+    * **On-board/Robotic Networks:** Vehicular and robotic communication systems.
 
 
 4. **Data Management:** How to handle real-time access and long-term storage? Determine the optimal database strategy, considering:
-* **Time-Series Databases (TSDB):** For high-frequency metrics.
-* **Relational Databases (RDBMS):** For structured configuration and metadata.
-* **NoSQL/Non-structured Data Warehouses:** For flexible logs or large-scale trace data.
+    * **Time-Series Databases (TSDB):** For high-frequency metrics.
+    * **Relational Databases (RDBMS):** For structured configuration and metadata.
+    * **NoSQL/Non-structured Data Warehouses:** For flexible logs or large-scale trace data.
