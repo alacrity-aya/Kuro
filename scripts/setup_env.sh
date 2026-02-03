@@ -155,6 +155,7 @@ deploy_agent_external() {
     if [ -d "$CRD_YAML_DIR" ]; then
         echo -e "${YELLOW}Applying CRDs from $CRD_YAML_DIR...${NC}"
         kubectl apply -f "$CRD_YAML_DIR"
+        sleep 2
     else
         echo -e "${RED}CRD directory not found at $CRD_YAML_DIR. Did 'make generate' fail?${NC}"
         exit 1
@@ -165,18 +166,32 @@ deploy_agent_external() {
         exit 1
     fi
 
-    echo -e "${YELLOW}Applying Agent and Controller manifests...${NC}"
-    kubectl apply -f "$CONTROLLER_YAML_PATH" # RBAC, SA, Deployment
-    kubectl apply -f "$AGENT_YAML_PATH"      # DaemonSet
+    echo -e "${YELLOW}Detecting Master Node IP for direct connection...${NC}"
+    
+    MASTER_IP=$(kubectl get node kuro-dev-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+    
+    if [ -z "$MASTER_IP" ]; then
+        echo -e "${RED}Error: Could not determine Master Node IP.${NC}"
+        exit 1
+    fi
+    echo -e "Master Node IP is: ${GREEN}${MASTER_IP}${NC}"
 
-    echo "Restarting components to pick up new images..."
+    cat "$AGENT_YAML_PATH" | sed "s|value: \".*kuro-controller.*\"|value: \"${MASTER_IP}:9090\"|g" | sed "s|value: \"__MASTER_IP__:9090\"|value: \"${MASTER_IP}:9090\"|g" > /tmp/kuro-agent-gen.yaml
+
+    echo -e "${YELLOW}Applying Controller (Pinned to Master)...${NC}"
+    kubectl apply -f "$CONTROLLER_YAML_PATH"
+
+    echo -e "${YELLOW}Applying Agent (Hardcoded to ${MASTER_IP}:9090)...${NC}"
+    kubectl apply -f /tmp/kuro-agent-gen.yaml
+
+    # =========================================================================
+
+    echo "Restarting components..."
     kubectl rollout restart daemonset/kuro-agent -n kuro-system
     kubectl rollout restart deployment/kuro-controller -n kuro-system
 
     echo "Waiting for Agents to be ready..."
     kubectl rollout status daemonset/kuro-agent -n kuro-system --timeout=60s
-    
-    kubectl rollout status deployment/kuro-controller -n kuro-system --timeout=60s
 }
 
 # ================= Execution =================

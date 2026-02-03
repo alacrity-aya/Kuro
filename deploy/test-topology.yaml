@@ -2,7 +2,7 @@ apiVersion: simulation.kuro.io/v1alpha1
 kind: NetworkTopology
 metadata:
   name: drone-swarm
-  namespace: default
+  namespace: kuro-experiment
 spec:
   nodeGroups:
     - name: leader

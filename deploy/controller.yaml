@@ -3,41 +3,30 @@ kind: Namespace
 metadata:
   name: kuro-system
 ---
-# 1. ServiceAccount for Controller
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kuro-controller-sa
   namespace: kuro-system
 ---
-# 2. ClusterRole (Controller's Permissions)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: kuro-controller-role
 rules:
-  # A. Allow operations on Custom Resources (NetworkTopology, TrafficControl)
   - apiGroups: ["simulation.kuro.io"]
     resources: ["networktopologies", "trafficcontrols", "networktopologies/status", "trafficcontrols/status"]
     verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
-  
-  # B. Allow management of Apps resources (creating Deployments)
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
-  
-  # C. Allow reading Core resources (get Pod IPs, Node info, manage ConfigMaps)
   - apiGroups: [""]
     resources: ["pods", "nodes", "configmaps", "services", "events"]
     verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
-  
-  # D. Allow Leader Election (Required by Controller Runtime)
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-
 ---
-# 3. RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -50,28 +39,26 @@ roleRef:
   kind: ClusterRole
   name: kuro-controller-role
   apiGroup: rbac.authorization.k8s.io
-
 ---
-# 4. Service (Expose gRPC/HTTP)
 apiVersion: v1
 kind: Service
 metadata:
   name: kuro-controller
   namespace: kuro-system
 spec:
-  clusterIP: None # Headless Service
+  type: NodePort
   selector:
     app: kuro-controller
   ports:
     - name: grpc
       port: 9090
       targetPort: 9090
+      nodePort: 30090
     - name: http
       port: 8080
       targetPort: 8080
-
+      nodePort: 30080
 ---
-# 5. Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -81,6 +68,8 @@ metadata:
     app: kuro-controller
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: kuro-controller
@@ -89,13 +78,17 @@ spec:
       labels:
         app: kuro-controller
     spec:
-      serviceAccountName: kuro-controller-sa 
+      nodeName: kuro-dev-control-plane
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      serviceAccountName: kuro-controller-sa
       containers:
         - name: controller
           image: kuro-controller:dev
           imagePullPolicy: IfNotPresent
           command: ["/root/controller"]
-          args: 
+          args:
             - "-grpc-port=9090"
             - "-http-port=8080"
             - "-metrics-bind-address=:8082"
@@ -103,7 +96,7 @@ spec:
             - containerPort: 9090
             - containerPort: 8080
             - containerPort: 8082
-            - containerPort: 8081 # Health probe
+            - containerPort: 8081
           env:
             - name: GOLOG_LOG_LEVEL
               value: "debug"

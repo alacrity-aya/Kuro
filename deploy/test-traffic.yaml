@@ -2,7 +2,7 @@ apiVersion: simulation.kuro.io/v1alpha1
 kind: TrafficControl
 metadata:
   name: weak-signal
-  namespace: default
+  namespace: kuro-experiment
 spec:
   source:
     matchLabels:
