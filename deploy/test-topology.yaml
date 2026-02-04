@@ -7,30 +7,14 @@ spec:
   nodeGroups:
     - name: leader
       replicas: 1
-      image: python:3.9-slim  
+      image: nicolaka/netshoot
       labels:
         role: leader
-      command: ["python3", "-u", "/app/scripts/main.py"]
-      userProgram:
-        filename: "main.py"
-        mountPath: "/app/scripts/main.py"
-        source: |
-          import time
-          while True:
-              print("Leader drone reporting status...", flush=True)
-              time.sleep(5)
+      command: ["/bin/sh", "-c", "while true; do echo 'Leader is alive'; sleep 10; done"]
 
     - name: follower
       replicas: 2
-      image: python:3.9-slim
+      image: nicolaka/netshoot
       labels:
         role: follower
-      command: ["python3", "-u", "/app/scripts/worker.py"]
-      userProgram:
-        filename: "worker.py"
-        mountPath: "/app/scripts/worker.py"
-        source: |
-          import time
-          while True:
-              print("Follower drone waiting for instructions...", flush=True)
-              time.sleep(5)
+      command: ["/bin/sh", "-c", "while true; do echo 'Follower is alive'; sleep 10; done"]

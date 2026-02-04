@@ -109,7 +109,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// 5. Start event forwarding
 	go a.watchLocalEvents(ctx)
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
 	log.Println("[Agent] Running main loop...")

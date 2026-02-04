@@ -30,13 +30,6 @@ CONTROLLER_IMG   := kuro-controller:$(IMAGE_TAG)
 .DEFAULT_GOAL := help
 
 # ==============================================================================
-# Helper Logic
-# ==============================================================================
-TIME_START = start=$$(date +%s)
-TIME_END   = end=$$(date +%s); runtime=$$((end-start)); \
-             printf "$(COLOR_YELLOW)⏱  Time taken: $${runtime}s$(COLOR_RESET)\n"
-
-# ==============================================================================
 # Targets
 # ==============================================================================
 
@@ -69,9 +62,7 @@ generate:
 	@printf "$(COLOR_BLUE)==> Installing controller-gen & Generating code...$(COLOR_RESET)\n"
 	@mkdir -p $(BINARY_DIR)
 	@GOBIN=$(abspath $(BINARY_DIR)) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VER)
-	@# 1. Generate DeepCopy code (zz_generated.deepcopy.go)
 	@$(CONTROLLER_GEN) object paths="./api/..."
-	@# 2. Generate CRD YAML manifests
 	@mkdir -p $(CRD_DIR)
 	@$(CONTROLLER_GEN) crd paths="./api/..." output:crd:artifacts:config=$(CRD_DIR)
 	@printf "$(COLOR_GREEN)✓ Code generation complete (DeepCopy & CRDs)$(COLOR_RESET)\n"
@@ -81,9 +72,7 @@ generate:
 build-agent: proto bpf
 	@printf "$(COLOR_BLUE)==> Building Agent binary...$(COLOR_RESET)\n"
 	@mkdir -p $(BINARY_DIR)
-	@$(TIME_START); \
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/agent ./cmd/agent/main.go; \
-	$(TIME_END)
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/agent ./cmd/agent/main.go
 	@printf "$(COLOR_GREEN)✓ Agent binary built at $(BINARY_DIR)/agent$(COLOR_RESET)\n"
 
 ## build-controller: Compile the Controller binary
@@ -91,17 +80,15 @@ build-agent: proto bpf
 build-controller: proto generate
 	@printf "$(COLOR_BLUE)==> Building Controller binary...$(COLOR_RESET)\n"
 	@mkdir -p $(BINARY_DIR)
-	@$(TIME_START); \
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/controller ./cmd/controller/main.go; \
-	$(TIME_END)
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BINARY_DIR)/controller ./cmd/controller/main.go
 	@printf "$(COLOR_GREEN)✓ Controller binary built at $(BINARY_DIR)/controller$(COLOR_RESET)\n"
 
 ## images: Build Docker images (use IMAGE_TAG=... to override)
 .PHONY: images
 images: build-agent build-controller
 	@printf "$(COLOR_BLUE)==> Building Docker images [Tag: $(IMAGE_TAG)]...$(COLOR_RESET)\n"
-	@docker build -f docker/Dockerfile.agent -t $(AGENT_IMG) .
-	@docker build -f docker/Dockerfile.controller -t $(CONTROLLER_IMG) .
+	@docker build -q -f docker/Dockerfile.agent -t $(AGENT_IMG) . > /dev/null
+	@docker build -q -f docker/Dockerfile.controller -t $(CONTROLLER_IMG) . > /dev/null
 	@printf "$(COLOR_GREEN)✓ Docker images built: $(AGENT_IMG), $(CONTROLLER_IMG)$(COLOR_RESET)\n"
 
 ## build: Build both Agent and Controller binaries

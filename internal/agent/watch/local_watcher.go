@@ -50,8 +50,9 @@ type LocalWatcher struct {
 	containerRuntime *ContainerRuntime
 
 	// Custom In-Memory Storage
-	mu    sync.RWMutex
-	store map[string]*PodContext // Key: PodName (since we are scoped to 1 namespace)
+	mu      sync.RWMutex
+	store   map[string]*PodContext // Key: PodName (since we are scoped to 1 namespace)
+	ipStore map[string]string      // Key: PodIP, Value: PodName
 
 	eventCh chan domain.PodEvent
 }
@@ -67,6 +68,7 @@ func NewLocalWatcher(client kubernetes.Interface, containerRuntime *ContainerRun
 		stopCh:           make(chan struct{}),
 		store:            make(map[string]*PodContext),
 		eventCh:          make(chan domain.PodEvent, 100),
+		ipStore:          make(map[string]string),
 	}
 }
 
@@ -205,6 +207,10 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod, source string) {
 	eventType := domain.EventAdd
 
 	if oldCtx, exists := w.store[info.Name]; exists {
+		if oldCtx.Info.IP != "" && oldCtx.Info.IP != info.IP {
+			delete(w.ipStore, oldCtx.Info.IP)
+		}
+
 		oldCtx.NetnsHandle.Close()
 		eventType = domain.EventModify
 	}
@@ -212,6 +218,10 @@ func (w *LocalWatcher) handlePodAddOrUpdate(pod *corev1.Pod, source string) {
 	w.store[info.Name] = &PodContext{
 		Info:        info,
 		NetnsHandle: handle,
+	}
+
+	if info.IP != "" {
+		w.ipStore[info.IP] = info.Name
 	}
 
 	event := domain.PodEvent{
@@ -238,6 +248,10 @@ func (w *LocalWatcher) handlePodDelete(pod *corev1.Pod) {
 		// CRITICAL: Close the file descriptor
 		ctx.NetnsHandle.Close()
 		delete(w.store, pod.Name)
+
+		if ctx.Info.IP != "" {
+			delete(w.ipStore, ctx.Info.IP)
+		}
 
 		log.Printf("[Watcher] INFO Cleaned up Pod %s. Netns handle closed and removed from store.", pod.Name)
 
@@ -291,6 +305,15 @@ func (w *LocalWatcher) GetAllPods() []*PodContext {
 
 func (w *LocalWatcher) GetEventCh() <-chan domain.PodEvent {
 	return w.eventCh
+}
+
+// LookupPodByIP efficiently retrieves the Pod Name associated with a given IP.
+func (w *LocalWatcher) LookupPodByIP(ip string) (string, bool) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	name, ok := w.ipStore[ip]
+	return name, ok
 }
 
 // ================= Helpers =================

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 // ================= Helpers =================
@@ -110,4 +111,49 @@ func bpsToScaledCost(bps uint64) uint64 {
 		return 0
 	}
 	return uint64((float64(8*NsecPerSec) * float64(ScaleFactor)) / float64(bps))
+}
+
+func (m *BpfManager) resolvePodNameAndSide(key uint32) (string, string) {
+	if prog, ok := m.programs[int(key)]; ok {
+		return prog.podName, "Host (Download)"
+	}
+	for _, p := range m.programs {
+		if p.podIfIndex == int(key) {
+			return p.podName, "Pod (Upload)"
+		}
+	}
+	return "Unknown", "Unknown"
+}
+
+// costToMbpsStr converts Scaled Cost back to a Mbps string
+// Formula: Bps = (ScaleFactor * 8 * 1e9) / Cost
+func costToMbpsStr(cost uint64) string {
+	if cost == 0 {
+		return "Default/Unlimited"
+	}
+	// Reverse calculation
+	// Original: cost = (8 * 1e9 * 65536) / bps
+	// Inverse:  bps  = (8 * 1e9 * 65536) / cost
+	const numerator = 8 * 1_000_000_000 * 65536
+	bps := numerator / cost
+	mbps := bps / 1_000_000
+
+	if mbps < 1 {
+		return fmt.Sprintf("%d Kbps", bps/1000)
+	}
+	return fmt.Sprintf("%d Mbps", mbps)
+}
+
+func getMonotonicTimeNs() (uint64, error) {
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
+		return 0, err
+	}
+	return uint64(ts.Nano()), nil
+}
+
+func intToIP(nn uint32) net.IP {
+	ip := make(net.IP, 4)
+	binary.LittleEndian.PutUint32(ip, nn)
+	return ip
 }
