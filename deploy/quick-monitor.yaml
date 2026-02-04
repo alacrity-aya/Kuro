@@ -1,0 +1,173 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuro-monitor
+---
+# ==============================================================================
+# 1. RBAC
+# ==============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-sa
+  namespace: kuro-monitor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-read-all
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-binding
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-sa
+    namespace: kuro-monitor
+roleRef:
+  kind: ClusterRole
+  name: prometheus-read-all
+  apiGroup: rbac.authorization.k8s.io
+---
+# ==============================================================================
+# 2. Service Discovery
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: kuro-agent-metrics
+  namespace: kuro-system
+  labels:
+    app: kuro-agent
+spec:
+  clusterIP: None
+  selector:
+    app: kuro-agent
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+---
+# ==============================================================================
+# 3. Prometheus Configuration
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: kuro-monitor
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+    scrape_configs:
+      - job_name: 'kuro-agents'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['kuro-system']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: kuro-agent-metrics
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: instance
+            action: replace
+          - source_labels: [__meta_kubernetes_node_name]
+            target_label: node
+            action: replace
+---
+# ==============================================================================
+# 4. Prometheus Deployment
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: kuro-monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus-sa 
+      
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/prometheus/
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: kuro-monitor
+spec:
+  type: NodePort
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+      nodePort: 30091
+---
+# ==============================================================================
+# 5. Grafana
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: kuro-monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "admin"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: kuro-monitor
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30092
