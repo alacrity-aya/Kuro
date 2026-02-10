@@ -121,7 +121,7 @@ run_bpf_tests() {
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TEMP_DIR"' EXIT
 
-    PACKAGES=$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' -tags=bpf ./...)
+    PACKAGES=$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' -tags=bpf ./test/...)
     
     if [ -z "$PACKAGES" ]; then
         echo -e "${YELLOW}No packages with 'bpf' tag and test files found.${NC}"
@@ -165,7 +165,7 @@ run_k8s_tests() {
         bash "$SETUP_SCRIPT"
         
         echo -e "${YELLOW}Running K8s Tests...${NC}"
-        if go test $GO_FLAGS -tags=k8s ./...; then
+        if go test $GO_FLAGS -tags=k8s ./test/...; then
             echo -e "${GREEN}>>> K8s Tests Passed.${NC}"
         else
             echo -e "${RED}>>> K8s Tests Failed.${NC}"

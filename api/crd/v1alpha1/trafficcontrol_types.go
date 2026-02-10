@@ -25,7 +25,17 @@ type TrafficControlSpec struct {
 
 // TrafficControlStatus defines the observed state of TrafficControl
 type TrafficControlStatus struct {
-	ActiveLinks int32 `json:"activeLinks"`
+	// Phase: Pending, Active, Partial, Failed
+	Phase string `json:"phase,omitempty"`
+
+	// List of nodes where rules have been successfully applied
+	ActiveNodes []string `json:"activeNodes,omitempty"`
+
+	// Information regarding the last update
+	Message string `json:"message,omitempty"`
+
+	// The observed generation (used to prevent stale status updates)
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true

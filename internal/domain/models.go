@@ -91,3 +91,16 @@ type AgentSender interface {
 	Send(cmd ControllerCommand) error
 	Close() // Optional, used for resource cleanup
 }
+
+// TopologyResponse defines the response structure for GET /api/v1/topology
+type TopologyResponse struct {
+	Nodes []TopologyNode `json:"nodes"`
+}
+
+type TopologyNode struct {
+	Name      string `json:"name"`      // Pod name (e.g., drone-group-hash-x5a)
+	Group     string `json:"group"`     // Target group (e.g., drone)
+	Namespace string `json:"namespace"` // Kubernetes namespace
+	IP        string `json:"ip"`        // Pod IP address
+	Status    string `json:"status"`    // Current phase: Running, Pending, etc.
+}

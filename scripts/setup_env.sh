@@ -82,7 +82,7 @@ setup_infrastructure() {
     else
         echo -e "${YELLOW}Creating Cluster '${CLUSTER_NAME}'...${NC}"
         NEW_CLUSTER=true
-        setup_proxy_env
+        # setup_proxy_env
         cat <<EOF > /tmp/kind-config.yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4

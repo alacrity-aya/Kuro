@@ -19,15 +19,16 @@ import (
 type Client struct {
 	serverAddr string
 	nodeName   string
-	handler    AgentHandler // Dependency on interface, not concrete struct
+	handler    AgentHandler
 
-	conn   *grpc.ClientConn
-	stream pb.SimulationAgentService_ControlStreamClient
+	conn *grpc.ClientConn
 
-	// Used to receive events from the Watcher and send them to the gRPC stream
+	// channels
 	eventCh chan domain.PodEvent
+	ackCh   chan domain.CommandAck
 	stopCh  chan struct{}
-	mu      sync.Mutex
+
+	mu sync.Mutex
 }
 
 func NewClient(addr, nodeName string, handler AgentHandler) (*Client, error) {
@@ -35,14 +36,13 @@ func NewClient(addr, nodeName string, handler AgentHandler) (*Client, error) {
 		serverAddr: addr,
 		nodeName:   nodeName,
 		handler:    handler,
-		eventCh:    make(chan domain.PodEvent, 100), // Buffered to prevent blocking the Watcher
+		eventCh:    make(chan domain.PodEvent, 100),
+		ackCh:      make(chan domain.CommandAck, 100),
 		stopCh:     make(chan struct{}),
 	}, nil
 }
 
-// Start initiates the gRPC connection and bidirectional stream processing
 func (c *Client) Start(ctx context.Context) error {
-	// Configure reconnection strategy
 	connectParams := grpc.ConnectParams{
 		Backoff: backoff.Config{
 			BaseDelay:  1.0 * time.Second,
@@ -53,7 +53,6 @@ func (c *Client) Start(ctx context.Context) error {
 		MinConnectTimeout: 20 * time.Second,
 	}
 
-	// 1. Create the client (Non-blocking by default)
 	conn, err := grpc.NewClient(c.serverAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithConnectParams(connectParams),
@@ -63,22 +62,7 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 	c.conn = conn
 
-	client := pb.NewSimulationAgentServiceClient(conn)
-
-	// 2. Open the Stream immediately.
-	log.Printf("[Remote] Connecting to Controller at %s...", c.serverAddr)
-	stream, err := client.ControlStream(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to open stream: %w", err)
-	}
-	c.stream = stream
-
-	log.Println("[Remote] Stream opened, starting loops...")
-
-	// Start receiving loop
-	go c.recvLoop(stream)
-	// Start sending loop (Heartbeats + Events)
-	go c.sendLoop(ctx, stream)
+	go c.connectionManager(ctx)
 
 	return nil
 }
@@ -90,7 +74,6 @@ func (c *Client) Stop() {
 	}
 }
 
-// EnqueueEvent now accepts a Domain Object
 func (c *Client) EnqueueEvent(event domain.PodEvent) {
 	select {
 	case c.eventCh <- event:
@@ -99,90 +82,148 @@ func (c *Client) EnqueueEvent(event domain.PodEvent) {
 	}
 }
 
-// recvLoop handles commands issued by the Controller
-func (c *Client) recvLoop(stream pb.SimulationAgentService_ControlStreamClient) {
-	for {
-		cmd, err := stream.Recv()
-		if err == io.EOF {
-			log.Println("[Remote] Stream closed by server")
-			return
-		}
-		if err != nil {
-			log.Printf("[Remote] Stream receive error: %v", err)
-			return
-		}
+// connectionManager maintain Stream life cycle
+func (c *Client) connectionManager(ctx context.Context) {
+	log.Printf("[Remote] Connection Manager started, target: %s", c.serverAddr)
 
-		c.handleCommand(cmd)
-	}
-}
+	client := pb.NewSimulationAgentServiceClient(c.conn)
 
-// sendLoop is responsible for sending heartbeats and events
-func (c *Client) sendLoop(ctx context.Context, stream pb.SimulationAgentService_ControlStreamClient) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	// Send an immediate heartbeat for registration
-	c.sendHeartbeat(stream)
+	retryDelay := 1 * time.Second
+	maxDelay := 30 * time.Second
 
 	for {
 		select {
 		case <-c.stopCh:
-			stream.CloseSend()
 			return
 		case <-ctx.Done():
-			stream.CloseSend()
 			return
-		case <-ticker.C:
-			c.sendHeartbeat(stream)
-		case event := <-c.eventCh:
-			c.sendPodEvent(stream, event)
+		default:
+		}
+
+		streamCtx, cancel := context.WithCancel(ctx)
+		stream, err := client.ControlStream(streamCtx)
+		if err != nil {
+			log.Printf("[Remote] Failed to create stream: %v. Retrying in %v...", err, retryDelay)
+			time.Sleep(retryDelay)
+			retryDelay *= 2
+			if retryDelay > maxDelay {
+				retryDelay = maxDelay
+			}
+			cancel()
+			continue
+		}
+
+		retryDelay = 1 * time.Second
+		log.Println("[Remote] Stream connected successfully")
+
+		errCh := make(chan error, 2)
+
+		go c.recvLoop(stream, errCh)
+		go c.sendLoop(streamCtx, stream, errCh)
+
+		select {
+		case <-c.stopCh:
+			cancel()
+			return
+		case <-ctx.Done():
+			cancel()
+			return
+		case err := <-errCh:
+			log.Printf("[Remote] Stream broken: %v. Reconnecting...", err)
+			cancel() // cancle streamCtx, stop recvLoop and sendLoop
 		}
 	}
 }
 
-func (c *Client) sendHeartbeat(stream pb.SimulationAgentService_ControlStreamClient) {
-	// 1. Get Domain object
+// recvLoop handles reading, parsing commands, and generating ACKs
+func (c *Client) recvLoop(stream pb.SimulationAgentService_ControlStreamClient, errCh chan<- error) {
+	for {
+		cmd, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				errCh <- fmt.Errorf("server closed stream")
+			} else {
+				errCh <- err
+			}
+			return
+		}
+		c.handleCommand(cmd)
+	}
+}
+
+// sendLoop centralizes all Stream.Send operations (Single-threaded write to avoid race conditions)
+func (c *Client) sendLoop(ctx context.Context, stream pb.SimulationAgentService_ControlStreamClient, errCh chan<- error) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	if err := c.sendHeartbeat(stream); err != nil {
+		errCh <- err
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			if err := c.sendHeartbeat(stream); err != nil {
+				errCh <- err
+				return
+			}
+
+		case event := <-c.eventCh:
+			if err := c.sendPodEvent(stream, event); err != nil {
+				errCh <- err
+				return
+			}
+
+		case ack, ok := <-c.ackCh:
+
+			if !ok {
+				log.Println("[Remote] Critical: ackCh is closed, stopping sendLoop")
+				return
+			}
+			pbAck := ToProtoAck(ack)
+
+			pbMsg := &pb.AgentMsg{
+				Timestamp: ack.Timestamp.UnixNano(),
+				Payload:   &pb.AgentMsg_Ack{Ack: pbAck},
+			}
+
+			if err := stream.Send(pbMsg); err != nil {
+				// handle error
+			}
+		}
+	}
+}
+
+func (c *Client) sendHeartbeat(stream pb.SimulationAgentService_ControlStreamClient) error {
 	hbDomain := c.handler.GetAgentStatus()
-
-	// 2. Use Mapper to convert to Proto
 	pbHb := ToProtoHeartbeat(hbDomain)
-
-	// Supplement Proto-specific transport layer fields (if any)
-	// Here we assume NodeName in Domain is sufficient, or force override to ensure consistency
 	pbHb.NodeName = c.nodeName
 
 	msg := &pb.AgentMsg{
 		Timestamp: time.Now().UnixNano(),
 		Payload:   &pb.AgentMsg_Heartbeat{Heartbeat: pbHb},
 	}
-
-	if err := stream.Send(msg); err != nil {
-		log.Printf("[Remote] Failed to send heartbeat: %v", err)
-	}
+	return stream.Send(msg)
 }
 
-func (c *Client) sendPodEvent(stream pb.SimulationAgentService_ControlStreamClient, event domain.PodEvent) {
-	// Convert using Mapper
+func (c *Client) sendPodEvent(stream pb.SimulationAgentService_ControlStreamClient, event domain.PodEvent) error {
 	pbEvent := ToProtoPodEvent(event)
-
 	msg := &pb.AgentMsg{
 		Timestamp: time.Now().UnixNano(),
 		Payload:   &pb.AgentMsg_PodEvent{PodEvent: pbEvent},
 	}
-
-	if err := stream.Send(msg); err != nil {
-		log.Printf("[Remote] Failed to send pod event: %v", err)
-	}
+	return stream.Send(msg)
 }
 
-// handleCommand dispatches instructions to the Agent logic
 func (c *Client) handleCommand(cmd *pb.ControllerCmd) {
 	var err error
 	var msg string
 
-	// Core logic for converting Proto to Domain and executing calls
 	switch payload := cmd.Payload.(type) {
-
 	case *pb.ControllerCmd_ApplyLinkPolicy:
 		domainPolicy := FromProtoLinkPolicy(payload.ApplyLinkPolicy)
 		log.Printf("[Remote] Cmd: ApplyLinkPolicy (%s -> %s)", domainPolicy.SrcIP, domainPolicy.DstIP)
@@ -203,7 +244,6 @@ func (c *Client) handleCommand(cmd *pb.ControllerCmd) {
 		return
 	}
 
-	// Send ACK
 	success := true
 	if err != nil {
 		success = false
@@ -217,11 +257,9 @@ func (c *Client) handleCommand(cmd *pb.ControllerCmd) {
 		Message:   msg,
 	}
 
-	ackMsg := &pb.AgentMsg{
-		Timestamp: time.Now().UnixNano(),
-		Payload: &pb.AgentMsg_Ack{
-			Ack: ToProtoAck(domainAck),
-		},
+	select {
+	case c.ackCh <- domainAck:
+	default:
+		log.Printf("[Remote] ACK buffer full, dropping ACK for cmd %s", cmd.CommandId)
 	}
-	c.stream.Send(ackMsg)
 }

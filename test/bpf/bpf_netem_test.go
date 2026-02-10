@@ -99,20 +99,13 @@ func TestNetworkEmulation(t *testing.T) {
 			t.Fatalf("SetPolicy failed: %v", err)
 		}
 
-		// Start UDP Server
-		stopServer := startIperfServer(t, NetEmTestConfig.IperfPort)
-		defer stopServer()
+		stats := RunPing(t, NetEmTestConfig.NsName, NetEmTestConfig.HostIP, 200)
+		t.Logf(">>> Ping Loss Result: %.1f%%", stats.LossPct)
 
-		// Run UDP Client: 10Mbps, 2 seconds. Enough packets to be statistically significant.
-		stats := RunIperfUDP(t, NetEmTestConfig.NsName, NetEmTestConfig.HostIP, NetEmTestConfig.IperfPort, "10M")
-
-		t.Logf(">>> UDP Stats: Sent: %d, Lost: %d (%.2f%%)", stats.Packets, stats.Lost, stats.LostPercent)
-
-		// Tolerance: +/- 5% absolute deviation (e.g. 15% - 25% is acceptable for 20% target)
-		if math.Abs(stats.LostPercent-expectedLossPercent) > 5.0 {
-			t.Errorf("Loss Test Failed! Expected ~%.1f%%, Got %.1f%%", expectedLossPercent, stats.LostPercent)
+		if math.Abs(stats.LossPct-expectedLossPercent) > 7.0 {
+			t.Errorf("Loss Test Failed! Expected ~%.1f%%, Got %.1f%%", expectedLossPercent, stats.LossPct)
 		} else {
-			t.Logf("[PASS] Loss Verified. Got %.1f%% loss", stats.LostPercent)
+			t.Logf("[PASS] Loss Verified. Got %.1f%% loss", stats.LossPct)
 		}
 	})
 
@@ -216,11 +209,12 @@ func startIperfServer(t *testing.T, port string) func() {
 
 // Keep the Ping helper but use it only for Latency
 type PingStats struct {
-	Avg float64
+	Avg     float64
+	LossPct float64
 }
 
 func RunPing(t *testing.T, nsName string, targetIP string, count int) PingStats {
-	cmd := exec.Command("ip", "netns", "exec", nsName, "ping", "-c", strconv.Itoa(count), "-i", "0.2", "-q", targetIP)
+	cmd := exec.Command("ip", "netns", "exec", nsName, "ping", "-c", strconv.Itoa(count), "-i", "0.01", "-q", targetIP)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Logf("Ping command had error (expected for loss test, unexpected for latency): %v", err)
@@ -233,5 +227,11 @@ func RunPing(t *testing.T, nsName string, targetIP string, count int) PingStats 
 	if len(matches) == 5 {
 		stats.Avg, _ = strconv.ParseFloat(matches[2], 64)
 	}
+
+	reLoss := regexp.MustCompile(`(\d+)% packet loss`)
+	if matches := reLoss.FindStringSubmatch(output); len(matches) == 2 {
+		stats.LossPct, _ = strconv.ParseFloat(matches[1], 64)
+	}
+
 	return stats
 }

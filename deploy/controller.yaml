@@ -81,6 +81,7 @@ spec:
       nodeName: kuro-dev-control-plane
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 0
       
       serviceAccountName: kuro-controller-sa
       containers:
@@ -112,3 +113,4 @@ spec:
               port: 8081
             initialDelaySeconds: 15
             periodSeconds: 20
+

@@ -380,7 +380,7 @@ int handle_xdp_ingress(struct xdp_md* ctx) {
         key.dst_ip = iph->daddr; // Network Byte Order
 
         // Lookup: Does a defined simulation link exist between this IP pair?
-        // Note: XDP executes at the physical NIC ingress. Dst IP could be Host IP or Pod IP (depending on network mode).
+        // NOTE: XDP executes at the physical NIC ingress. Dst IP could be Host IP or Pod IP (depending on network mode).
         // If a policy is matched, treat as simulation traffic.
         if (bpf_map_lookup_elem(&topology_policy_map, &key)) {
             is_sim = 1;

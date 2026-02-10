@@ -9,13 +9,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // AgentCommander define interface of ControllerManager
 type AgentCommander interface {
-	SendCommand(nodeName string, payload any) (string, error)
+	SendCommand(nodeName string, refKey string, payload any) (string, error)
 }
 
 // TrafficControlReconciler reconciles a TrafficControl object
@@ -34,6 +36,18 @@ func (r *TrafficControlReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if !tc.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
+	// If the ObservedGeneration in Status already equals the current Generation,
+	// it means this version of the Spec has already been processed; skip it.
+	// Note: If you need to force-refresh rules periodically (e.g., every minute), remove this check.
+	if tc.Status.ObservedGeneration == tc.Generation {
+		logger.Info("Skipping reconcile: Spec not changed", "gen", tc.Generation)
+		return ctrl.Result{}, nil
+	}
+
 	// 2. Parse Policy
 	policyTemplate, err := ParseLinkPolicy(
 		tc.Spec.Policy.Bandwidth,
@@ -43,7 +57,8 @@ func (r *TrafficControlReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	)
 	if err != nil {
 		logger.Error(err, "Failed to parse policy")
-		return ctrl.Result{}, nil // Don't retry on user config error
+		// Don't retry on user config error, update status to Failed if possible
+		return ctrl.Result{}, nil
 	}
 
 	// 3. Find Source Pods
@@ -80,7 +95,7 @@ func (r *TrafficControlReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 			// Dispatch via gRPC
 			// Target the Agent on the Source Node (Egress Control)
-			_, err := r.AgentManager.SendCommand(src.Spec.NodeName, linkPolicy)
+			_, err := r.AgentManager.SendCommand(src.Spec.NodeName, req.Name, linkPolicy)
 			if err != nil {
 				logger.Info("Failed to send command to agent", "node", src.Spec.NodeName, "err", err)
 			} else {
@@ -93,8 +108,11 @@ func (r *TrafficControlReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
+// SetupWithManager sets up the controller with the Manager.
 func (r *TrafficControlReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// GenerationChangedPredicate ensures Reconcile is only triggered when the Spec (Generation) changes.
+	// Any Status updates will be intercepted by this Predicate, preventing infinite loops.
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kurov1alpha1.TrafficControl{}).
+		For(&kurov1alpha1.TrafficControl{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }

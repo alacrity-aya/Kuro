@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"maps"
 
 	kurov1alpha1 "kuro/api/crd/v1alpha1"
 
@@ -117,9 +118,7 @@ func (r *TopologyReconciler) constructConfigMap(topo *kurov1alpha1.NetworkTopolo
 
 func (r *TopologyReconciler) constructDeployment(topo *kurov1alpha1.NetworkTopology, group *kurov1alpha1.NodeGroup, cmName string) (*appsv1.Deployment, error) {
 	labels := make(map[string]string)
-	for k, v := range group.Labels {
-		labels[k] = v
-	}
+	maps.Copy(labels, group.Labels)
 	// Inject critical labels for Agent identification
 	labels["kuro.io/sim-node"] = "true"
 	labels["app"] = group.Name

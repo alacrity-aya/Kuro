@@ -7,19 +7,24 @@ import (
 	"net/http"
 
 	"kuro/internal/domain"
+
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type Manager interface {
-	SendCommand(nodeName string, payload any) (string, error)
+type AgentManager interface {
+	GetK8sClient() client.Client
+	SendCommand(nodeName string, refKey string, payload any) (string, error)
 	ListAgents() []string
 }
 
 type HTTPServer struct {
-	manager Manager
+	manager AgentManager
 	port    int
+	server  *http.Server
 }
 
-func NewHTTPServer(manager Manager, port int) *HTTPServer {
+func NewHTTPServer(manager AgentManager, port int) *HTTPServer {
 	return &HTTPServer{
 		manager: manager,
 		port:    port,
@@ -29,35 +34,91 @@ func NewHTTPServer(manager Manager, port int) *HTTPServer {
 func (s *HTTPServer) Run() error {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/api/v1/agents", s.ListAgentsAPI)
-	mux.HandleFunc("/api/v1/policy/link", s.ApplyLinkPolicyAPI)
-	mux.HandleFunc("/api/v1/policy/pod", s.ApplyPodPolicyAPI)
-	mux.HandleFunc("/api/v1/policy/node", s.ApplyNodePolicyAPI)
+	mux.HandleFunc("/api/v1/topology", s.handleGetTopology)
+	mux.HandleFunc("/api/v1/agents", s.handleListAgents)
+	mux.HandleFunc("/api/v1/policy/link", s.handleApplyLinkPolicy)
+	mux.HandleFunc("/api/v1/policy/pod", s.handleApplyPodPolicy)
+	mux.HandleFunc("/api/v1/policy/node", s.handleApplyNodePolicy)
+
+	s.server = &http.Server{
+		Addr:    fmt.Sprintf(":%d", s.port),
+		Handler: mux,
+	}
 
 	log.Printf("[API] HTTP Server listening on :%d", s.port)
-	return http.ListenAndServe(fmt.Sprintf(":%d", s.port), mux)
+	return s.server.ListenAndServe()
 }
 
 // =============================================================
 // Handlers
 // =============================================================
 
-func (s *HTTPServer) ListAgentsAPI(w http.ResponseWriter, r *http.Request) {
+// 1. 获取拓扑结构
+func (s *HTTPServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	k8sClient := s.manager.GetK8sClient()
+	if k8sClient == nil {
+		http.Error(w, "K8s client not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	podList := &corev1.PodList{}
+	opts := []client.ListOption{
+		client.InNamespace("kuro-experiment"),
+		client.MatchingLabels{"kuro.io/sim-node": "true"},
+	}
+
+	if err := k8sClient.List(r.Context(), podList, opts...); err != nil {
+		log.Printf("[API] Failed to list pods in kuro-experiment: %v", err)
+		http.Error(w, "Failed to fetch topology", http.StatusInternalServerError)
+		return
+	}
+
+	response := domain.TopologyResponse{
+		Nodes: make([]domain.TopologyNode, 0),
+	}
+
+	for _, pod := range podList.Items {
+		groupName := pod.Labels["app"]
+		if groupName == "" {
+			groupName = "unknown"
+		}
+
+		node := domain.TopologyNode{
+			Name:      pod.Name,
+			Group:     groupName,
+			Namespace: pod.Namespace,
+			IP:        pod.Status.PodIP,
+			Status:    string(pod.Status.Phase),
+		}
+		response.Nodes = append(response.Nodes, node)
+	}
+
+	s.jsonResponse(w, response)
+}
+
+func (s *HTTPServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	agents := s.manager.ListAgents()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	s.jsonResponse(w, map[string]any{
 		"count": len(agents),
 		"nodes": agents,
 	})
 }
 
-func (s *HTTPServer) ApplyLinkPolicyAPI(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleApplyLinkPolicy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Define Request DTO (Can be local or defined in api/types.go)
 	var req struct {
 		NodeName          string `json:"node_name"`
 		SrcIP             string `json:"src_ip"`
@@ -67,16 +128,14 @@ func (s *HTTPServer) ApplyLinkPolicyAPI(w http.ResponseWriter, r *http.Request) 
 		JitterNs          uint64 `json:"jitter_ns"`
 		CorruptionRatePpm uint32 `json:"corruption_rate_ppm"`
 		QueueDepthNs      uint64 `json:"queue_depth_ns"`
-		IsDelete          bool   `json:"is_delete"` // Or determine based on whether policy fields exist
+		IsDelete          bool   `json:"is_delete"`
 	}
 
-	// For simplicity, assume the Client explicitly passes parameters
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Construct Domain Object
 	policy := domain.LinkPolicy{
 		SrcIP:             req.SrcIP,
 		DstIP:             req.DstIP,
@@ -85,59 +144,46 @@ func (s *HTTPServer) ApplyLinkPolicyAPI(w http.ResponseWriter, r *http.Request) 
 		JitterNs:          req.JitterNs,
 		CorruptionRatePpm: req.CorruptionRatePpm,
 		QueueDepthNs:      req.QueueDepthNs,
-		IsDelete:          req.IsDelete, // Client explicitly controls deletion
+		IsDelete:          req.IsDelete,
 	}
 
-	// Call Controller business logic
-	cmdID, err := s.manager.SendCommand(req.NodeName, policy)
+	cmdID, err := s.manager.SendCommand(req.NodeName, "manual-api", policy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	log.Printf("[API] Applied LinkPolicy on %s", req.NodeName)
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"status": "ok", "command_id": "%s"}`, cmdID)
+	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
 }
 
-// ApplyPodPolicyAPI configures interface-level limits (Sim/Sys rates) for a Pod.
-func (s *HTTPServer) ApplyPodPolicyAPI(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleApplyPodPolicy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 1. Define Request DTO
 	type Rate struct {
-		Upload   uint64 `json:"upload"`   // bps
-		Download uint64 `json:"download"` // bps
+		Upload   uint64 `json:"upload"`
+		Download uint64 `json:"download"`
 	}
-
 	var req struct {
 		NodeName  string `json:"node_name"`
 		PodName   string `json:"pod_name"`
 		Namespace string `json:"namespace"`
-		SimRate   *Rate  `json:"sim_rate"` // Simulation Network (Container Interface)
-		SysRate   *Rate  `json:"sys_rate"` // System Network (Host Interface)
+		SimRate   *Rate  `json:"sim_rate"`
+		SysRate   *Rate  `json:"sys_rate"`
 	}
 
-	// 2. Decode JSON
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if req.NodeName == "" || req.PodName == "" {
-		http.Error(w, "node_name and pod_name are required", http.StatusBadRequest)
-		return
-	}
-
-	// 3. Build Domain Object
 	policy := domain.PodPolicy{
 		PodName:   req.PodName,
 		Namespace: req.Namespace,
 	}
-
 	if req.SimRate != nil {
 		policy.SimRate = &domain.RateLimit{
 			UploadBps:   req.SimRate.Upload,
@@ -151,61 +197,49 @@ func (s *HTTPServer) ApplyPodPolicyAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Call Manager (SendCommand)
-	cmdID, err := s.manager.SendCommand(req.NodeName, policy)
+	cmdID, err := s.manager.SendCommand(req.NodeName, "manual-api", policy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	// 5. Return Response
-	log.Printf("[API] Applied Pod Policy for %s/%s on Node %s", req.Namespace, req.PodName, req.NodeName)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"status": "ok", "command_id": "%s"}`, cmdID)
+	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
 }
 
-// ApplyNodePolicyAPI configures node-level ingress protection (XDP).
-func (s *HTTPServer) ApplyNodePolicyAPI(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleApplyNodePolicy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 1. Define Request DTO
 	var req struct {
 		NodeName          string `json:"node_name"`
 		IngressLimitBps   uint64 `json:"ingress_limit_bps"`
 		IngressBurstBytes uint64 `json:"ingress_burst_bytes"`
 	}
 
-	// 2. Decode JSON
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if req.NodeName == "" {
-		http.Error(w, "node_name is required", http.StatusBadRequest)
-		return
-	}
-
-	// 3. Build Domain Object
 	policy := domain.NodePolicy{
 		IngressLimitBps:   req.IngressLimitBps,
 		IngressBurstBytes: req.IngressBurstBytes,
 	}
 
-	// 4. Call Manager (SendCommand)
-	cmdID, err := s.manager.SendCommand(req.NodeName, policy)
+	cmdID, err := s.manager.SendCommand(req.NodeName, "manual-api", policy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	// 5. Return Response
-	log.Printf("[API] Applied Node Policy on %s (Limit: %d bps)", req.NodeName, req.IngressLimitBps)
+	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
+}
+
+func (s *HTTPServer) jsonResponse(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"status": "ok", "command_id": "%s"}`, cmdID)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("[API] Failed to encode response: %v", err)
+	}
 }

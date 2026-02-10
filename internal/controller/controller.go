@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"kuro/api/crd/v1alpha1"
 	pb "kuro/api/proto/v1"
@@ -17,9 +20,12 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -33,6 +39,9 @@ type ControllerManager struct {
 	metricsAddr  string
 	k8sManager   ctrl.Manager
 	scheme       *runtime.Scheme
+
+	k8sClient  client.Client
+	grpcServer *grpc.Server
 }
 
 func NewControllerManager(grpcPort, httpPort int, metricsAddr string) *ControllerManager {
@@ -78,7 +87,7 @@ func (c *ControllerManager) InitK8sManager() error {
 		Scheme:       mgr.GetScheme(),
 		AgentManager: c,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("unable to create TrafficControl controller: %w", err)
+		return fmt.Errorf("unable to create TraffgrpcServer *grpc.ServericControl controller: %w", err)
 	}
 
 	// Setup liveness and readiness probes
@@ -90,7 +99,12 @@ func (c *ControllerManager) InitK8sManager() error {
 	}
 
 	c.k8sManager = mgr
+	c.k8sClient = mgr.GetClient()
 	return nil
+}
+
+func (c *ControllerManager) GetK8sClient() client.Client {
+	return c.k8sClient
 }
 
 // Run starts all services. This method blocks until a signal is received or a critical error occurs.
@@ -135,6 +149,12 @@ func (c *ControllerManager) Run(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		log.Println("[Controller] Shutting down...")
+
+		if c.grpcServer != nil {
+			log.Println("[Controller] Stopping gRPC server immediately...")
+			c.grpcServer.Stop()
+		}
+
 		return nil
 	}
 }
@@ -145,10 +165,13 @@ func (c *ControllerManager) runGrpcServer() error {
 	if err != nil {
 		return err
 	}
-	grpcServer := grpc.NewServer()
+
+	c.grpcServer = grpc.NewServer()
+
 	rpcService := rpc.NewServer(c)
-	pb.RegisterSimulationAgentServiceServer(grpcServer, rpcService)
-	return grpcServer.Serve(lis)
+	pb.RegisterSimulationAgentServiceServer(c.grpcServer, rpcService)
+
+	return c.grpcServer.Serve(lis)
 }
 
 // =============================================================
@@ -158,6 +181,45 @@ func (c *ControllerManager) runGrpcServer() error {
 func (c *ControllerManager) RegisterAgent(nodeName string, sender domain.AgentSender) {
 	c.activeAgents.Store(nodeName, sender)
 	log.Printf("[Controller] Agent Registered: %s", nodeName)
+
+	// NEW: Actively trigger Reconcile to re-dispatch rules after Agent reconnects
+	// We need to fetch all relevant TrafficControl rules and trigger a Reconcile.
+	// Since manually creating ReconcileRequests in ControllerManager is complex,
+	// a simple approach is to update the TrafficControl Annotations or invoke dispatch logic in memory.
+
+	// Simplest implementation (without architectural changes):
+	// Traverse all TrafficControls; if Source or Destination is on this Node, re-run Reconcile.
+	go c.triggerResyncForNode(nodeName)
+}
+
+// FIXME:
+// issue in triggerResyncForNode: When an Agent connects, you traverse ALL TrafficControl objects and patch them.
+// Scenario: Suppose you have 50 TrafficControl rules and a 100-node cluster.
+// If the Controller restarts, 100 nodes reconnect simultaneously.
+// Consequence: Instantly triggers 50 * 100 = 5000 K8s API Patch requests.
+// This triggers K8s Throttling, potentially overloads the API Server, and the Reconcile queue explodes.
+func (c *ControllerManager) triggerResyncForNode(nodeName string) {
+	ctx := context.Background()
+	var tcList v1alpha1.TrafficControlList
+	if err := c.k8sClient.List(ctx, &tcList); err != nil {
+		log.Printf("Failed to list TrafficControls for resync: %v", err)
+		return
+	}
+
+	for _, tc := range tcList.Items {
+		// Simple trigger mechanism: Add an annotation to force a Generation change.
+		// Alternatively, a more elegant way is using the EventChannel mechanism to notify the Reconciler.
+		// For simplicity, and to avoid frequent API Server writes,
+		// Recommendation: Reuse the traffic_controller logic directly (though this requires refactoring).
+
+		// "Quick and dirty" method: Add a timestamp Annotation to the CRD to force Update -> Reconcile
+		patch := client.MergeFrom(tc.DeepCopy())
+		if tc.Annotations == nil {
+			tc.Annotations = make(map[string]string)
+		}
+		tc.Annotations["kuro.io/resync-trigger"] = time.Now().String()
+		c.k8sClient.Patch(ctx, &tc, patch)
+	}
 }
 
 func (c *ControllerManager) UnregisterAgent(nodeName string) {
@@ -175,25 +237,84 @@ func (c *ControllerManager) HandlePodEvent(nodeName string, event domain.PodEven
 }
 
 func (c *ControllerManager) HandleAck(nodeName string, ack domain.CommandAck) {
-	status := "Success"
-	if !ack.Success {
-		status = fmt.Sprintf("Failed (%s)", ack.Message)
+	log.Printf("[Ack] Node: %s, ID: %s, Success: %v", nodeName, ack.CommandID, ack.Success)
+
+	// Parse CommandID and extract CRD Name
+	parts := strings.Split(ack.CommandID, "|")
+	if len(parts) < 2 {
+		// If format is non-standard (e.g., manual API calls), just log it
+		return
 	}
-	log.Printf("[Ack] Node: %s, ID: %s, Status: %s", nodeName, ack.CommandID, status)
+	crdName := parts[0] // e.g., "weak-signal"
+
+	// Start a goroutine to update K8s (avoids blocking gRPC)
+	go c.updateTrafficControlStatus(crdName, nodeName, ack)
+}
+
+func (c *ControllerManager) updateTrafficControlStatus(name string, nodeName string, ack domain.CommandAck) {
+	// Use Background context to prevent update failure due to parent context cancellation
+	ctx := context.Background()
+
+	// Define NamespacedName
+	nn := types.NamespacedName{
+		Name:      name,
+		Namespace: "kuro-experiment", // Ideally passed through ACK payload or Reconcile Request; hardcoded for now
+	}
+
+	// ✅ Use RetryOnConflict to handle concurrent update conflicts
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// 1. Must refetch the latest object from the API Server on every retry
+		tc := &v1alpha1.TrafficControl{}
+		if err := c.k8sClient.Get(ctx, nn, tc); err != nil {
+			return err
+		}
+
+		// 2. Modify Status in memory
+		// Modification must be based on the latest 'tc' object just retrieved
+
+		// Avoid duplicate node entries (Idempotency)
+		nodeExists := slices.Contains(tc.Status.ActiveNodes, nodeName)
+
+		if ack.Success {
+			if !nodeExists {
+				tc.Status.ActiveNodes = append(tc.Status.ActiveNodes, nodeName)
+			}
+			tc.Status.Phase = "Active"
+			// Simple Message aggregation logic
+			tc.Status.Message = fmt.Sprintf("Sync success on %s (Total: %d)", nodeName, len(tc.Status.ActiveNodes))
+		} else {
+			// If failed, record error information
+			tc.Status.Phase = "PartialFail"
+			tc.Status.Message = fmt.Sprintf("Failed on %s: %s", nodeName, ack.Message)
+		}
+
+		// Update ObservedGeneration (Consistent with Reconcile logic)
+		tc.Status.ObservedGeneration = tc.Generation
+
+		// 3. Submit update
+		return c.k8sClient.Status().Update(ctx, tc)
+	})
+
+	if err != nil {
+		log.Printf("[Status] ❌ Failed to update status for %s after retries: %v", name, err)
+	} else {
+		log.Printf("[Status] ✅ Successfully updated %s status for node %s", name, nodeName)
+	}
 }
 
 // =============================================================
 // Business Logic Methods (Exposed to HTTP API & K8s Reconciler)
 // =============================================================
 
-func (c *ControllerManager) SendCommand(nodeName string, payload any) (string, error) {
+func (c *ControllerManager) SendCommand(nodeName string, refKey string, payload any) (string, error) {
 	val, ok := c.activeAgents.Load(nodeName)
 	if !ok {
 		return "", fmt.Errorf("agent on node '%s' not connected", nodeName)
 	}
 	sender := val.(domain.AgentSender)
 
-	cmdID := uuid.New().String()
+	cmdID := fmt.Sprintf("%s|%s", refKey, uuid.New().String())
+
 	cmd := domain.ControllerCommand{
 		ID:      cmdID,
 		Payload: payload,

@@ -25,7 +25,7 @@ type MockAgentManager struct {
 	mock.Mock
 }
 
-func (m *MockAgentManager) SendCommand(nodeName string, payload any) (string, error) {
+func (m *MockAgentManager) SendCommand(nodeName string, refkey string, payload any) (string, error) {
 	args := m.Called(nodeName, payload)
 	return args.String(0), args.Error(1)
 }
@@ -61,8 +61,9 @@ func TestTrafficControlReconciler_Reconcile(t *testing.T) {
 
 	tc := &kurov1alpha1.TrafficControl{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-policy",
-			Namespace: "default",
+			Name:       "test-policy",
+			Namespace:  "default",
+			Generation: 1,
 		},
 		Spec: kurov1alpha1.TrafficControlSpec{
 			Source:      metav1.LabelSelector{MatchLabels: map[string]string{"app": "drone"}},
@@ -86,7 +87,7 @@ func TestTrafficControlReconciler_Reconcile(t *testing.T) {
 	expectedPolicy := domain.LinkPolicy{
 		SrcIP:         "10.0.1.1",
 		DstIP:         "10.0.1.2",
-		BandwidthBps:  10000000, // 10Mbps = 10*1000*1000. Helper already removed *8 logic.
+		BandwidthBps:  10000000, // 10Mbps = 10*1000*1000
 		BaseLatencyNs: 50000000, // 50ms
 	}
 
