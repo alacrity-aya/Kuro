@@ -208,6 +208,25 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
 
   // Initial parse
   useEffect(() => {
+    // Check for imported topology
+    const importedTopologyJson = sessionStorage.getItem('importedTopology');
+    if (importedTopologyJson) {
+      try {
+        const importedTopology = JSON.parse(importedTopologyJson) as NetworkTopology;
+        const yamlContent = yaml.dump(importedTopology, {
+          indent: 2,
+          lineWidth: -1,
+          noRefs: true,
+        });
+        setYamlContent(yamlContent);
+        updatePreview(yamlContent);
+        // Clear the imported data
+        sessionStorage.removeItem('importedTopology');
+        return; // Skip default YAML on import
+      } catch {
+        console.error('Failed to parse imported topology');
+      }
+    }
     updatePreview(yamlContent);
   }, []);
 

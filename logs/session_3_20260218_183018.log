@@ -1,0 +1,73 @@
+好的，我来执行启动例行检查。根据例行检查结果，当前状态：
+
+**进度摘要：**
+- 已完成功能：FEAT-001 到 FEAT-014 (14/18)
+- 下一个待处理：**FEAT-015** - Node Local View - Display individual node perspective
+
+**FEAT-015 需求：**
+- 选中节点时显示 "Local View" 按钮
+- 过滤拓扑，只显示选中节点及其直接连接
+- 高亮节点并显示流量指标
+- 添加 "Exit Local View" 按钮返回完整拓扑
+
+让我开始实现这个功能。首先让我查看现有的相关文件来了解当前实现：现在我理解了现有结构。我需要：
+
+1. 在 store 中添加 local view 状态管理
+2. 在 TopologyCanvas 中添加过滤逻辑
+3. 在 TopologyDetail 中添加 Local View 按钮
+
+让我开始实现：现在添加一个 helper hook 来过滤 local view 数据：现在更新 TopologyDetail 页面，添加 Local View 按钮和相关功能：现在更新 TopologyDetail.tsx 添加 Local View 功能：现在添加 CSS 样式：现在运行构建测试：Error executing tool run_shell_command: 
+> frontend@0.0.0 build
+> tsc -b && vite build
+
+src/pages/TopologyDetail.tsx(5,46): error TS2305: Module '"../stores"' has no exported member 'useLocalView'.
+src/pages/TopologyDetail.tsx(235,9): error TS6133: 'links' is declared but its value is never read.
+src/pages/TopologyDetail.tsx(242,9): error TS6133: 'localViewNodeId' is declared but its value is never read.
+
+需要修复导出问题：构建成功！现在运行测试：所有测试通过！现在提交代码并更新功能列表：Error executing tool run_shell_command: 
+The following paths are ignored by one of your .gitignore files:
+agent-harness/feature_list.json
+hint: Use -f if you really want to add them.
+hint: Disable this message with "git config set advice.addIgnoredFile false"
+
+现在更新进度文件：---
+
+## 会话摘要
+
+### 1. 完成的工作
+**FEAT-015: Node Local View - Display individual node perspective**
+
+实现了单个节点的局部视图功能：
+- ✅ 在 Zustand store 中添加 `localViewNodeId` 状态和 `enterLocalView`/`exitLocalView` actions
+- ✅ 创建 `useLocalView` hook，过滤显示选中节点及其直接连接
+- ✅ 在 Node Detail Panel 中添加 "Enter Local View" 按钮
+- ✅ 添加顶部横幅显示当前 Local View 信息和退出按钮
+- ✅ 添加 CSS 样式支持 Local View UI
+
+### 2. 构建验证结果
+**成功 ✅**
+```
+✓ 534 modules transformed
+✓ built in 1.42s
+✓ 23 tests passed
+```
+
+### 3. 下一步建议
+**FEAT-016: Topology Creation - YAML Editor with live preview**
+- 创建 TopologyCreate 页面
+- 集成 YAML 编辑器 (Monaco Editor 或 CodeMirror)
+- 实现实时预览和验证
+
+<Execution Info>
+{
+  "session-id": "session-bc4493e1-464e-4a6d-b380-13aabb023cf6",
+  "conversation-id": "f45b2a4b-14b9-4173-8e02-2bdcdbe7eefb",
+  "assistantRounds": 32,
+  "executionTimeMs": 404681,
+  "tokenUsage": {
+    "input": 63539,
+    "output": 238,
+    "total": 63777
+  }
+}
+</Execution Info>

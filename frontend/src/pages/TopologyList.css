@@ -13,6 +13,49 @@
   margin-bottom: 24px;
 }
 
+.topology-list__header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Import Error Banner */
+.import-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.import-error-icon {
+  color: #dc2626;
+  font-size: 18px;
+}
+
+.import-error-message {
+  flex: 1;
+  color: #dc2626;
+  font-size: 14px;
+}
+
+.import-error-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.import-error-close:hover {
+  color: #b91c1c;
+}
+
 .topology-list__title {
   font-size: 28px;
   font-weight: 600;

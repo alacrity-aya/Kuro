@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTopologyStore } from '../stores';
+import { downloadTopologyYaml, parseImportedYaml, readFileAsText } from '../utils/topologyYaml';
 import './TopologyList.css';
 
 interface TopologyListProps {
@@ -8,6 +10,9 @@ interface TopologyListProps {
 }
 
 function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
+  const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   // Get state from store
   const topologies = useTopologyStore((state) => state.topologies);
   const loading = useTopologyStore((state) => state.loading);
@@ -19,6 +24,10 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
   // Local filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPhase, setFilterPhase] = useState<string>('all');
+  
+  // Import state
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     fetchTopologies();
@@ -61,6 +70,48 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
     }
   };
 
+  // Export topology as YAML file
+  const handleExportTopology = (topology: typeof topologies[0]) => {
+    downloadTopologyYaml(topology);
+  };
+
+  // Trigger file input click for import
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  // Handle imported file
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImportError(null);
+    setImporting(true);
+
+    try {
+      const content = await readFileAsText(file);
+      const { topology, error } = parseImportedYaml(content);
+
+      if (error || !topology) {
+        setImportError(error || 'Failed to parse topology');
+        return;
+      }
+
+      // Navigate to create page with imported topology
+      // Store in sessionStorage for TopologyCreate to pick up
+      sessionStorage.setItem('importedTopology', JSON.stringify(topology));
+      navigate('/topologies/create');
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Failed to import file');
+    } finally {
+      setImporting(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   if (loading && topologies.length === 0) {
     return (
       <div className="topology-list">
@@ -94,11 +145,42 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
             Manage your network simulation topologies
           </p>
         </div>
-        <button className="btn btn--primary" onClick={handleCreateTopology}>
-          <span className="btn__icon">➕</span>
-          Create Topology
-        </button>
+        <div className="topology-list__header-actions">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".yaml,.yml"
+            onChange={handleImportFile}
+            style={{ display: 'none' }}
+          />
+          <button 
+            className="btn btn--secondary" 
+            onClick={handleImportClick}
+            disabled={importing}
+          >
+            <span className="btn__icon">📥</span>
+            {importing ? 'Importing...' : 'Import'}
+          </button>
+          <button className="btn btn--primary" onClick={handleCreateTopology}>
+            <span className="btn__icon">➕</span>
+            Create Topology
+          </button>
+        </div>
       </header>
+
+      {/* Import Error Banner */}
+      {importError && (
+        <div className="import-error-banner">
+          <span className="import-error-icon">⚠</span>
+          <span className="import-error-message">{importError}</span>
+          <button 
+            className="import-error-close" 
+            onClick={() => setImportError(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Summary Bar */}
       <div className="topology-list__summary">
@@ -233,6 +315,13 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
                   }
                 >
                   View
+                </button>
+                <button
+                  className="btn btn--secondary"
+                  onClick={() => handleExportTopology(topology)}
+                  title="Export as YAML"
+                >
+                  Export
                 </button>
                 <button
                   className="btn btn--danger"
