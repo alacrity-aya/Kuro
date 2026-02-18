@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
+import { TrafficControlPanel } from '../components';
 import { apiClient } from '../api/client';
 import type { 
   NetworkTopology, 
   TopologyNode, 
   TopologyLink, 
   TrafficControl,
+  TrafficPolicy,
   LinkMetrics 
 } from '../types/api';
 import './TopologyDetail.css';
@@ -292,6 +294,24 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   const handleCloseNodePanel = useCallback(() => setSelectedNode(null), []);
   const handleCloseLinkPanel = useCallback(() => setSelectedLink(null), []);
 
+  // Handle traffic policy save
+  const handlePolicySave = useCallback((linkId: string, policy: TrafficPolicy) => {
+    // Update the link policy in local state (mock implementation)
+    setLinks(prevLinks => 
+      prevLinks.map(link => 
+        link.id === linkId 
+          ? { ...link, policy } 
+          : link
+      )
+    );
+    console.log(`Policy saved for link ${linkId}:`, policy);
+  }, []);
+
+  // Handle traffic policy reset
+  const handlePolicyReset = useCallback((linkId: string) => {
+    console.log(`Policy reset for link ${linkId}`);
+  }, []);
+
   // Calculate summary stats
   const runningNodes = nodes.filter(n => n.status === 'running').length;
   const activeLinks = links.filter(l => l.status === 'active').length;
@@ -421,7 +441,15 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
           <NodeDetailPanel node={selectedNode} onClose={handleCloseNodePanel} />
         )}
         {selectedLink && (
-          <LinkDetailPanel link={selectedLink} onClose={handleCloseLinkPanel} />
+          <div className="topology-detail__panels">
+            <LinkDetailPanel link={selectedLink} onClose={handleCloseLinkPanel} />
+            <TrafficControlPanel
+              link={selectedLink}
+              onSave={handlePolicySave}
+              onReset={handlePolicyReset}
+              onClose={handleCloseLinkPanel}
+            />
+          </div>
         )}
       </div>
     </div>
