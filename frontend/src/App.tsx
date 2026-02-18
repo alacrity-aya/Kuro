@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard, TopologyList, TopologyDetail } from './pages';
+import { useTopologyStore } from './stores';
 import type { MenuItem } from './types/api';
 import './App.css';
 
@@ -32,9 +32,12 @@ function MetricsPlaceholder() {
 
 // Main app content with router hooks
 function AppContent() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // Get sidebar state from store
+  const sidebarCollapsed = useTopologyStore((state) => state.sidebarCollapsed);
+  const setSidebarCollapsed = useTopologyStore((state) => state.setSidebarCollapsed);
 
   const activeMenuItem = getActiveMenuItem(location.pathname);
 
@@ -86,11 +89,7 @@ function AppContent() {
 
 // Wrapper for TopologyDetail to extract route params
 function TopologyDetailWrapper({ onBack }: { onBack: () => void }) {
-  const location = useLocation();
-  // Extract namespace and name from URL path
-  const pathParts = location.pathname.split('/').filter(Boolean);
-  const namespace = pathParts[1] || 'default';
-  const name = pathParts[2] || '';
+  const { namespace = 'default', name = '' } = useParams<{ namespace: string; name: string }>();
 
   return (
     <TopologyDetail

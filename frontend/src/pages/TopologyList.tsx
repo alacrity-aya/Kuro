@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiClient } from '../api/client';
-import type { NetworkTopology } from '../types/api';
+import { useTopologyStore } from '../stores';
 import './TopologyList.css';
 
 interface TopologyListProps {
@@ -8,32 +7,21 @@ interface TopologyListProps {
 }
 
 function TopologyList({ onViewTopology }: TopologyListProps) {
-  const [topologies, setTopologies] = useState<NetworkTopology[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Get state from store
+  const topologies = useTopologyStore((state) => state.topologies);
+  const loading = useTopologyStore((state) => state.loading);
+  const error = useTopologyStore((state) => state.error);
+  
+  // Get actions from store
+  const fetchTopologies = useTopologyStore((state) => state.fetchTopologies);
+  
+  // Local filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPhase, setFilterPhase] = useState<string>('all');
 
   useEffect(() => {
-    async function loadTopologies() {
-      try {
-        setLoading(true);
-        const response = await apiClient.listTopologies();
-        if (response.success && response.data) {
-          setTopologies(response.data.items);
-        } else {
-          setError(response.error ?? 'Failed to load topologies');
-        }
-      } catch (err) {
-        setError('Failed to load topologies');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadTopologies();
-  }, []);
+    fetchTopologies();
+  }, [fetchTopologies]);
 
   // Filter topologies based on search and phase
   const filteredTopologies = topologies.filter((t) => {
@@ -71,7 +59,7 @@ function TopologyList({ onViewTopology }: TopologyListProps) {
     }
   };
 
-  if (loading) {
+  if (loading && topologies.length === 0) {
     return (
       <div className="topology-list">
         <div className="topology-list__loading">
@@ -87,7 +75,7 @@ function TopologyList({ onViewTopology }: TopologyListProps) {
       <div className="topology-list">
         <div className="topology-list__error">
           <span>⚠️ {error}</span>
-          <button className="btn btn--primary" onClick={() => window.location.reload()}>
+          <button className="btn btn--primary" onClick={() => fetchTopologies()}>
             Retry
           </button>
         </div>

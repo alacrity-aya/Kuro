@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import { apiClient } from '../api/client';
-import type { NetworkTopology, TrafficControl } from '../types/api';
+import { useEffect } from 'react';
+import { useTopologyStore } from '../stores';
 import './Dashboard.css';
 
 interface DashboardProps {
@@ -53,36 +52,26 @@ function QuickActionButton({ icon, label, onClick }: QuickActionButtonProps) {
 }
 
 function Dashboard({ onViewTopology }: DashboardProps) {
-  const [topologies, setTopologies] = useState<NetworkTopology[]>([]);
-  const [trafficControls, setTrafficControls] = useState<TrafficControl[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Get state from store
+  const topologies = useTopologyStore((state) => state.topologies);
+  const trafficControls = useTopologyStore((state) => state.trafficControls);
+  const loading = useTopologyStore((state) => state.loading);
+  const error = useTopologyStore((state) => state.error);
+  
+  // Get actions from store
+  const fetchTopologies = useTopologyStore((state) => state.fetchTopologies);
+  const fetchTrafficControls = useTopologyStore((state) => state.fetchTrafficControls);
 
   useEffect(() => {
     async function loadData() {
-      try {
-        setLoading(true);
-        const [topologiesRes, tcRes] = await Promise.all([
-          apiClient.listTopologies(),
-          apiClient.listTrafficControls(),
-        ]);
-
-        if (topologiesRes.success && topologiesRes.data) {
-          setTopologies(topologiesRes.data.items);
-        }
-        if (tcRes.success && tcRes.data) {
-          setTrafficControls(tcRes.data.items);
-        }
-      } catch (err) {
-        setError('Failed to load dashboard data');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
+      await Promise.all([
+        fetchTopologies(),
+        fetchTrafficControls(),
+      ]);
     }
 
     loadData();
-  }, []);
+  }, [fetchTopologies, fetchTrafficControls]);
 
   // Calculate statistics
   const totalNodes = topologies.reduce((sum, t) => sum + (t.status?.nodeCount ?? 0), 0);
@@ -122,7 +111,7 @@ function Dashboard({ onViewTopology }: DashboardProps) {
     }
   };
 
-  if (loading) {
+  if (loading && topologies.length === 0) {
     return (
       <div className="dashboard">
         <div className="dashboard__loading">

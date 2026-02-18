@@ -1,16 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
-import { apiClient } from '../api/client';
-import type { 
-  NetworkTopology, 
-  TopologyNode, 
-  TopologyLink, 
-  TrafficControl,
-  TrafficPolicy,
-  LinkMetrics 
-} from '../types/api';
+import { useTopologyStore, useTopologyStats } from '../stores';
+import type { TrafficPolicy, TopologyLink } from '../types/api';
 import './TopologyDetail.css';
 
 // ============================================================================
@@ -21,16 +14,6 @@ interface TopologyDetailProps {
   topologyName: string;
   namespace?: string;
   onBack?: () => void;
-}
-
-interface NodeDetailPanelProps {
-  node: TopologyNode | null;
-  onClose: () => void;
-}
-
-interface LinkDetailPanelProps {
-  link: TopologyLink | null;
-  onClose: () => void;
 }
 
 // ============================================================================
@@ -71,48 +54,51 @@ function ZoomControls() {
 // Node Detail Panel
 // ============================================================================
 
-function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
-  if (!node) return null;
+function NodeDetailPanel() {
+  const selectedNode = useTopologyStore((state) => state.selectedNode);
+  const clearSelection = useTopologyStore((state) => state.clearSelection);
 
-  const statusClass = `detail-panel__status detail-panel__status--${node.status}`;
+  if (!selectedNode) return null;
+
+  const statusClass = `detail-panel__status detail-panel__status--${selectedNode.status}`;
 
   return (
     <div className="detail-panel">
       <div className="detail-panel__header">
         <h3 className="detail-panel__title">Node Details</h3>
-        <button className="detail-panel__close" onClick={onClose}>×</button>
+        <button className="detail-panel__close" onClick={clearSelection}>×</button>
       </div>
       <div className="detail-panel__body">
         <div className="detail-field">
           <span className="detail-field__label">Name</span>
-          <span className="detail-field__value">{node.name}</span>
+          <span className="detail-field__value">{selectedNode.name}</span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">ID</span>
-          <span className="detail-field__value detail-field__value--mono">{node.id}</span>
+          <span className="detail-field__value detail-field__value--mono">{selectedNode.id}</span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">IP Address</span>
-          <span className="detail-field__value detail-field__value--mono">{node.ip}</span>
+          <span className="detail-field__value detail-field__value--mono">{selectedNode.ip}</span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">Role</span>
           <span className="detail-field__value">
-            <span className="role-badge">{node.role}</span>
+            <span className="role-badge">{selectedNode.role}</span>
           </span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">Status</span>
-          <span className={statusClass}>{node.status}</span>
+          <span className={statusClass}>{selectedNode.status}</span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">Group</span>
-          <span className="detail-field__value">{node.groupId}</span>
+          <span className="detail-field__value">{selectedNode.groupId}</span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">Labels</span>
           <div className="detail-field__labels">
-            {Object.entries(node.labels).map(([key, value]) => (
+            {Object.entries(selectedNode.labels).map(([key, value]) => (
               <span key={key} className="label-tag">
                 {key}={value}
               </span>
@@ -128,58 +114,54 @@ function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
 // Link Detail Panel
 // ============================================================================
 
-function LinkDetailPanel({ link, onClose }: LinkDetailPanelProps) {
-  const [metrics, setMetrics] = useState<LinkMetrics | null>(null);
+function LinkDetailPanel() {
+  const selectedLink = useTopologyStore((state) => state.selectedLink);
+  const clearSelection = useTopologyStore((state) => state.clearSelection);
 
-  useEffect(() => {
-    if (link) {
-      // Simulate loading metrics
-      setMetrics(link.metrics ?? null);
-    }
-  }, [link]);
+  if (!selectedLink) return null;
 
-  if (!link) return null;
+  const metrics = selectedLink.metrics ?? null;
 
   return (
     <div className="detail-panel">
       <div className="detail-panel__header">
         <h3 className="detail-panel__title">Link Details</h3>
-        <button className="detail-panel__close" onClick={onClose}>×</button>
+        <button className="detail-panel__close" onClick={clearSelection}>×</button>
       </div>
       <div className="detail-panel__body">
         <div className="detail-field">
           <span className="detail-field__label">Source</span>
-          <span className="detail-field__value detail-field__value--mono">{link.sourceId}</span>
+          <span className="detail-field__value detail-field__value--mono">{selectedLink.sourceId}</span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">Target</span>
-          <span className="detail-field__value detail-field__value--mono">{link.targetId}</span>
+          <span className="detail-field__value detail-field__value--mono">{selectedLink.targetId}</span>
         </div>
         <div className="detail-field">
           <span className="detail-field__label">Status</span>
-          <span className={`detail-panel__status detail-panel__status--${link.status}`}>
-            {link.status}
+          <span className={`detail-panel__status detail-panel__status--${selectedLink.status}`}>
+            {selectedLink.status}
           </span>
         </div>
 
-        {link.policy && (
+        {selectedLink.policy && (
           <>
             <div className="detail-section-title">Traffic Policy</div>
             <div className="detail-field">
               <span className="detail-field__label">Bandwidth</span>
-              <span className="detail-field__value">{link.policy.bandwidth}</span>
+              <span className="detail-field__value">{selectedLink.policy.bandwidth}</span>
             </div>
             <div className="detail-field">
               <span className="detail-field__label">Latency</span>
-              <span className="detail-field__value">{link.policy.latency}</span>
+              <span className="detail-field__value">{selectedLink.policy.latency}</span>
             </div>
             <div className="detail-field">
               <span className="detail-field__label">Jitter</span>
-              <span className="detail-field__value">{link.policy.jitter}</span>
+              <span className="detail-field__value">{selectedLink.policy.jitter}</span>
             </div>
             <div className="detail-field">
               <span className="detail-field__label">Packet Loss</span>
-              <span className="detail-field__value">{link.policy.packetLoss}</span>
+              <span className="detail-field__value">{selectedLink.policy.packetLoss}</span>
             </div>
           </>
         )}
@@ -219,102 +201,74 @@ function LinkDetailPanel({ link, onClose }: LinkDetailPanelProps) {
 // ============================================================================
 
 function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: TopologyDetailProps) {
-  const [topology, setTopology] = useState<NetworkTopology | null>(null);
-  const [nodes, setNodes] = useState<TopologyNode[]>([]);
-  const [links, setLinks] = useState<TopologyLink[]>([]);
-  const [trafficControls, setTrafficControls] = useState<TrafficControl[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
-  const [selectedLink, setSelectedLink] = useState<TopologyLink | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
   const canvasRef = useRef<HTMLDivElement>(null);
+  
+  // Get state from store
+  const topology = useTopologyStore((state) => state.currentTopology);
+  const nodes = useTopologyStore((state) => state.nodes);
+  const links = useTopologyStore((state) => state.links);
+  const trafficControls = useTopologyStore((state) => state.trafficControls);
+  const loading = useTopologyStore((state) => state.loading);
+  const error = useTopologyStore((state) => state.error);
+  const selectedNode = useTopologyStore((state) => state.selectedNode);
+  const selectedLink = useTopologyStore((state) => state.selectedLink);
+  const sidebarCollapsed = useTopologyStore((state) => state.sidebarCollapsed);
+  
+  // Get actions from store
+  const fetchTopology = useTopologyStore((state) => state.fetchTopology);
+  const fetchTopologyNodes = useTopologyStore((state) => state.fetchTopologyNodes);
+  const fetchTopologyLinks = useTopologyStore((state) => state.fetchTopologyLinks);
+  const fetchTrafficControls = useTopologyStore((state) => state.fetchTrafficControls);
+  const selectNode = useTopologyStore((state) => state.selectNode);
+  const selectLink = useTopologyStore((state) => state.selectLink);
+  const clearSelection = useTopologyStore((state) => state.clearSelection);
+  const setSidebarCollapsed = useTopologyStore((state) => state.setSidebarCollapsed);
+  const updateLinkPolicy = useTopologyStore((state) => state.updateLinkPolicy);
+  
+  // Get computed stats
+  const stats = useTopologyStats();
 
   // Load topology data
   useEffect(() => {
     async function loadTopologyData() {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const [topologyRes, nodesRes, linksRes, tcRes] = await Promise.all([
-          apiClient.getTopology(topologyName, namespace),
-          apiClient.getTopologyNodes(topologyName, namespace),
-          apiClient.getTopologyLinks(topologyName, namespace),
-          apiClient.listTrafficControls(namespace),
-        ]);
-
-        if (!topologyRes.success || !topologyRes.data) {
-          throw new Error(topologyRes.error ?? 'Topology not found');
-        }
-
-        setTopology(topologyRes.data);
-        if (nodesRes.success && nodesRes.data) {
-          setNodes(nodesRes.data);
-        }
-        if (linksRes.success && linksRes.data) {
-          setLinks(linksRes.data);
-        }
-        if (tcRes.success && tcRes.data) {
-          setTrafficControls(tcRes.data.items);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load topology');
-        console.error('Failed to load topology:', err);
-      } finally {
-        setLoading(false);
-      }
+      await Promise.all([
+        fetchTopology(topologyName, namespace),
+        fetchTopologyNodes(topologyName, namespace),
+        fetchTopologyLinks(topologyName, namespace),
+        fetchTrafficControls(namespace),
+      ]);
     }
 
     loadTopologyData();
-  }, [topologyName, namespace]);
+  }, [topologyName, namespace, fetchTopology, fetchTopologyNodes, fetchTopologyLinks, fetchTrafficControls]);
 
   // Handle node click
-  const handleNodeClick = useCallback((node: TopologyNode) => {
-    setSelectedNode(node);
-    setSelectedLink(null);
-  }, []);
+  const handleNodeClick = useCallback((node: typeof nodes[0]) => {
+    selectNode(node);
+  }, [selectNode]);
 
   // Handle edge click
   const handleEdgeClick = useCallback((link: TopologyLink) => {
-    setSelectedLink(link);
-    setSelectedNode(null);
-  }, []);
+    selectLink(link);
+  }, [selectLink]);
 
   // Handle selection change (deselect)
   const handleSelectionChange = useCallback((nodeIds: string[], edgeIds: string[]) => {
     if (nodeIds.length === 0 && edgeIds.length === 0) {
-      setSelectedNode(null);
-      setSelectedLink(null);
+      clearSelection();
     }
-  }, []);
-
-  // Close detail panels
-  const handleCloseNodePanel = useCallback(() => setSelectedNode(null), []);
-  const handleCloseLinkPanel = useCallback(() => setSelectedLink(null), []);
+  }, [clearSelection]);
 
   // Handle traffic policy save
   const handlePolicySave = useCallback((linkId: string, policy: TrafficPolicy) => {
-    // Update the link policy in local state (mock implementation)
-    setLinks(prevLinks => 
-      prevLinks.map(link => 
-        link.id === linkId 
-          ? { ...link, policy } 
-          : link
-      )
-    );
+    updateLinkPolicy(linkId, policy);
     console.log(`Policy saved for link ${linkId}:`, policy);
-  }, []);
+  }, [updateLinkPolicy]);
 
   // Handle traffic policy reset
   const handlePolicyReset = useCallback((linkId: string) => {
     console.log(`Policy reset for link ${linkId}`);
   }, []);
-
-  // Calculate summary stats
-  const runningNodes = nodes.filter(n => n.status === 'running').length;
-  const activeLinks = links.filter(l => l.status === 'active').length;
 
   if (loading) {
     return (
@@ -363,19 +317,19 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
         <div className="topology-detail__header-right">
           <div className="topology-detail__stats">
             <div className="stat-item">
-              <span className="stat-item__value">{nodes.length}</span>
+              <span className="stat-item__value">{stats.totalNodes}</span>
               <span className="stat-item__label">Nodes</span>
             </div>
             <div className="stat-item">
-              <span className="stat-item__value">{runningNodes}</span>
+              <span className="stat-item__value">{stats.runningNodes}</span>
               <span className="stat-item__label">Running</span>
             </div>
             <div className="stat-item">
-              <span className="stat-item__value">{links.length}</span>
+              <span className="stat-item__value">{stats.totalLinks}</span>
               <span className="stat-item__label">Links</span>
             </div>
             <div className="stat-item">
-              <span className="stat-item__value">{activeLinks}</span>
+              <span className="stat-item__value">{stats.activeLinks}</span>
               <span className="stat-item__label">Active</span>
             </div>
           </div>
@@ -437,17 +391,15 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
         </div>
 
         {/* Detail Panels */}
-        {selectedNode && (
-          <NodeDetailPanel node={selectedNode} onClose={handleCloseNodePanel} />
-        )}
+        {selectedNode && <NodeDetailPanel />}
         {selectedLink && (
           <div className="topology-detail__panels">
-            <LinkDetailPanel link={selectedLink} onClose={handleCloseLinkPanel} />
+            <LinkDetailPanel />
             <TrafficControlPanel
               link={selectedLink}
               onSave={handlePolicySave}
               onReset={handlePolicyReset}
-              onClose={handleCloseLinkPanel}
+              onClose={clearSelection}
             />
           </div>
         )}
