@@ -3,7 +3,17 @@ import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
 import { TsnToggle, TsnSyncStatus, TsnTimeline } from '../components/tsn';
-import { useTopologyStore, useTopologyStats, useLocalView } from '../stores';
+import {
+  useTopologyStore,
+  useTopologyStats,
+  useLocalView,
+  useTopologyData,
+  useTopologySelection,
+  useTopologyUI,
+  useTopologyActions,
+  useNodeActions,
+  useLinkActions,
+} from '../stores';
 import type { TrafficPolicy, TopologyLink, TSNSchedule, TimeSyncStatus } from '../types/api';
 import { generateMockTsnSchedule, generateMockTimeSyncStatuses } from '../api/mock';
 import './TopologyDetail.css';
@@ -63,9 +73,8 @@ function ZoomControls() {
 // ============================================================================
 
 function NodeDetailPanel() {
-  const selectedNode = useTopologyStore((state) => state.selectedNode);
-  const clearSelection = useTopologyStore((state) => state.clearSelection);
-  const enterLocalView = useTopologyStore((state) => state.enterLocalView);
+  const { selectedNode } = useTopologySelection();
+  const { clearSelection, enterLocalView } = useNodeActions();
   const localViewNodeId = useTopologyStore((state) => state.localViewNodeId);
 
   if (!selectedNode) return null;
@@ -149,8 +158,8 @@ function NodeDetailPanel() {
 // ============================================================================
 
 function LinkDetailPanel() {
-  const selectedLink = useTopologyStore((state) => state.selectedLink);
-  const clearSelection = useTopologyStore((state) => state.clearSelection);
+  const { selectedLink } = useTopologySelection();
+  const { clearSelection } = useLinkActions();
 
   if (!selectedLink) return null;
 
@@ -237,30 +246,28 @@ function LinkDetailPanel() {
 function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: TopologyDetailProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   
-  // Get state from store
-  const topology = useTopologyStore((state) => state.currentTopology);
-  const nodes = useTopologyStore((state) => state.nodes);
-  const links = useTopologyStore((state) => state.links);
-  const trafficControls = useTopologyStore((state) => state.trafficControls);
-  const loading = useTopologyStore((state) => state.loading);
-  const error = useTopologyStore((state) => state.error);
-  const selectedNode = useTopologyStore((state) => state.selectedNode);
-  const selectedLink = useTopologyStore((state) => state.selectedLink);
-  const sidebarCollapsed = useTopologyStore((state) => state.sidebarCollapsed);
-  const tsnConfig = useTopologyStore((state) => state.tsnConfig);
+  // Get state from store - using batch selectors for better performance
+  const { 
+    topology, 
+    nodes, 
+    links, 
+    trafficControls, 
+    loading, 
+    error 
+  } = useTopologyData();
   
-  // Get Actions from store
-  const fetchTopology = useTopologyStore((state) => state.fetchTopology);
-  const fetchTopologyNodes = useTopologyStore((state) => state.fetchTopologyNodes);
-  const fetchTopologyLinks = useTopologyStore((state) => state.fetchTopologyLinks);
-  const fetchTrafficControls = useTopologyStore((state) => state.fetchTrafficControls);
-  const selectNode = useTopologyStore((state) => state.selectNode);
-  const selectLink = useTopologyStore((state) => state.selectLink);
-  const clearSelection = useTopologyStore((state) => state.clearSelection);
-  const setSidebarCollapsed = useTopologyStore((state) => state.setSidebarCollapsed);
-  const updateLinkPolicy = useTopologyStore((state) => state.updateLinkPolicy);
-  const exitLocalView = useTopologyStore((state) => state.exitLocalView);
-  const setTsnEnabled = useTopologyStore((state) => state.setTsnEnabled);
+  const { 
+    selectedNode, 
+    selectedLink 
+  } = useTopologySelection();
+  
+  const { 
+    sidebarCollapsed, 
+    tsnConfig 
+  } = useTopologyUI();
+  
+  // Get Actions from store - stable references
+  const actions = useTopologyActions();
   
   // Get local view filtered data
   const { 
@@ -288,45 +295,45 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   useEffect(() => {
     async function loadTopologyData() {
       await Promise.all([
-        fetchTopology(topologyName, namespace),
-        fetchTopologyNodes(topologyName, namespace),
-        fetchTopologyLinks(topologyName, namespace),
-        fetchTrafficControls(namespace),
+        actions.fetchTopology(topologyName, namespace),
+        actions.fetchTopologyNodes(topologyName, namespace),
+        actions.fetchTopologyLinks(topologyName, namespace),
+        actions.fetchTrafficControls(namespace),
       ]);
     }
 
     loadTopologyData();
-  }, [topologyName, namespace, fetchTopology, fetchTopologyNodes, fetchTopologyLinks, fetchTrafficControls]);
+  }, [topologyName, namespace, actions]);
 
   // Handle node click
   const handleNodeClick = useCallback((node: typeof nodes[0]) => {
-    selectNode(node);
-  }, [selectNode]);
+    actions.selectNode(node);
+  }, [actions]);
 
   // Handle edge click
   const handleEdgeClick = useCallback((link: TopologyLink) => {
-    selectLink(link);
-  }, [selectLink]);
+    actions.selectLink(link);
+  }, [actions]);
 
   // Handle selection change (select/deselect)
   const handleSelectionChange = useCallback((nodeIds: string[], edgeIds: string[]) => {
     if (nodeIds.length === 0 && edgeIds.length === 0) {
-      clearSelection();
+      actions.clearSelection();
     } else if (edgeIds.length > 0) {
       // When an edge is selected, find the corresponding link and select it
       const edgeId = edgeIds[0];
       const link = links.find(l => l.id === edgeId);
       if (link) {
-        selectLink(link);
+        actions.selectLink(link);
       }
     }
-  }, [clearSelection, links, selectLink]);
+  }, [actions, links]);
 
   // Handle traffic policy save
   const handlePolicySave = useCallback((linkId: string, policy: TrafficPolicy) => {
-    updateLinkPolicy(linkId, policy);
+    actions.updateLinkPolicy(linkId, policy);
     console.log(`Policy saved for link ${linkId}:`, policy);
-  }, [updateLinkPolicy]);
+  }, [actions]);
 
   // Handle traffic policy reset
   const handlePolicyReset = useCallback((linkId: string) => {
@@ -379,7 +386,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
         </div>
         <div className="topology-detail__header-center">
           {/* TSN Toggle */}
-          <TsnToggle config={tsnConfig} onToggle={setTsnEnabled} />
+          <TsnToggle config={tsnConfig} onToggle={actions.setTsnEnabled} />
         </div>
         <div className="topology-detail__header-right">
           <div className="topology-detail__stats">
@@ -411,7 +418,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
             <h3>{tsnConfig.enabled ? 'TSN & Traffic Controls' : 'Traffic Controls'}</h3>
             <button 
               className="sidebar-toggle"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              onClick={() => actions.setSidebarCollapsed(!sidebarCollapsed)}
             >
               {sidebarCollapsed ? '»' : '«'}
             </button>
@@ -466,7 +473,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
               <span className="local-view-banner__text">
                 🔍 Local View: <strong>{localViewNode.name}</strong> ({localViewNode.ip})
               </span>
-              <button className="local-view-banner__exit" onClick={exitLocalView}>
+              <button className="local-view-banner__exit" onClick={actions.exitLocalView}>
                 Exit Local View
               </button>
             </div>
@@ -494,7 +501,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
               link={selectedLink}
               onSave={handlePolicySave}
               onReset={handlePolicyReset}
-              onClose={clearSelection}
+              onClose={actions.clearSelection}
               tsnMode={tsnConfig.enabled}
             />
           </div>

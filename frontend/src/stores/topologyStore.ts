@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 import type {
   NetworkTopology,
   TopologyNode,
@@ -291,14 +292,26 @@ export const useTopologyStore = create<TopologyState>()(
     }),
     {
       name: 'kuro-topology-store',
-      // Only persist selection state, not data (data should be fetched fresh)
+      version: 1,
+      // Only persist UI preferences, not data (data should be fetched fresh)
+      // This reduces storage size and prevents stale data issues
       partialize: (state) => ({
-        selectedNode: state.selectedNode,
-        selectedLink: state.selectedLink,
         sidebarCollapsed: state.sidebarCollapsed,
-        localViewNodeId: state.localViewNodeId,
         tsnConfig: state.tsnConfig,
       }),
+      // Migrate from older versions if needed
+      migrate: (persistedState: unknown, version: number) => {
+        if (version === 0) {
+          // Version 0 persisted selectedNode/selectedLink/localViewNodeId
+          // We no longer persist these, return only what we need
+          const state = persistedState as Record<string, unknown>;
+          return {
+            sidebarCollapsed: state.sidebarCollapsed ?? false,
+            tsnConfig: state.tsnConfig ?? initialState.tsnConfig,
+          };
+        }
+        return persistedState as Partial<TopologyState>;
+      },
     }
   )
 );
@@ -394,4 +407,98 @@ export function useLocalView() {
     isInLocalView: true,
     localViewNode,
   };
+}
+
+// ============================================================================
+// Optimized Selectors with useShallow
+// ============================================================================
+
+/**
+ * Hook for topology data (batch selector to reduce re-renders)
+ * Returns all topology-related data with shallow comparison
+ */
+export function useTopologyData() {
+  return useTopologyStore(
+    useShallow((state: TopologyState) => ({
+      topology: state.currentTopology,
+      nodes: state.nodes,
+      links: state.links,
+      trafficControls: state.trafficControls,
+      loading: state.loading,
+      error: state.error,
+    }))
+  );
+}
+
+/**
+ * Hook for selection state (batch selector)
+ */
+export function useTopologySelection() {
+  return useTopologyStore(
+    useShallow((state: TopologyState) => ({
+      selectedNode: state.selectedNode,
+      selectedLink: state.selectedLink,
+    }))
+  );
+}
+
+/**
+ * Hook for UI state (batch selector)
+ */
+export function useTopologyUI() {
+  return useTopologyStore(
+    useShallow((state: TopologyState) => ({
+      sidebarCollapsed: state.sidebarCollapsed,
+      localViewNodeId: state.localViewNodeId,
+      tsnConfig: state.tsnConfig,
+    }))
+  );
+}
+
+/**
+ * Hook for all topology actions (stable reference)
+ * Returns action functions that don't change on state updates
+ */
+export function useTopologyActions() {
+  return useTopologyStore(
+    useShallow((state: TopologyState) => ({
+      fetchTopology: state.fetchTopology,
+      fetchTopologyNodes: state.fetchTopologyNodes,
+      fetchTopologyLinks: state.fetchTopologyLinks,
+      fetchTrafficControls: state.fetchTrafficControls,
+      selectNode: state.selectNode,
+      selectLink: state.selectLink,
+      clearSelection: state.clearSelection,
+      setSidebarCollapsed: state.setSidebarCollapsed,
+      updateLinkPolicy: state.updateLinkPolicy,
+      exitLocalView: state.exitLocalView,
+      setTsnEnabled: state.setTsnEnabled,
+    }))
+  );
+}
+
+/**
+ * Hook for node actions only
+ */
+export function useNodeActions() {
+  return useTopologyStore(
+    useShallow((state: TopologyState) => ({
+      selectNode: state.selectNode,
+      clearSelection: state.clearSelection,
+      enterLocalView: state.enterLocalView,
+    }))
+  );
+}
+
+/**
+ * Hook for link actions only
+ */
+export function useLinkActions() {
+  return useTopologyStore(
+    useShallow((state: TopologyState) => ({
+      selectLink: state.selectLink,
+      clearSelection: state.clearSelection,
+      updateLinkPolicy: state.updateLinkPolicy,
+    }))
+  );
 }
