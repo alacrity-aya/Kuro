@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, memo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -13,6 +13,7 @@ import {
   type OnConnect,
   MarkerType,
   Panel,
+  SelectionMode,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -20,6 +21,7 @@ import NodePalette from '../components/topology/NodePalette';
 import NodeCard from '../components/topology/NodeCard';
 import NodeConfigPanel, { type NodeConfig } from '../components/topology/NodeConfigPanel';
 import LinkConfigPanel from '../components/topology/LinkConfigPanel';
+import NodeGroupPanel, { type NodeGroupInfo, type GroupConfig } from '../components/topology/NodeGroupPanel';
 import YamlPreviewDialog from '../components/topology/YamlPreviewDialog';
 import type { NodeRole, TopologyNode, TrafficPolicy } from '../types/api';
 import { editorStateToYaml } from '../utils/topologyConverter';
@@ -45,6 +47,8 @@ export interface TopologyEditorProps {
   initialEdges?: Edge<EditorEdgeData>[];
   initialName?: string;
 }
+
+type ConfigPanelTab = 'node' | 'group';
 
 // ============================================================================
 // Constants
@@ -87,8 +91,15 @@ function TopologyEditor({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [nodeCounter, setNodeCounter] = useState(1);
+  
+  // Config panel tab
+  const [configPanelTab, setConfigPanelTab] = useState<ConfigPanelTab>('node');
+  
+  // Node groups state
+  const [nodeGroups, setNodeGroups] = useState<NodeGroupInfo[]>([]);
   
   // YAML Preview state
   const [topologyName, setTopologyName] = useState(initialName);
@@ -108,8 +119,17 @@ function TopologyEditor({
           // Delete selected edge
           setEdges((eds) => eds.filter((e) => e.id !== selectedEdgeId));
           setSelectedEdgeId(null);
+        } else if (selectedNodeIds.size > 0) {
+          // Delete all selected nodes and their connected edges
+          const idsToDelete = Array.from(selectedNodeIds);
+          setNodes((nds) => nds.filter((n) => !idsToDelete.includes(n.id)));
+          setEdges((eds) =>
+            eds.filter((e) => !idsToDelete.includes(e.source) && !idsToDelete.includes(e.target))
+          );
+          setSelectedNodeIds(new Set());
+          setSelectedNodeId(null);
         } else if (selectedNodeId) {
-          // Delete selected node and its connected edges
+          // Delete single selected node
           setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
           setEdges((eds) =>
             eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId)
@@ -117,11 +137,16 @@ function TopologyEditor({
           setSelectedNodeId(null);
         }
       }
+      
+      // Escape to clear multi-selection
+      if (event.key === 'Escape') {
+        setSelectedNodeIds(new Set());
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, selectedEdgeId, setNodes, setEdges]);
+  }, [selectedNodeId, selectedEdgeId, selectedNodeIds, setNodes, setEdges]);
 
   // Handle drop from palette
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -174,22 +199,62 @@ function TopologyEditor({
     [nodeCounter, setNodes]
   );
 
-  // Handle node click
+  // Handle node click - supports multi-select with shift key
   const handleNodeClick = useCallback(
-    (_event: React.MouseEvent, node: Node<EditorNodeData>) => {
-      setSelectedNodeId(node.id);
-      // Update node selection state
-      setNodes((nds) =>
-        nds.map((n) => ({
-          ...n,
-          data: {
-            ...n.data,
-            isSelected: n.id === node.id,
-          },
-        }))
-      );
+    (event: React.MouseEvent, node: Node<EditorNodeData>) => {
+      const isShiftClick = event.shiftKey;
+      
+      if (isShiftClick) {
+        // Multi-select mode: toggle selection
+        setSelectedNodeIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(node.id)) {
+            next.delete(node.id);
+          } else {
+            next.add(node.id);
+          }
+          return next;
+        });
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+        
+        // Update node visual selection state
+        setNodes((nds) =>
+          nds.map((n) => {
+            const willBeSelected = n.id === node.id 
+              ? !selectedNodeIds.has(node.id) 
+              : selectedNodeIds.has(n.id);
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                isSelected: willBeSelected,
+              },
+            };
+          })
+        );
+      } else {
+        // Single-select mode
+        setSelectedNodeId(node.id);
+        setSelectedNodeIds(new Set([node.id]));
+        setSelectedEdgeId(null);
+        
+        // Update node selection state
+        setNodes((nds) =>
+          nds.map((n) => ({
+            ...n,
+            data: {
+              ...n.data,
+              isSelected: n.id === node.id,
+            },
+          }))
+        );
+      }
+      
+      // Switch to node config panel
+      setConfigPanelTab('node');
     },
-    [setNodes]
+    [setNodes, selectedNodeIds]
   );
 
   // Handle node config change
@@ -343,6 +408,18 @@ function TopologyEditor({
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
+    setSelectedNodeIds(new Set());
+
+    // Reset node selection state
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: {
+          ...n.data,
+          isSelected: false,
+        },
+      }))
+    );
 
     // Reset edge styles
     setEdges((eds) =>
@@ -360,23 +437,32 @@ function TopologyEditor({
         },
       }))
     );
-  }, [setEdges]);
+  }, [setNodes, setEdges]);
 
-  // Handle delete selected (node or edge)
+  // Handle delete selected (node, edge, or multiple nodes)
   const handleDelete = useCallback(() => {
     if (selectedEdgeId) {
       // Delete selected edge
       setEdges((eds) => eds.filter((e) => e.id !== selectedEdgeId));
       setSelectedEdgeId(null);
+    } else if (selectedNodeIds.size > 0) {
+      // Delete all selected nodes and their connected edges
+      const idsToDelete = Array.from(selectedNodeIds);
+      setNodes((nds) => nds.filter((n) => !idsToDelete.includes(n.id)));
+      setEdges((eds) =>
+        eds.filter((e) => !idsToDelete.includes(e.source) && !idsToDelete.includes(e.target))
+      );
+      setSelectedNodeIds(new Set());
+      setSelectedNodeId(null);
     } else if (selectedNodeId) {
-      // Delete selected node and its connected edges
+      // Delete single selected node
       setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
       setEdges((eds) =>
         eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId)
       );
       setSelectedNodeId(null);
     }
-  }, [selectedNodeId, selectedEdgeId, setNodes, setEdges]);
+  }, [selectedNodeId, selectedEdgeId, selectedNodeIds, setNodes, setEdges]);
 
   // Handle save button click - show YAML preview
   const handleSaveClick = useCallback(() => {
@@ -407,6 +493,161 @@ function TopologyEditor({
     setIsPreviewOpen(false);
   }, []);
 
+  // ========================================================================
+  // Node Group Management
+  // ========================================================================
+
+  // Available nodes for group panel
+  const availableNodes = useMemo(
+    () => nodes.map((n) => ({
+      id: n.id,
+      name: n.data.node.name,
+      role: n.data.node.role,
+    })),
+    [nodes]
+  );
+
+  // Create a new node group
+  const handleCreateGroup = useCallback(
+    (_name: string, nodeIds: string[], config: GroupConfig) => {
+      const newGroup: NodeGroupInfo = {
+        id: `group-${Date.now()}`,
+        name: config.name,
+        role: nodeIds.length > 0 
+          ? nodes.find((n) => n.id === nodeIds[0])?.data.node.role || 'custom'
+          : 'custom',
+        replicas: config.replicas,
+        image: config.image,
+        labels: config.labels,
+        nodeIds,
+      };
+      
+      setNodeGroups((prev) => [...prev, newGroup]);
+      
+      // Update nodes with group assignment
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (!nodeIds.includes(n.id)) return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              node: {
+                ...n.data.node,
+                groupId: newGroup.id,
+              },
+            },
+          };
+        })
+      );
+      
+      // Clear selection
+      setSelectedNodeIds(new Set());
+    },
+    [nodes, setNodes]
+  );
+
+  // Update an existing group
+  const handleUpdateGroup = useCallback(
+    (groupId: string, config: GroupConfig) => {
+      setNodeGroups((prev) =>
+        prev.map((g) =>
+          g.id === groupId
+            ? { ...g, name: config.name, replicas: config.replicas, image: config.image, labels: config.labels }
+            : g
+        )
+      );
+    },
+    []
+  );
+
+  // Delete a group
+  const handleDeleteGroup = useCallback(
+    (groupId: string) => {
+      setNodeGroups((prev) => prev.filter((g) => g.id !== groupId));
+      
+      // Clear group assignment from nodes
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.data.node.groupId !== groupId) return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              node: {
+                ...n.data.node,
+                groupId: '',
+              },
+            },
+          };
+        })
+      );
+    },
+    [setNodes]
+  );
+
+  // Add nodes to existing group
+  const handleAddNodesToGroup = useCallback(
+    (groupId: string, nodeIds: string[]) => {
+      setNodeGroups((prev) =>
+        prev.map((g) => {
+          if (g.id !== groupId) return g;
+          const newNodeIds = [...new Set([...g.nodeIds, ...nodeIds])];
+          return { ...g, nodeIds: newNodeIds, replicas: newNodeIds.length };
+        })
+      );
+      
+      // Update nodes with group assignment
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (!nodeIds.includes(n.id)) return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              node: {
+                ...n.data.node,
+                groupId,
+              },
+            },
+          };
+        })
+      );
+    },
+    [setNodes]
+  );
+
+  // Remove a node from group
+  const handleRemoveNodeFromGroup = useCallback(
+    (groupId: string, nodeId: string) => {
+      setNodeGroups((prev) =>
+        prev.map((g) => {
+          if (g.id !== groupId) return g;
+          const newNodeIds = g.nodeIds.filter((id) => id !== nodeId);
+          return { ...g, nodeIds: newNodeIds, replicas: newNodeIds.length };
+        })
+      );
+      
+      // Clear group assignment from node
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== nodeId) return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              node: {
+                ...n.data.node,
+                groupId: '',
+              },
+            },
+          };
+        })
+      );
+    },
+    [setNodes]
+  );
+
   return (
     <div className="topology-editor">
       <div className="editor-sidebar">
@@ -433,6 +674,9 @@ function TopologyEditor({
           minZoom={0.2}
           maxZoom={2}
           deleteKeyCode={null}
+          selectionOnDrag
+          selectionMode={SelectionMode.Partial}
+          multiSelectionKeyCode="Shift"
         >
           <Background gap={16} size={1} />
           <Controls showInteractive={false} />
@@ -457,13 +701,18 @@ function TopologyEditor({
                 className="topology-name-field"
               />
             </div>
+            <div className="selection-info">
+              {selectedNodeIds.size > 1 && (
+                <span className="selection-count">{selectedNodeIds.size} nodes selected</span>
+              )}
+            </div>
             <button className="btn-secondary" onClick={onCancel}>
               Cancel
             </button>
             <button
               className="btn-danger"
               onClick={handleDelete}
-              disabled={!selectedNodeId && !selectedEdgeId}
+              disabled={!selectedNodeId && !selectedEdgeId && selectedNodeIds.size === 0}
             >
               Delete
             </button>
@@ -486,12 +735,41 @@ function TopologyEditor({
             onClose={() => setSelectedEdgeId(null)}
           />
         ) : (
-          <NodeConfigPanel
-            node={selectedNode}
-            onConfigChange={handleNodeConfigChange}
-            onDelete={handleNodeDelete}
-            onClose={() => setSelectedNodeId(null)}
-          />
+          <>
+            <div className="config-panel-tabs">
+              <button
+                className={`config-panel-tab ${configPanelTab === 'node' ? 'active' : ''}`}
+                onClick={() => setConfigPanelTab('node')}
+              >
+                Node
+              </button>
+              <button
+                className={`config-panel-tab ${configPanelTab === 'group' ? 'active' : ''}`}
+                onClick={() => setConfigPanelTab('group')}
+              >
+                Groups
+              </button>
+            </div>
+            {configPanelTab === 'group' ? (
+              <NodeGroupPanel
+                groups={nodeGroups}
+                selectedNodeIds={Array.from(selectedNodeIds)}
+                availableNodes={availableNodes}
+                onCreateGroup={handleCreateGroup}
+                onUpdateGroup={handleUpdateGroup}
+                onDeleteGroup={handleDeleteGroup}
+                onAddNodesToGroup={handleAddNodesToGroup}
+                onRemoveNodeFromGroup={handleRemoveNodeFromGroup}
+              />
+            ) : (
+              <NodeConfigPanel
+                node={selectedNode}
+                onConfigChange={handleNodeConfigChange}
+                onDelete={handleNodeDelete}
+                onClose={() => setSelectedNodeId(null)}
+              />
+            )}
+          </>
         )}
       </div>
 

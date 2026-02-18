@@ -20,6 +20,8 @@
 .editor-config {
   flex-shrink: 0;
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .editor-toolbar {
@@ -56,6 +58,21 @@
 
 .topology-name-field::placeholder {
   color: #6c7086;
+}
+
+.selection-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.selection-count {
+  font-size: 12px;
+  color: #89b4fa;
+  background: rgba(59, 130, 246, 0.15);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 500;
 }
 
 .editor-toolbar button {
@@ -99,6 +116,37 @@
   background: #4b5563;
   color: #9ca3af;
   cursor: not-allowed;
+}
+
+/* Config Panel Tabs */
+.config-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid #2d2d44;
+  background: #1a1a2e;
+}
+
+.config-panel-tab {
+  flex: 1;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.config-panel-tab:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.config-panel-tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
 }
 
 /* React Flow customizations for editor */
@@ -151,3 +199,10 @@
 .editor-main .react-flow__attribution {
   display: none;
 }
+
+/* Multi-select box style */
+.editor-main .react-flow__selection {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px dashed #3b82f6;
+}
+
