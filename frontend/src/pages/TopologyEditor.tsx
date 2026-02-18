@@ -23,6 +23,7 @@ import NodeConfigPanel, { type NodeConfig } from '../components/topology/NodeCon
 import LinkConfigPanel from '../components/topology/LinkConfigPanel';
 import NodeGroupPanel, { type NodeGroupInfo, type GroupConfig } from '../components/topology/NodeGroupPanel';
 import YamlPreviewDialog from '../components/topology/YamlPreviewDialog';
+import TopologyTemplates, { type TopologyTemplate } from '../components/topology/TopologyTemplates';
 import type { NodeRole, TopologyNode, TrafficPolicy } from '../types/api';
 import { editorStateToYaml } from '../utils/topologyConverter';
 import './TopologyEditor.css';
@@ -107,6 +108,9 @@ function TopologyEditor({
   const [previewYaml, setPreviewYaml] = useState('');
   const [previewErrors, setPreviewErrors] = useState<string[]>([]);
   const [previewWarnings, setPreviewWarnings] = useState<string[]>([]);
+  
+  // Templates state
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
 
   // Handle keyboard events for delete
   useEffect(() => {
@@ -648,6 +652,79 @@ function TopologyEditor({
     [setNodes]
   );
 
+  // ========================================================================
+  // Template Selection
+  // ========================================================================
+
+  // Handle template selection
+  const handleSelectTemplate = useCallback(
+    (template: TopologyTemplate) => {
+      // Convert template nodes to editor nodes
+      const newNodes = template.nodes.map((tn, index) => {
+        const nodeId = tn.id;
+        const newNode: Node<EditorNodeData> = {
+          id: nodeId,
+          type: 'custom',
+          position: { x: tn.x, y: tn.y },
+          data: {
+            node: {
+              id: nodeId,
+              name: tn.name,
+              role: tn.role,
+              ip: `10.0.0.${index + 1}`,
+              labels: tn.labels || { role: tn.role },
+              status: 'pending',
+              groupId: '',
+            },
+            isSelected: false,
+          },
+        };
+        return newNode;
+      });
+
+      // Convert template edges to editor edges
+      const newEdges = template.edges.map((te) => {
+        const newEdge: Edge<EditorEdgeData> = {
+          id: te.id,
+          source: te.source,
+          target: te.target,
+          type: 'smoothstep',
+          animated: true,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: '#94a3b8',
+          },
+          style: {
+            stroke: '#94a3b8',
+            strokeWidth: 1.5,
+          },
+          label: te.policy?.bandwidth || DEFAULT_LINK_POLICY.bandwidth,
+          labelStyle: { fill: '#64748b', fontWeight: 500, fontSize: 10 },
+          labelBgStyle: { fill: '#1e1e2e', fillOpacity: 0.9 },
+          labelBgPadding: [4, 2] as [number, number],
+          labelBgBorderRadius: 4,
+          data: {
+            policy: te.policy || DEFAULT_LINK_POLICY,
+          },
+        };
+        return newEdge;
+      });
+
+      // Replace existing nodes and edges with template
+      setNodes(newNodes);
+      setEdges(newEdges);
+      setNodeCounter(template.nodes.length + 1);
+      setTopologyName(template.name.toLowerCase().replace(/\s+/g, '-'));
+      setIsTemplatesOpen(false);
+      
+      // Clear selections
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSelectedNodeIds(new Set());
+    },
+    [setNodes, setEdges, setNodeCounter, setTopologyName]
+  );
+
   return (
     <div className="topology-editor">
       <div className="editor-sidebar">
@@ -706,6 +783,13 @@ function TopologyEditor({
                 <span className="selection-count">{selectedNodeIds.size} nodes selected</span>
               )}
             </div>
+            <button
+              className="btn-template"
+              onClick={() => setIsTemplatesOpen(true)}
+              title="Load a topology template"
+            >
+              📋 Templates
+            </button>
             <button className="btn-secondary" onClick={onCancel}>
               Cancel
             </button>
@@ -782,6 +866,18 @@ function TopologyEditor({
         onClose={handleClosePreview}
         onSave={handleSaveFromDialog}
       />
+
+      {/* Templates Dialog */}
+      {isTemplatesOpen && (
+        <div className="templates-dialog-overlay" onClick={() => setIsTemplatesOpen(false)}>
+          <div className="templates-dialog" onClick={(e) => e.stopPropagation()}>
+            <TopologyTemplates
+              onSelectTemplate={handleSelectTemplate}
+              onClose={() => setIsTemplatesOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
