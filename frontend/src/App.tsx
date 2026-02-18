@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { TopologyCanvas } from './components/topology';
-import { Dashboard } from './pages';
+import { Dashboard, TopologyList } from './pages';
 import { apiClient } from './api/client';
 import type { TopologyNode, TopologyLink, MenuItem } from './types/api';
 import './App.css';
@@ -17,12 +17,12 @@ function App() {
 
   const menuItems: MenuItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { id: 'topology', label: 'Topology', icon: 'topology' },
+    { id: 'topology-list', label: 'Topologies', icon: 'topology' },
     { id: 'metrics', label: 'Metrics', icon: 'metrics' },
   ];
 
   useEffect(() => {
-    if (activeMenuItem !== 'topology') return;
+    if (activeMenuItem !== 'topology-view') return;
 
     async function loadTopology() {
       try {
@@ -61,7 +61,7 @@ function App() {
 
   const handleMenuItemClick = (id: string) => {
     setActiveMenuItem(id);
-    if (id === 'topology') {
+    if (id === 'topology-view') {
       setLoading(true);
       setError(null);
     }
@@ -71,7 +71,9 @@ function App() {
     switch (activeMenuItem) {
       case 'dashboard':
         return <Dashboard />;
-      case 'topology':
+      case 'topology-list':
+        return <TopologyList />;
+      case 'topology-view':
         return (
           <div className="app-topology">
             <div className="app-topology__header">
