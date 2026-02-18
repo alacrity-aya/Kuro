@@ -3,6 +3,10 @@ import { apiClient } from '../api/client';
 import type { NetworkTopology, TrafficControl } from '../types/api';
 import './Dashboard.css';
 
+interface DashboardProps {
+  onViewTopology?: (name: string, namespace: string) => void;
+}
+
 interface StatsCardProps {
   title: string;
   value: string | number;
@@ -48,7 +52,7 @@ function QuickActionButton({ icon, label, onClick }: QuickActionButtonProps) {
   );
 }
 
-function Dashboard() {
+function Dashboard({ onViewTopology }: DashboardProps) {
   const [topologies, setTopologies] = useState<NetworkTopology[]>([]);
   const [trafficControls, setTrafficControls] = useState<TrafficControl[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +114,12 @@ function Dashboard() {
 
   const handleViewMetrics = () => {
     console.log('View metrics clicked');
+  };
+
+  const handleViewTopology = (name: string, namespace: string) => {
+    if (onViewTopology) {
+      onViewTopology(name, namespace);
+    }
   };
 
   if (loading) {
@@ -186,7 +196,11 @@ function Dashboard() {
               </div>
             ) : (
               topologies.map((topology) => (
-                <div key={topology.metadata.uid} className="topology-card">
+                <div 
+                  key={topology.metadata.uid} 
+                  className="topology-card topology-card--clickable"
+                  onClick={() => handleViewTopology(topology.metadata.name, topology.metadata.namespace)}
+                >
                   <div className="topology-card__header">
                     <h3 className="topology-card__name">{topology.metadata.name}</h3>
                     <span className={`topology-card__phase topology-card__phase--${(topology.status?.phase ?? 'Unknown').toLowerCase()}`}>
@@ -213,6 +227,7 @@ function Dashboard() {
                     <span className="topology-card__time">
                       Created: {new Date(topology.metadata.creationTimestamp).toLocaleDateString()}
                     </span>
+                    <span className="topology-card__action-hint">Click to view →</span>
                   </div>
                 </div>
               ))

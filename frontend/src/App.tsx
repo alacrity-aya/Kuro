@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { TopologyCanvas } from './components/topology';
-import { Dashboard, TopologyList } from './pages';
+import { Dashboard, TopologyList, TopologyDetail } from './pages';
 import { apiClient } from './api/client';
 import type { TopologyNode, TopologyLink, MenuItem } from './types/api';
 import './App.css';
+
+// Selected topology for detail view
+interface SelectedTopology {
+  name: string;
+  namespace: string;
+}
 
 function App() {
   const [nodes, setNodes] = useState<TopologyNode[]>([]);
@@ -13,7 +19,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeMenuItem, setActiveMenuItem] = useState('dashboard');
+  const [activeMenuItem, setActiveMenuItem] = useState<string>('dashboard');
+  const [selectedTopology, setSelectedTopology] = useState<SelectedTopology | null>(null);
 
   const menuItems: MenuItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -61,18 +68,45 @@ function App() {
 
   const handleMenuItemClick = (id: string) => {
     setActiveMenuItem(id);
+    // Clear selected topology when navigating away from detail view
+    if (id !== 'topology-detail') {
+      setSelectedTopology(null);
+    }
     if (id === 'topology-view') {
       setLoading(true);
       setError(null);
     }
   };
 
+  // Navigate to topology detail page
+  const handleViewTopology = (name: string, namespace: string = 'default') => {
+    setSelectedTopology({ name, namespace });
+    setActiveMenuItem('topology-detail');
+  };
+
+  // Go back from topology detail
+  const handleBackFromDetail = () => {
+    setSelectedTopology(null);
+    setActiveMenuItem('topology-list');
+  };
+
   const renderContent = () => {
     switch (activeMenuItem) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onViewTopology={handleViewTopology} />;
       case 'topology-list':
-        return <TopologyList />;
+        return <TopologyList onViewTopology={handleViewTopology} />;
+      case 'topology-detail':
+        if (selectedTopology) {
+          return (
+            <TopologyDetail
+              topologyName={selectedTopology.name}
+              namespace={selectedTopology.namespace}
+              onBack={handleBackFromDetail}
+            />
+          );
+        }
+        return <TopologyList onViewTopology={handleViewTopology} />;
       case 'topology-view':
         return (
           <div className="app-topology">
@@ -115,7 +149,7 @@ function App() {
           </div>
         );
       default:
-        return <Dashboard />;
+        return <Dashboard onViewTopology={handleViewTopology} />;
     }
   };
 

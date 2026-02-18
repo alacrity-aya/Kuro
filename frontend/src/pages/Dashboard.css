@@ -165,7 +165,17 @@
   border-radius: 8px;
   padding: 16px;
   border: 1px solid #e5e7eb;
-  transition: border-color 0.2s ease;
+  transition: all 0.2s ease;
+}
+
+.topology-card--clickable {
+  cursor: pointer;
+}
+
+.topology-card--clickable:hover {
+  border-color: #3b82f6;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
 }
 
 .topology-card:hover {
@@ -246,11 +256,25 @@
 .topology-card__footer {
   padding-top: 12px;
   border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .topology-card__time {
   font-size: 12px;
   color: #9ca3af;
+}
+
+.topology-card__action-hint {
+  font-size: 12px;
+  color: #3b82f6;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.topology-card--clickable:hover .topology-card__action-hint {
+  opacity: 1;
 }
 
 /* Empty State */

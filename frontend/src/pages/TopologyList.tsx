@@ -3,7 +3,11 @@ import { apiClient } from '../api/client';
 import type { NetworkTopology } from '../types/api';
 import './TopologyList.css';
 
-function TopologyList() {
+interface TopologyListProps {
+  onViewTopology?: (name: string, namespace: string) => void;
+}
+
+function TopologyList({ onViewTopology }: TopologyListProps) {
   const [topologies, setTopologies] = useState<NetworkTopology[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +66,9 @@ function TopologyList() {
 
   const handleViewTopology = (name: string, namespace: string) => {
     console.log('View topology:', name, namespace);
-    // TODO: Navigate to topology detail page
+    if (onViewTopology) {
+      onViewTopology(name, namespace);
+    }
   };
 
   if (loading) {
