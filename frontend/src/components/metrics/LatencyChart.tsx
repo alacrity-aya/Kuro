@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 import type { TimeSeriesPoint } from '../../types/api';
@@ -19,6 +19,10 @@ export function LatencyChart({
 }: LatencyChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
+
+  const handleResize = useCallback(() => {
+    chartInstance.current?.resize();
+  }, []);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -113,16 +117,16 @@ export function LatencyChart({
 
     chartInstance.current.setOption(option);
 
-    const handleResize = () => {
-      chartInstance.current?.resize();
-    };
-
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (chartInstance.current) {
+        chartInstance.current.dispose();
+        chartInstance.current = null;
+      }
     };
-  }, [data, title, maxLatency]);
+  }, [data, title, maxLatency, handleResize]);
 
   return (
     <div 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 import './PacketLossGauge.css';
@@ -16,6 +16,10 @@ export function PacketLossGauge({
 }: PacketLossGaugeProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
+
+  const handleResize = useCallback(() => {
+    chartInstance.current?.resize();
+  }, []);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -105,16 +109,16 @@ export function PacketLossGauge({
 
     chartInstance.current.setOption(option);
 
-    const handleResize = () => {
-      chartInstance.current?.resize();
-    };
-
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (chartInstance.current) {
+        chartInstance.current.dispose();
+        chartInstance.current = null;
+      }
     };
-  }, [value, title]);
+  }, [value, title, handleResize]);
 
   return (
     <div 
