@@ -1,0 +1,198 @@
+// Kuro API Types
+// Based on CRD definitions: NetworkTopology, TrafficControl
+
+// ============================================================================
+// Common Types
+// ============================================================================
+
+export type Phase = 'Pending' | 'Running' | 'Succeeded' | 'Failed' | 'Unknown';
+
+export interface ObjectMeta {
+  name: string;
+  namespace: string;
+  uid: string;
+  creationTimestamp: string;
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+}
+
+// ============================================================================
+// NetworkTopology CRD Types
+// ============================================================================
+
+export interface NodeGroup {
+  name: string;
+  replicas: number;
+  image: string;
+  labels?: Record<string, string>;
+  resources?: {
+    cpu?: string;
+    memory?: string;
+  };
+}
+
+export interface NetworkTopologySpec {
+  nodeGroups: NodeGroup[];
+}
+
+export interface NetworkTopologyStatus {
+  phase: Phase;
+  nodeCount: number;
+  readyNodes: number;
+  conditions?: {
+    type: string;
+    status: 'True' | 'False' | 'Unknown';
+    message?: string;
+    lastTransitionTime?: string;
+  }[];
+}
+
+export interface NetworkTopology {
+  apiVersion: 'simulation.kuro.io/v1alpha1';
+  kind: 'NetworkTopology';
+  metadata: ObjectMeta;
+  spec: NetworkTopologySpec;
+  status?: NetworkTopologyStatus;
+}
+
+// ============================================================================
+// TrafficControl CRD Types
+// ============================================================================
+
+export interface LabelSelector {
+  matchLabels: Record<string, string>;
+}
+
+export interface TrafficPolicy {
+  bandwidth: string;    // e.g., "10Mbps"
+  latency: string;      // e.g., "50ms"
+  jitter: string;       // e.g., "10ms"
+  packetLoss: string;   // e.g., "0.5%"
+}
+
+export interface TrafficControlSpec {
+  source: LabelSelector;
+  destination: LabelSelector;
+  policy: TrafficPolicy;
+}
+
+export interface TrafficControlStatus {
+  phase: Phase;
+  appliedLinks: number;
+  conditions?: {
+    type: string;
+    status: 'True' | 'False' | 'Unknown';
+    message?: string;
+  }[];
+}
+
+export interface TrafficControl {
+  apiVersion: 'simulation.kuro.io/v1alpha1';
+  kind: 'TrafficControl';
+  metadata: ObjectMeta;
+  spec: TrafficControlSpec;
+  status?: TrafficControlStatus;
+}
+
+// ============================================================================
+// Node & Link Types (for topology visualization)
+// ============================================================================
+
+export type NodeRole = 'drone' | 'ground-station' | 'gateway' | 'server' | 'client' | 'custom';
+
+export interface TopologyNode {
+  id: string;
+  name: string;
+  role: NodeRole;
+  ip: string;
+  labels: Record<string, string>;
+  status: 'running' | 'pending' | 'failed' | 'unknown';
+  groupId: string;
+  x?: number;
+  y?: number;
+}
+
+export interface TopologyLink {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  policy?: TrafficPolicy;
+  status: 'active' | 'inactive' | 'pending';
+  metrics?: LinkMetrics;
+}
+
+export interface LinkMetrics {
+  bandwidthUsage: number;    // percentage (0-100)
+  currentLatency: number;    // ms
+  currentJitter: number;     // ms
+  packetLossRate: number;    // percentage (0-100)
+  bytesPerSecond: number;
+  packetsPerSecond: number;
+}
+
+// ============================================================================
+// Metrics Types
+// ============================================================================
+
+export interface TimeSeriesPoint {
+  timestamp: number;
+  value: number;
+}
+
+export interface NodeMetrics {
+  nodeId: string;
+  cpuUsage: TimeSeriesPoint[];
+  memoryUsage: TimeSeriesPoint[];
+  networkIn: TimeSeriesPoint[];
+  networkOut: TimeSeriesPoint[];
+}
+
+export interface LinkMetricsHistory {
+  linkId: string;
+  bandwidth: TimeSeriesPoint[];
+  latency: TimeSeriesPoint[];
+  packetLoss: TimeSeriesPoint[];
+}
+
+// ============================================================================
+// API Response Types
+// ============================================================================
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+export interface ListResult<T> {
+  items: T[];
+  totalCount: number;
+  continueToken?: string;
+}
+
+// ============================================================================
+// API Client Interface
+// ============================================================================
+
+export interface KuroApiClient {
+  // Topology operations
+  listTopologies(namespace?: string): Promise<ApiResponse<ListResult<NetworkTopology>>>;
+  getTopology(name: string, namespace?: string): Promise<ApiResponse<NetworkTopology>>;
+  createTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>>;
+  deleteTopology(name: string, namespace?: string): Promise<ApiResponse<void>>;
+  
+  // TrafficControl operations
+  listTrafficControls(namespace?: string): Promise<ApiResponse<ListResult<TrafficControl>>>;
+  getTrafficControl(name: string, namespace?: string): Promise<ApiResponse<TrafficControl>>;
+  createTrafficControl(tc: TrafficControl): Promise<ApiResponse<TrafficControl>>;
+  updateTrafficControl(tc: TrafficControl): Promise<ApiResponse<TrafficControl>>;
+  deleteTrafficControl(name: string, namespace?: string): Promise<ApiResponse<void>>;
+  
+  // Topology visualization
+  getTopologyNodes(topologyName: string, namespace?: string): Promise<ApiResponse<TopologyNode[]>>;
+  getTopologyLinks(topologyName: string, namespace?: string): Promise<ApiResponse<TopologyLink[]>>;
+  
+  // Metrics
+  getNodeMetrics(nodeId: string): Promise<ApiResponse<NodeMetrics>>;
+  getLinkMetrics(linkId: string): Promise<ApiResponse<LinkMetricsHistory>>;
+}
