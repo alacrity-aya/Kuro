@@ -31,6 +31,9 @@ interface TopologyState {
   loading: boolean;
   error: string | null;
   
+  // Local View
+  localViewNodeId: string | null;
+  
   // Actions - Data
   fetchTopologies: (namespace?: string) => Promise<void>;
   fetchTopology: (name: string, namespace?: string) => Promise<void>;
@@ -49,6 +52,10 @@ interface TopologyState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  
+  // Actions - Local View
+  enterLocalView: (nodeId: string) => void;
+  exitLocalView: () => void;
   
   // Actions - Updates
   updateLinkPolicy: (linkId: string, policy: TrafficPolicy) => void;
@@ -78,6 +85,9 @@ const initialState = {
   sidebarCollapsed: false,
   loading: false,
   error: null,
+  
+  // Local View
+  localViewNodeId: null,
 };
 
 // ============================================================================
@@ -201,6 +211,18 @@ export const useTopologyStore = create<TopologyState>()(
       },
       
       // ========================================================================
+      // Local View Actions
+      // ========================================================================
+      
+      enterLocalView: (nodeId) => {
+        set({ localViewNodeId: nodeId });
+      },
+      
+      exitLocalView: () => {
+        set({ localViewNodeId: null });
+      },
+      
+      // ========================================================================
       // Update Actions
       // ========================================================================
       
@@ -235,6 +257,7 @@ export const useTopologyStore = create<TopologyState>()(
         selectedNode: state.selectedNode,
         selectedLink: state.selectedLink,
         sidebarCollapsed: state.sidebarCollapsed,
+        localViewNodeId: state.localViewNodeId,
       }),
     }
   )
@@ -293,5 +316,42 @@ export function useTopologyStats() {
     runningNodes: nodes.filter((n) => n.status === 'running').length,
     totalLinks: links.length,
     activeLinks: links.filter((l) => l.status === 'active').length,
+  };
+}
+
+/**
+ * Hook for local view - filters nodes and links to show only selected node and its connections
+ */
+export function useLocalView() {
+  const nodes = useTopologyStore((state) => state.nodes);
+  const links = useTopologyStore((state) => state.links);
+  const localViewNodeId = useTopologyStore((state) => state.localViewNodeId);
+  
+  if (!localViewNodeId) {
+    return { nodes, links, isInLocalView: false, localViewNode: null };
+  }
+  
+  const localViewNode = nodes.find((n) => n.id === localViewNodeId) ?? null;
+  
+  // Find all links connected to this node
+  const connectedLinks = links.filter(
+    (link) => link.sourceId === localViewNodeId || link.targetId === localViewNodeId
+  );
+  
+  // Find all node IDs connected to this node
+  const connectedNodeIds = new Set<string>([localViewNodeId]);
+  connectedLinks.forEach((link) => {
+    connectedNodeIds.add(link.sourceId);
+    connectedNodeIds.add(link.targetId);
+  });
+  
+  // Filter nodes to show only the local view node and its direct neighbors
+  const filteredNodes = nodes.filter((node) => connectedNodeIds.has(node.id));
+  
+  return {
+    nodes: filteredNodes,
+    links: connectedLinks,
+    isInLocalView: true,
+    localViewNode,
   };
 }

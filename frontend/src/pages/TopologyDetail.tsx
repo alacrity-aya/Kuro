@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
-import { useTopologyStore, useTopologyStats } from '../stores';
+import { useTopologyStore, useTopologyStats, useLocalView } from '../stores';
 import type { TrafficPolicy, TopologyLink } from '../types/api';
 import './TopologyDetail.css';
 
@@ -57,10 +57,18 @@ function ZoomControls() {
 function NodeDetailPanel() {
   const selectedNode = useTopologyStore((state) => state.selectedNode);
   const clearSelection = useTopologyStore((state) => state.clearSelection);
+  const enterLocalView = useTopologyStore((state) => state.enterLocalView);
+  const localViewNodeId = useTopologyStore((state) => state.localViewNodeId);
 
   if (!selectedNode) return null;
 
   const statusClass = `detail-panel__status detail-panel__status--${selectedNode.status}`;
+  const isInLocalView = localViewNodeId === selectedNode.id;
+
+  const handleEnterLocalView = () => {
+    enterLocalView(selectedNode.id);
+    clearSelection();
+  };
 
   return (
     <div className="detail-panel">
@@ -105,6 +113,24 @@ function NodeDetailPanel() {
             ))}
           </div>
         </div>
+        
+        {/* Local View Button */}
+        {!isInLocalView && (
+          <div className="detail-section-title">Actions</div>
+        )}
+        {!isInLocalView && (
+          <button 
+            className="btn btn--primary local-view-btn"
+            onClick={handleEnterLocalView}
+          >
+            🔍 Enter Local View
+          </button>
+        )}
+        {isInLocalView && (
+          <div className="local-view-indicator">
+            Currently viewing this node's local view
+          </div>
+        )}
       </div>
     </div>
   );
@@ -206,7 +232,6 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   // Get state from store
   const topology = useTopologyStore((state) => state.currentTopology);
   const nodes = useTopologyStore((state) => state.nodes);
-  const links = useTopologyStore((state) => state.links);
   const trafficControls = useTopologyStore((state) => state.trafficControls);
   const loading = useTopologyStore((state) => state.loading);
   const error = useTopologyStore((state) => state.error);
@@ -224,8 +249,17 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   const clearSelection = useTopologyStore((state) => state.clearSelection);
   const setSidebarCollapsed = useTopologyStore((state) => state.setSidebarCollapsed);
   const updateLinkPolicy = useTopologyStore((state) => state.updateLinkPolicy);
+  const exitLocalView = useTopologyStore((state) => state.exitLocalView);
   
-  // Get computed stats
+  // Get local view filtered data
+  const { 
+    nodes: displayNodes, 
+    links: displayLinks, 
+    isInLocalView, 
+    localViewNode 
+  } = useLocalView();
+  
+  // Get computed stats (use original nodes for total stats)
   const stats = useTopologyStats();
 
   // Load topology data
@@ -376,9 +410,19 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
 
         {/* Canvas Area */}
         <div className="topology-detail__canvas" ref={canvasRef}>
+          {isInLocalView && localViewNode && (
+            <div className="local-view-banner">
+              <span className="local-view-banner__text">
+                🔍 Local View: <strong>{localViewNode.name}</strong> ({localViewNode.ip})
+              </span>
+              <button className="local-view-banner__exit" onClick={exitLocalView}>
+                Exit Local View
+              </button>
+            </div>
+          )}
           <TopologyCanvas
-            nodes={nodes}
-            links={links}
+            nodes={displayNodes}
+            links={displayLinks}
             selectedNodeId={selectedNode?.id}
             selectedLinkId={selectedLink?.id}
             onNodeClick={handleNodeClick}

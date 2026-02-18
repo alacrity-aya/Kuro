@@ -2,5 +2,6 @@ export {
   useTopologyStore, 
   useLoadTopology, 
   useSelectedLinkWithMetrics,
-  useTopologyStats 
+  useTopologyStats,
+  useLocalView
 } from './topologyStore';
