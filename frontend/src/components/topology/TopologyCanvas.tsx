@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useEffect } from 'react';
+import { memo, useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -8,6 +8,7 @@ import {
   useEdgesState,
   type Node,
   type Edge,
+  type EdgeChange,
   type OnConnect,
   MarkerType,
 } from 'reactflow';
@@ -227,6 +228,26 @@ function TopologyCanvas({
     [onEdgeClick]
   );
 
+  // Handle edges change - detect selection changes
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      // Call the original onEdgesChange to update state
+      onEdgesChange(changes);
+      
+      // Check for selection changes
+      for (const change of changes) {
+        if (change.type === 'select' && change.selected) {
+          // Find the edge data and trigger onEdgeClick
+          const edge = edges.find(e => e.id === change.id);
+          if (edge?.data?.link) {
+            onEdgeClick?.(edge.data.link);
+          }
+        }
+      }
+    },
+    [onEdgesChange, edges, onEdgeClick]
+  );
+
   // Handle selection change
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
@@ -249,7 +270,7 @@ function TopologyCanvas({
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onNodeClick={handleNodeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
@@ -282,4 +303,4 @@ function TopologyCanvas({
   );
 }
 
-export default TopologyCanvas;
+export default memo(TopologyCanvas);

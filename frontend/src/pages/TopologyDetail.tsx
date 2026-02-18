@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
@@ -273,11 +273,16 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   // Get computed stats (use original nodes for total stats)
   const stats = useTopologyStats();
   
-  // TSN State
-  const [tsnState, setTsnState] = useState<TsnState>({
-    schedule: null,
-    syncStatuses: [],
-  });
+  // TSN State - use useMemo for derived state to avoid re-renders
+  const tsnState = useMemo<TsnState>(() => {
+    if (links.length > 0 && nodes.length > 0) {
+      return {
+        schedule: generateMockTsnSchedule(links),
+        syncStatuses: generateMockTimeSyncStatuses(nodes),
+      };
+    }
+    return { schedule: null, syncStatuses: [] };
+  }, [links, nodes]);
 
   // Load topology data
   useEffect(() => {
@@ -293,16 +298,6 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
     loadTopologyData();
   }, [topologyName, namespace, fetchTopology, fetchTopologyNodes, fetchTopologyLinks, fetchTrafficControls]);
 
-  // Load TSN mock data when links are available
-  useEffect(() => {
-    if (links.length > 0 && nodes.length > 0) {
-      setTsnState({
-        schedule: generateMockTsnSchedule(links),
-        syncStatuses: generateMockTimeSyncStatuses(nodes),
-      });
-    }
-  }, [links, nodes]);
-
   // Handle node click
   const handleNodeClick = useCallback((node: typeof nodes[0]) => {
     selectNode(node);
@@ -313,12 +308,19 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
     selectLink(link);
   }, [selectLink]);
 
-  // Handle selection change (deselect)
+  // Handle selection change (select/deselect)
   const handleSelectionChange = useCallback((nodeIds: string[], edgeIds: string[]) => {
     if (nodeIds.length === 0 && edgeIds.length === 0) {
       clearSelection();
+    } else if (edgeIds.length > 0) {
+      // When an edge is selected, find the corresponding link and select it
+      const edgeId = edgeIds[0];
+      const link = links.find(l => l.id === edgeId);
+      if (link) {
+        selectLink(link);
+      }
     }
-  }, [clearSelection]);
+  }, [clearSelection, links, selectLink]);
 
   // Handle traffic policy save
   const handlePolicySave = useCallback((linkId: string, policy: TrafficPolicy) => {
