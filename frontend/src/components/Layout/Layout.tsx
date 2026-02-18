@@ -1,12 +1,13 @@
-import { useState } from 'react';
 import Sidebar, { type MenuItem } from './Sidebar';
 import './Layout.css';
 
 interface LayoutProps {
   children: React.ReactNode;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
   menuItems?: MenuItem[];
-  activeItem?: string;
-  onItemClick?: (id: string) => void;
+  activeMenuItem?: string;
+  onMenuItemClick?: (id: string) => void;
 }
 
 const defaultMenuItems: MenuItem[] = [
@@ -17,28 +18,22 @@ const defaultMenuItems: MenuItem[] = [
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
-function Layout({ children, menuItems = defaultMenuItems, activeItem, onItemClick }: LayoutProps) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [internalActiveItem, setInternalActiveItem] = useState('dashboard');
-
-  const currentActiveItem = activeItem ?? internalActiveItem;
-
-  const handleItemClick = (id: string) => {
-    if (onItemClick) {
-      onItemClick(id);
-    } else {
-      setInternalActiveItem(id);
-    }
-  };
-
+function Layout({
+  children,
+  sidebarCollapsed = false,
+  onToggleSidebar,
+  menuItems = defaultMenuItems,
+  activeMenuItem = 'dashboard',
+  onMenuItemClick,
+}: LayoutProps) {
   return (
     <div className="layout">
       <Sidebar
         items={menuItems}
         collapsed={sidebarCollapsed}
-        activeItem={currentActiveItem}
-        onItemClick={handleItemClick}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        activeItem={activeMenuItem}
+        onItemClick={onMenuItemClick ?? (() => {})}
+        onToggleCollapse={onToggleSidebar ?? (() => {})}
       />
       <main className="layout-main">
         <div className="layout-content">
