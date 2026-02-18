@@ -1,50 +1,83 @@
-.app-home {
-  text-align: center;
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 40px 20px;
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 48px);
 }
 
-.app-home h1 {
-  font-size: 2.5rem;
-  color: #1a1f36;
-  margin-bottom: 8px;
-}
-
-.app-home > p {
-  font-size: 1.1rem;
+/* Loading state */
+.app-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  height: 400px;
   color: #6b7280;
-  margin-bottom: 40px;
 }
 
-.app-home__cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
-  margin-top: 20px;
+.app-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
-.app-home__card {
-  background: #fff;
-  border-radius: 12px;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error state */
+.app-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #ef4444;
+  background-color: #fef2f2;
+  border-radius: 8px;
   padding: 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.app-home__card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+/* Topology section */
+.app-topology {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
-.app-home__card h3 {
-  font-size: 1.1rem;
-  color: #1a1f36;
-  margin-bottom: 8px;
+.app-topology__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
-.app-home__card p {
-  font-size: 0.9rem;
-  color: #6b7280;
+.app-topology__header h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1f2937;
   margin: 0;
+}
+
+.app-topology__stats {
+  font-size: 0.875rem;
+  color: #6b7280;
+  background-color: #f3f4f6;
+  padding: 4px 12px;
+  border-radius: 16px;
+}
+
+.app-topology__canvas {
+  flex: 1;
+  min-height: 0;
+  background-color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
 }

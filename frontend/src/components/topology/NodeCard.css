@@ -1,0 +1,132 @@
+.node-card {
+  min-width: 160px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  font-size: 12px;
+}
+
+.node-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+}
+
+.node-card--selected {
+  border-width: 2px;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
+}
+
+/* Handle styling */
+.node-card__handle {
+  width: 8px;
+  height: 8px;
+  background-color: #94a3b8;
+  border: 2px solid #ffffff;
+  transition: all 0.2s ease;
+}
+
+.node-card__handle:hover {
+  background-color: #3b82f6;
+  transform: scale(1.2);
+}
+
+/* Header */
+.node-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.node-card__icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.node-card__title-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.node-card__name {
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node-card__group {
+  font-size: 10px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Body */
+.node-card__body {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.node-card__info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.node-card__label {
+  color: #9ca3af;
+  font-size: 10px;
+}
+
+.node-card__value {
+  color: #374151;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 10px;
+}
+
+/* Footer */
+.node-card__footer {
+  padding: 6px 12px;
+  border-top: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  border-radius: 0 0 8px 8px;
+}
+
+.node-card__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-card__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.node-card__status-label {
+  font-size: 10px;
+  color: #6b7280;
+  font-weight: 500;
+}
