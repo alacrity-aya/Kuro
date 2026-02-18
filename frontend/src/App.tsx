@@ -1,35 +1,29 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { Layout } from './components/Layout';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <Layout>
+      <div className="app-home">
+        <h1>Welcome to Kuro</h1>
+        <p>eBPF-based Distributed Network Simulator</p>
+        <div className="app-home__cards">
+          <div className="app-home__card">
+            <h3>🌐 Network Topologies</h3>
+            <p>Visualize and manage your network simulation topologies</p>
+          </div>
+          <div className="app-home__card">
+            <h3>📊 Real-time Metrics</h3>
+            <p>Monitor bandwidth, latency, and packet loss in real-time</p>
+          </div>
+          <div className="app-home__card">
+            <h3>⚙️ Traffic Control</h3>
+            <p>Configure link parameters with precision using eBPF</p>
+          </div>
+        </div>
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    </Layout>
+  );
 }
 
-export default App
+export default App;
