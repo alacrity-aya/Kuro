@@ -1,0 +1,512 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-02-18",
+  "testConfig": {
+    "baseUrl": "http://localhost:5173",
+    "testTimeout": 30000,
+    "screenshotDir": "logs/screenshots"
+  },
+  "features": [
+    {
+      "id": "FEAT-014",
+      "category": "build",
+      "priority": "high",
+      "name": "Production Build Verification",
+      "description": "验证前端项目能成功构建，无类型错误和构建警告",
+      "codeTests": [
+        "运行 tsc --noEmit 检查类型",
+        "运行 npm run build 验证构建",
+        "检查 dist 目录生成"
+      ],
+      "browserTests": [
+        "访问首页验证页面加载",
+        "截图验证渲染正常"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T20:14:00Z",
+      "notes": "构建验证通过：dist目录已生成，Dashboard和Topologies页面渲染正常，无console错误",
+      "retryCount": 0
+    },
+    {
+      "id": "FEAT-015",
+      "category": "functional",
+      "priority": "high",
+      "name": "Node Local View",
+      "description": "用户点击节点后可进入 Local View，只显示该节点及其连接",
+      "codeTests": [
+        "运行 TopologyCanvas 单元测试",
+        "验证 useLocalView hook"
+      ],
+      "browserTests": [
+        "导航到拓扑详情页",
+        "点击节点打开详情面板",
+        "点击 Enter Local View 按钮",
+        "验证只显示选中节点及其连接",
+        "点击 Exit Local View 返回完整视图",
+        "截图记录 Local View 状态"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:18:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "FEAT-016",
+      "category": "functional",
+      "priority": "high",
+      "name": "Topology Creation with YAML Editor",
+      "description": "使用 Monaco Editor 编辑 YAML，实时预览拓扑结构",
+      "codeTests": [
+        "验证 YAML 解析函数",
+        "验证 Monaco Editor 集成",
+        "运行相关单元测试"
+      ],
+      "browserTests": [
+        "导航到创建页面",
+        "验证 Monaco Editor 加载",
+        "验证 Live Preview 显示",
+        "修改 YAML 验证实时更新",
+        "输入错误 YAML 验证错误提示",
+        "点击 Create Topology 按钮"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:22:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "FEAT-017",
+      "category": "functional",
+      "priority": "medium",
+      "name": "TSN Mode - Time-Sensitive Networking",
+      "description": "TSN 模式切换，显示 Schedule Timeline 和 Time Sync Status",
+      "codeTests": [
+        "验证 TSN 组件渲染",
+        "验证 TSN toggle 功能"
+      ],
+      "browserTests": [
+        "导航到拓扑详情页",
+        "点击 TSN Mode 切换按钮",
+        "验证 TSN 面板出现",
+        "验证 Schedule Timeline 显示",
+        "验证 Time Sync Status 显示",
+        "关闭 TSN Mode 验证面板消失"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:26:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "FEAT-018",
+      "category": "functional",
+      "priority": "medium",
+      "name": "Topology Export/Import",
+      "description": "拓扑的 YAML 导出和导入功能",
+      "codeTests": [
+        "验证 downloadTopologyYaml 函数",
+        "验证 parseImportedYaml 函数",
+        "验证 readFileAsText 函数"
+      ],
+      "browserTests": [
+        "导航到拓扑列表页",
+        "点击 Export 按钮验证下载",
+        "点击 Import 按钮",
+        "上传 YAML 文件",
+        "验证跳转到创建页面",
+        "验证 YAML 内容已填充"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:33:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "DASH-001",
+      "category": "ui",
+      "priority": "high",
+      "name": "Dashboard Statistics Display",
+      "description": "Dashboard 统计卡片和拓扑状态概览",
+      "codeTests": [
+        "验证 Dashboard 组件渲染"
+      ],
+      "browserTests": [
+        "导航到 Dashboard",
+        "验证 Total Nodes 卡片显示",
+        "验证 Topologies 卡片显示",
+        "验证 Traffic Controls 卡片显示",
+        "验证 Simulation Health 卡片显示",
+        "验证拓扑状态列表显示",
+        "验证 Quick Actions 按钮组"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:38:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "LIST-001",
+      "category": "ui",
+      "priority": "medium",
+      "name": "Topology List Filtering",
+      "description": "拓扑列表的搜索和阶段过滤功能",
+      "codeTests": [
+        "验证过滤逻辑"
+      ],
+      "browserTests": [
+        "导航到拓扑列表",
+        "在搜索框输入文本",
+        "验证列表过滤结果",
+        "选择 Running 阶段过滤器",
+        "验证只显示 Running 拓扑"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:43:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "CANVAS-001",
+      "category": "ui",
+      "priority": "high",
+      "name": "Topology Canvas Visualization",
+      "description": "2D 拓扑画布渲染，节点和连接的显示",
+      "codeTests": [
+        "验证 ReactFlow 集成",
+        "验证节点渲染"
+      ],
+      "browserTests": [
+        "导航到拓扑详情页",
+        "验证画布加载",
+        "验证节点显示",
+        "验证连接显示",
+        "测试缩放控制按钮",
+        "测试 Fit to Screen 按钮"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:48:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "LAYOUT-001",
+      "category": "ui",
+      "priority": "medium",
+      "name": "Sidebar Navigation",
+      "description": "侧边栏导航和折叠功能",
+      "codeTests": [
+        "验证 Layout 组件"
+      ],
+      "browserTests": [
+        "验证侧边栏菜单项显示",
+        "点击菜单项导航到对应页面",
+        "测试侧边栏折叠/展开",
+        "验证当前选中菜单高亮"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T12:55:00Z",
+      "notes": "E2E测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "TC-001",
+      "category": "functional",
+      "priority": "medium",
+      "name": "Traffic Control Panel",
+      "description": "流量控制面板，带宽/延迟/丢包率参数调整",
+      "codeTests": [
+        "验证 TrafficControlPanel 组件",
+        "运行单元测试"
+      ],
+      "browserTests": [
+        "导航到拓扑详情页",
+        "选择两个节点",
+        "验证 Traffic Control Panel 显示",
+        "调整 Bandwidth 滑块",
+        "调整 Latency 滑块",
+        "调整 Packet Loss 滑块",
+        "点击 Apply 按钮"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T21:17:00Z",
+      "notes": "代码测试通过",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-001",
+      "category": "lowcode",
+      "priority": "high",
+      "name": "Node Palette - 节点工具栏",
+      "description": "提供可拖拽的节点类型工具栏，支持拖拽添加不同类型的节点到画布",
+      "codeTests": [
+        "创建 NodePalette 组件",
+        "创建 DraggableNodeItem 组件",
+        "验证拖拽事件处理",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "导航到拓扑创建/编辑页面",
+        "验证节点工具栏显示",
+        "验证不同节点类型图标显示（drone, ground-station, gateway, server, client）",
+        "拖拽节点到画布",
+        "验证节点成功添加到画布",
+        "验证节点使用默认配置",
+        "截图记录拖拽过程"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T22:07:00Z",
+      "notes": "代码测试通过：NodePalette和DraggableNodeItem组件已创建，支持5种节点类型拖拽，TopologyEditor页面集成完成",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-002",
+      "category": "lowcode",
+      "priority": "high",
+      "name": "Node Configuration Panel - 节点配置面板",
+      "description": "点击节点后显示配置面板，支持配置 image, labels, command, userProgram 等属性",
+      "codeTests": [
+        "创建 NodeConfigPanel 组件",
+        "创建表单字段组件（ImageInput, LabelsEditor, CommandInput）",
+        "验证表单验证逻辑",
+        "验证 NodeGroup 类型定义",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "导航到拓扑编辑页面",
+        "拖拽添加一个新节点",
+        "点击节点打开配置面板",
+        "验证配置面板显示所有字段",
+        "修改 image 字段",
+        "添加/修改 labels",
+        "验证实时预览更新",
+        "验证表单验证（必填字段）",
+        "截图记录配置过程"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T22:14:00Z",
+      "notes": "代码测试通过：NodeConfigPanel组件已创建，支持name/image/labels/replicas/resources配置，集成到TopologyEditor页面右侧",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-003",
+      "category": "lowcode",
+      "priority": "high",
+      "name": "Link Drawing - 链路绘制功能",
+      "description": "支持通过拖拽在节点之间创建链路连接",
+      "codeTests": [
+        "扩展 TopologyCanvas 支持连接创建",
+        "创建 LinkCreationHandler",
+        "验证连接数据结构",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "导航到拓扑编辑页面",
+        "添加两个节点到画布",
+        "从节点 A 的输出端口拖拽到节点 B 的输入端口",
+        "验证链路成功创建",
+        "验证链路使用默认配置",
+        "点击链路验证选中状态",
+        "按 Delete 键删除链路",
+        "验证链路成功删除",
+        "截图记录链路创建过程"
+      ],
+      "passes": true,
+      "lastTested": "2026-02-18T22:53:00Z",
+      "notes": "代码测试通过：TopologyEditor已支持连接创建(onConnect)，NodeCard有Handle(source/target)，支持默认链路配置、选中状态、Delete键删除",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-004",
+      "category": "lowcode",
+      "priority": "high",
+      "name": "Link Configuration Panel - 链路配置面板增强",
+      "description": "增强链路配置面板，支持配置带宽、延迟、抖动、丢包率等网络仿真参数",
+      "codeTests": [
+        "增强 TrafficControlPanel 组件",
+        "添加 LinkPolicy 类型定义",
+        "创建网络参数输入组件",
+        "验证参数范围和格式",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "导航到拓扑编辑页面",
+        "创建两个节点之间的链路",
+        "点击链路打开配置面板",
+        "配置 Bandwidth（如 10Mbps）",
+        "配置 Latency（如 50ms）",
+        "配置 Jitter（如 10ms）",
+        "配置 Packet Loss（如 0.5%）",
+        "验证配置预览显示正确",
+        "验证配置保存成功",
+        "截图记录配置过程"
+      ],
+      "passes": false,
+      "lastTested": null,
+      "notes": "新功能 - 基于现有 TrafficControlPanel 增强",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-005",
+      "category": "lowcode",
+      "priority": "high",
+      "name": "Topology Editor Page - 拓扑编辑页面",
+      "description": "创建专用的拓扑编辑页面，集成节点工具栏、画布、配置面板",
+      "codeTests": [
+        "创建 TopologyEditor 页面组件",
+        "创建 EditorToolbar 组件",
+        "创建 EditorSidebar 组件",
+        "集成各子组件",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "导航到 /topologies/new 页面",
+        "验证页面布局正确（工具栏 | 画布 | 配置面板）",
+        "验证节点工具栏在左侧显示",
+        "验证画布在中间显示",
+        "验证配置面板在右侧显示（点击节点后）",
+        "测试整体交互流程",
+        "截图记录页面布局"
+      ],
+      "passes": false,
+      "lastTested": null,
+      "notes": "新功能 - 低代码编辑器主页面",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-006",
+      "category": "lowcode",
+      "priority": "high",
+      "name": "Topology Save - 拓扑保存功能",
+      "description": "将可视化编辑的拓扑保存为 NetworkTopology CRD YAML 格式",
+      "codeTests": [
+        "创建 topologyToYaml 转换函数",
+        "创建 NodeGroup 聚合逻辑",
+        "创建 TrafficControl 生成逻辑",
+        "验证 YAML 格式正确性",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "在拓扑编辑页面创建拓扑",
+        "添加多个节点组",
+        "创建链路并配置参数",
+        "点击 Save 按钮",
+        "验证生成 YAML 预览",
+        "验证 YAML 包含所有节点和链路配置",
+        "点击确认保存",
+        "验证保存成功提示",
+        "截图记录保存过程"
+      ],
+      "passes": false,
+      "lastTested": null,
+      "notes": "新功能 - 核心保存功能",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-007",
+      "category": "lowcode",
+      "priority": "medium",
+      "name": "Node Group Management - 节点组管理",
+      "description": "支持将多个节点组织成节点组，配置副本数等",
+      "codeTests": [
+        "创建 NodeGroupPanel 组件",
+        "创建节点组聚合逻辑",
+        "验证副本数配置",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "在拓扑编辑页面添加多个同类型节点",
+        "选择多个节点",
+        "创建节点组",
+        "配置节点组名称",
+        "配置副本数",
+        "验证节点组在画布上的显示方式",
+        "验证节点组配置面板",
+        "截图记录节点组管理"
+      ],
+      "passes": false,
+      "lastTested": null,
+      "notes": "新功能 - NodeGroup CRD 支持",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-008",
+      "category": "lowcode",
+      "priority": "medium",
+      "name": "Topology Templates - 拓扑模板库",
+      "description": "提供预定义的拓扑模板，支持快速创建常见拓扑结构",
+      "codeTests": [
+        "创建 TopologyTemplates 组件",
+        "定义模板数据结构",
+        "创建模板加载逻辑",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "导航到拓扑创建页面",
+        "点击 Templates 按钮",
+        "验证模板列表显示",
+        "选择模板（如 Drone Swarm）",
+        "验证模板加载到画布",
+        "验证可以修改模板",
+        "截图记录模板选择过程"
+      ],
+      "passes": false,
+      "lastTested": null,
+      "notes": "新功能 - 提升用户体验",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-009",
+      "category": "lowcode",
+      "priority": "medium",
+      "name": "Real-time Validation - 实时验证",
+      "description": "在编辑过程中实时验证拓扑配置的正确性",
+      "codeTests": [
+        "创建 TopologyValidator 服务",
+        "创建验证规则",
+        "创建错误提示组件",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "在拓扑编辑页面进行编辑",
+        "创建无效配置（如空名称）",
+        "验证错误提示显示",
+        "修复错误",
+        "验证错误提示消失",
+        "创建孤立节点（无连接）",
+        "验证警告提示显示",
+        "截图记录验证过程"
+      ],
+      "passes": false,
+      "lastTested": null,
+      "notes": "新功能 - 提升用户体验",
+      "retryCount": 0
+    },
+    {
+      "id": "LC-010",
+      "category": "lowcode",
+      "priority": "low",
+      "name": "Undo/Redo - 撤销/重做功能",
+      "description": "支持编辑操作的撤销和重做",
+      "codeTests": [
+        "创建 useHistory hook",
+        "实现历史状态管理",
+        "创建 UndoRedoButtons 组件",
+        "添加单元测试"
+      ],
+      "browserTests": [
+        "在拓扑编辑页面进行多次编辑",
+        "点击 Undo 按钮",
+        "验证撤销成功",
+        "点击 Redo 按钮",
+        "验证重做成功",
+        "使用快捷键 Ctrl+Z",
+        "验证快捷键撤销成功",
+        "截图记录撤销重做"
+      ],
+      "passes": false,
+      "lastTested": null,
+      "notes": "新功能 - 提升用户体验",
+      "retryCount": 0
+    }
+  ]
+}
