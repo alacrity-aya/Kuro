@@ -11,4 +11,54 @@
 
 src/App.tsx(1,20): error TS6133: 'useEffect' is declared but its value is never read.
 
-有一个未使用的 import，让我修复：构建成功！现在提交代码并更新进度文件：
+有一个未使用的 import，让我修复：构建成功！现在提交代码并更新进度文件：现在更新功能列表和进度文件：## 会话摘要
+
+### ✅ 完成的工作
+
+**FEAT-011: Add routing with React Router**
+
+1. **安装依赖**: `react-router-dom` (4 packages)
+2. **重构 App.tsx**: 
+   - 使用 `BrowserRouter` 包装应用
+   - 配置 `Routes` 和 `Route` 组件
+   - 使用 `useNavigate` 和 `useLocation` hooks 实现导航
+3. **路由配置**:
+   - `/` → Dashboard
+   - `/dashboard` → Dashboard
+   - `/topologies` → TopologyList
+   - `/topologies/:namespace/:name` → TopologyDetail
+   - `/metrics` → Metrics placeholder
+4. **功能**: URL 驱动导航、浏览器前进/后退支持、侧边栏与路由同步
+
+### ✅ 构建验证结果
+
+```
+vite v7.3.1 building client environment for production...
+✓ 528 modules transformed.
+✓ built in 1.39s
+```
+
+### 📝 Git 提交
+
+- `b4237bb` - "feat: add routing with React Router (FEAT-011)"
+
+### 📋 下一步建议
+
+**FEAT-012**: Connect all components with Zustand store
+- 创建 `stores/topologyStore.ts`
+- 实现状态管理 (selected node/link)
+- 连接组件到 store
+
+<Execution Info>
+{
+  "session-id": "session-89f5a4f8-d920-4f19-a74e-0ec3e81ecf92",
+  "conversation-id": "de00921a-69d2-4ec9-954f-9713ce7bcb95",
+  "assistantRounds": 15,
+  "executionTimeMs": 191007,
+  "tokenUsage": {
+    "input": 43262,
+    "output": 301,
+    "total": 43563
+  }
+}
+</Execution Info>

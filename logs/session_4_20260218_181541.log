@@ -1,0 +1,19 @@
+好的，我来执行例行检查并开始工作。好的，我已经完成例行检查。让我总结一下：
+
+**当前状态：**
+- 工作目录：`/home/alacrity/work/vibe/Kuro`
+- 当前分支：`agent-harness`
+- 最近提交：`d0e466a feat: connect all components with Zustand store (FEAT-012)`
+
+**功能列表状态：**
+- 已完成：FEAT-001 到 FEAT-012 (12 个)
+- 未完成：FEAT-013, FEAT-014, FEAT-015, FEAT-016, FEAT-017, FEAT-018 (6 个)
+
+**下一个待完成的功能：**
+- **FEAT-013**: Add unit tests for core components (优先级: high)
+  - 安装 vitest 和 @testing-library/react
+  - 创建 TopologyCanvas 测试
+  - 创建 TrafficControlPanel 测试
+  - 运行测试验证
+
+让我开始实现 FEAT-013：测试库安装成功。现在我需要配置 vitest 和创建测试文件：现在我需要配置 vitest 并添加测试脚本。让我更新 vite.config.ts 和 package.json：现在创建测试 setup 文件和测试文件：
