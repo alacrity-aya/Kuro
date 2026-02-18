@@ -19,6 +19,7 @@ import 'reactflow/dist/style.css';
 import NodePalette from '../components/topology/NodePalette';
 import NodeCard from '../components/topology/NodeCard';
 import NodeConfigPanel, { type NodeConfig } from '../components/topology/NodeConfigPanel';
+import LinkConfigPanel from '../components/topology/LinkConfigPanel';
 import YamlPreviewDialog from '../components/topology/YamlPreviewDialog';
 import type { NodeRole, TopologyNode, TrafficPolicy } from '../types/api';
 import { editorStateToYaml } from '../utils/topologyConverter';
@@ -226,9 +227,43 @@ function TopologyEditor({
     [setNodes, setEdges]
   );
 
+  // Handle edge policy change
+  const handleEdgePolicyChange = useCallback(
+    (edgeId: string, policy: TrafficPolicy) => {
+      setEdges((eds) =>
+        eds.map((e) => {
+          if (e.id !== edgeId) return e;
+          return {
+            ...e,
+            label: policy.bandwidth,
+            data: {
+              ...e.data,
+              policy,
+            },
+          };
+        })
+      );
+    },
+    [setEdges]
+  );
+
+  // Handle edge delete from config panel
+  const handleEdgeDelete = useCallback(
+    (edgeId: string) => {
+      setEdges((eds) => eds.filter((e) => e.id !== edgeId));
+      setSelectedEdgeId(null);
+    },
+    [setEdges]
+  );
+
   // Get selected node for config panel
   const selectedNode = selectedNodeId
     ? nodes.find((n) => n.id === selectedNodeId)?.data.node ?? null
+    : null;
+
+  // Get selected edge for config panel
+  const selectedEdge = selectedEdgeId
+    ? edges.find((e) => e.id === selectedEdgeId) ?? null
     : null;
 
   // Handle connection (link drawing)
@@ -440,12 +475,24 @@ function TopologyEditor({
       </div>
 
       <div className="editor-config">
-        <NodeConfigPanel
-          node={selectedNode}
-          onConfigChange={handleNodeConfigChange}
-          onDelete={handleNodeDelete}
-          onClose={() => setSelectedNodeId(null)}
-        />
+        {selectedEdgeId ? (
+          <LinkConfigPanel
+            linkId={selectedEdgeId}
+            sourceName={selectedEdge?.source ? nodes.find(n => n.id === selectedEdge.source)?.data?.node?.name || selectedEdge.source : ''}
+            targetName={selectedEdge?.target ? nodes.find(n => n.id === selectedEdge.target)?.data?.node?.name || selectedEdge.target : ''}
+            policy={selectedEdge?.data?.policy || null}
+            onPolicyChange={handleEdgePolicyChange}
+            onDelete={handleEdgeDelete}
+            onClose={() => setSelectedEdgeId(null)}
+          />
+        ) : (
+          <NodeConfigPanel
+            node={selectedNode}
+            onConfigChange={handleNodeConfigChange}
+            onDelete={handleNodeDelete}
+            onClose={() => setSelectedNodeId(null)}
+          />
+        )}
       </div>
 
       <YamlPreviewDialog
