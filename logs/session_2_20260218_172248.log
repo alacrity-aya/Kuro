@@ -1,3 +1,3 @@
 我将执行启动例行检查，确认当前状态。状态确认完成。下一个待完成的功能是 **FEAT-006: Create Dashboard page with topology summary**。
 
-让我开始实现这个功能。现在我了解了项目结构。让我创建 Dashboard 页面组件。现在创建 Dashboard 页面组件和样式：现在更新 App.tsx 来集成 Dashboard：现在需要更新 Layout 组件以接受这些 props，并更新类型文件：Layout 组件已经支持这些 props，但需要更新接口以匹配 App.tsx 中的用法。同时需要在 types/api.ts 中导出 MenuItem 类型：现在需要在 types/api.ts 中导出 MenuItem 类型：现在运行构建验证：构建成功！现在提交代码并更新功能列表：
+让我开始实现这个功能。现在我了解了项目结构。让我创建 Dashboard 页面组件。现在创建 Dashboard 页面组件和样式：现在更新 App.tsx 来集成 Dashboard：现在需要更新 Layout 组件以接受这些 props，并更新类型文件：Layout 组件已经支持这些 props，但需要更新接口以匹配 App.tsx 中的用法。同时需要在 types/api.ts 中导出 MenuItem 类型：现在需要在 types/api.ts 中导出 MenuItem 类型：现在运行构建验证：构建成功！现在提交代码并更新功能列表：现在更新功能列表和进度文件：
