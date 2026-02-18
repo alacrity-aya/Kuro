@@ -7,6 +7,8 @@ import type {
   TrafficControl,
   TrafficPolicy,
   LinkMetrics,
+  TSNConfig,
+  TimeSyncStatus,
 } from '../types/api';
 import { apiClient } from '../api/client';
 
@@ -34,6 +36,10 @@ interface TopologyState {
   // Local View
   localViewNodeId: string | null;
   
+  // TSN Mode
+  tsnConfig: TSNConfig;
+  timeSyncStatuses: TimeSyncStatus[];
+  
   // Actions - Data
   fetchTopologies: (namespace?: string) => Promise<void>;
   fetchTopology: (name: string, namespace?: string) => Promise<void>;
@@ -56,6 +62,11 @@ interface TopologyState {
   // Actions - Local View
   enterLocalView: (nodeId: string) => void;
   exitLocalView: () => void;
+  
+  // Actions - TSN Mode
+  setTsnEnabled: (enabled: boolean) => void;
+  setTsnConfig: (config: Partial<TSNConfig>) => void;
+  setTimeSyncStatuses: (statuses: TimeSyncStatus[]) => void;
   
   // Actions - Updates
   updateLinkPolicy: (linkId: string, policy: TrafficPolicy) => void;
@@ -88,6 +99,14 @@ const initialState = {
   
   // Local View
   localViewNodeId: null,
+  
+  // TSN Mode
+  tsnConfig: {
+    enabled: false,
+    cycleTime: 100000, // 100ms in microseconds
+    syncInterval: 125, // PTP default sync interval in ms
+  } as TSNConfig,
+  timeSyncStatuses: [] as TimeSyncStatus[],
 };
 
 // ============================================================================
@@ -223,6 +242,26 @@ export const useTopologyStore = create<TopologyState>()(
       },
       
       // ========================================================================
+      // TSN Mode Actions
+      // ========================================================================
+      
+      setTsnEnabled: (enabled) => {
+        set((state) => ({
+          tsnConfig: { ...state.tsnConfig, enabled },
+        }));
+      },
+      
+      setTsnConfig: (config) => {
+        set((state) => ({
+          tsnConfig: { ...state.tsnConfig, ...config },
+        }));
+      },
+      
+      setTimeSyncStatuses: (statuses) => {
+        set({ timeSyncStatuses: statuses });
+      },
+      
+      // ========================================================================
       // Update Actions
       // ========================================================================
       
@@ -258,6 +297,7 @@ export const useTopologyStore = create<TopologyState>()(
         selectedLink: state.selectedLink,
         sidebarCollapsed: state.sidebarCollapsed,
         localViewNodeId: state.localViewNodeId,
+        tsnConfig: state.tsnConfig,
       }),
     }
   )

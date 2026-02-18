@@ -619,3 +619,39 @@
 .local-view-banner__exit:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+/* TSN Mode Styles */
+.topology-detail__header-center {
+  display: flex;
+  align-items: center;
+}
+
+/* Sidebar Sections */
+.sidebar-section {
+  margin-bottom: 16px;
+}
+
+.sidebar-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+/* Responsive for TSN Toggle */
+@media (max-width: 1024px) {
+  .topology-detail__header {
+    flex-wrap: wrap;
+  }
+
+  .topology-detail__header-center {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    margin-top: 12px;
+  }
+}

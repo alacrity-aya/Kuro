@@ -288,3 +288,61 @@ export function getMockDataForTopology(topologyName: string) {
   
   return { topology, nodes, links };
 }
+
+// ============================================================================
+// TSN Mock Data
+// ============================================================================
+
+import type { TSNSchedule, TimeSyncStatus, TSNConfig } from '../types/api';
+
+export const mockTsnConfig: TSNConfig = {
+  enabled: true,
+  cycleTime: 100000, // 100ms in microseconds
+  syncInterval: 125, // PTP default sync interval in ms
+};
+
+export function generateMockTsnSchedule(links: TopologyLink[]): TSNSchedule {
+  const cycleTime = 100000; // 100ms
+  const slots = links.slice(0, 6).map((link, index) => {
+    const duration = Math.floor(cycleTime / 8); // Each slot gets ~12.5ms
+    const startTime = index * duration;
+    const trafficClasses: Array<'ST' | 'BE' | 'AVB'> = ['ST', 'ST', 'AVB', 'AVB', 'BE', 'BE'];
+    const colors = ['#e94560', '#e94560', '#00d9ff', '#00d9ff', '#00ff88', '#00ff88'];
+
+    return {
+      id: `slot-${index}`,
+      startTime,
+      duration,
+      trafficClass: trafficClasses[index % trafficClasses.length],
+      linkId: link.id,
+      color: colors[index % colors.length],
+    };
+  });
+
+  return {
+    cycleTime,
+    slots,
+  };
+}
+
+export function generateMockTimeSyncStatuses(nodes: TopologyNode[]): TimeSyncStatus[] {
+  // Pick first node as grandmaster
+  const grandmasterId = nodes[0]?.id || 'gm-001';
+
+  return nodes.map((node) => {
+    const isGrandmaster = node.id === grandmasterId;
+    // Grandmaster has perfect sync, others have small offsets
+    const offset = isGrandmaster
+      ? 0
+      : randomInt(-5000, 5000); // -5μs to +5μs in nanoseconds
+
+    return {
+      nodeId: node.id,
+      synced: true,
+      offset,
+      lastSyncTime: new Date(Date.now() - randomInt(0, 10000)).toISOString(),
+      grandmasterId,
+      clockClass: isGrandmaster ? 6 : 52, // 6 = Locked to GPS, 52 = Locked to PTP
+    };
+  });
+}

@@ -1,9 +1,11 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
+import { TsnToggle, TsnSyncStatus, TsnTimeline } from '../components/tsn';
 import { useTopologyStore, useTopologyStats, useLocalView } from '../stores';
-import type { TrafficPolicy, TopologyLink } from '../types/api';
+import type { TrafficPolicy, TopologyLink, TSNSchedule, TimeSyncStatus } from '../types/api';
+import { generateMockTsnSchedule, generateMockTimeSyncStatuses } from '../api/mock';
 import './TopologyDetail.css';
 
 // ============================================================================
@@ -14,6 +16,12 @@ interface TopologyDetailProps {
   topologyName: string;
   namespace?: string;
   onBack?: () => void;
+}
+
+// TSN State (local to component)
+interface TsnState {
+  schedule: TSNSchedule | null;
+  syncStatuses: TimeSyncStatus[];
 }
 
 // ============================================================================
@@ -232,14 +240,16 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   // Get state from store
   const topology = useTopologyStore((state) => state.currentTopology);
   const nodes = useTopologyStore((state) => state.nodes);
+  const links = useTopologyStore((state) => state.links);
   const trafficControls = useTopologyStore((state) => state.trafficControls);
   const loading = useTopologyStore((state) => state.loading);
   const error = useTopologyStore((state) => state.error);
   const selectedNode = useTopologyStore((state) => state.selectedNode);
   const selectedLink = useTopologyStore((state) => state.selectedLink);
   const sidebarCollapsed = useTopologyStore((state) => state.sidebarCollapsed);
+  const tsnConfig = useTopologyStore((state) => state.tsnConfig);
   
-  // Get actions from store
+  // Get Actions from store
   const fetchTopology = useTopologyStore((state) => state.fetchTopology);
   const fetchTopologyNodes = useTopologyStore((state) => state.fetchTopologyNodes);
   const fetchTopologyLinks = useTopologyStore((state) => state.fetchTopologyLinks);
@@ -250,6 +260,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   const setSidebarCollapsed = useTopologyStore((state) => state.setSidebarCollapsed);
   const updateLinkPolicy = useTopologyStore((state) => state.updateLinkPolicy);
   const exitLocalView = useTopologyStore((state) => state.exitLocalView);
+  const setTsnEnabled = useTopologyStore((state) => state.setTsnEnabled);
   
   // Get local view filtered data
   const { 
@@ -261,6 +272,12 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   
   // Get computed stats (use original nodes for total stats)
   const stats = useTopologyStats();
+  
+  // TSN State
+  const [tsnState, setTsnState] = useState<TsnState>({
+    schedule: null,
+    syncStatuses: [],
+  });
 
   // Load topology data
   useEffect(() => {
@@ -275,6 +292,16 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
 
     loadTopologyData();
   }, [topologyName, namespace, fetchTopology, fetchTopologyNodes, fetchTopologyLinks, fetchTrafficControls]);
+
+  // Load TSN mock data when links are available
+  useEffect(() => {
+    if (links.length > 0 && nodes.length > 0) {
+      setTsnState({
+        schedule: generateMockTsnSchedule(links),
+        syncStatuses: generateMockTimeSyncStatuses(nodes),
+      });
+    }
+  }, [links, nodes]);
 
   // Handle node click
   const handleNodeClick = useCallback((node: typeof nodes[0]) => {
@@ -348,6 +375,10 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
             </span>
           </div>
         </div>
+        <div className="topology-detail__header-center">
+          {/* TSN Toggle */}
+          <TsnToggle config={tsnConfig} onToggle={setTsnEnabled} />
+        </div>
         <div className="topology-detail__header-right">
           <div className="topology-detail__stats">
             <div className="stat-item">
@@ -372,10 +403,10 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
 
       {/* Main Content */}
       <div className="topology-detail__body">
-        {/* Sidebar - Traffic Controls */}
+        {/* Sidebar - Traffic Controls & TSN */}
         <aside className={`topology-detail__sidebar ${sidebarCollapsed ? 'topology-detail__sidebar--collapsed' : ''}`}>
           <div className="sidebar-header">
-            <h3>Traffic Controls</h3>
+            <h3>{tsnConfig.enabled ? 'TSN & Traffic Controls' : 'Traffic Controls'}</h3>
             <button 
               className="sidebar-toggle"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -385,25 +416,43 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
           </div>
           {!sidebarCollapsed && (
             <div className="sidebar-content">
-              {trafficControls.length === 0 ? (
-                <div className="sidebar-empty">
-                  <span>No traffic controls</span>
-                </div>
-              ) : (
-                <div className="tc-list">
-                  {trafficControls.map((tc) => (
-                    <div key={tc.metadata.uid} className="tc-item">
-                      <div className="tc-item__name">{tc.metadata.name}</div>
-                      <div className="tc-item__policy">
-                        {tc.spec.policy.bandwidth} | {tc.spec.policy.latency}
-                      </div>
-                      <span className={`tc-item__phase tc-item__phase--${(tc.status?.phase ?? 'Unknown').toLowerCase()}`}>
-                        {tc.status?.phase ?? 'Unknown'}
-                      </span>
-                    </div>
-                  ))}
+              {/* TSN Time Sync Status (only in TSN mode) */}
+              {tsnConfig.enabled && (
+                <div className="sidebar-section">
+                  <TsnSyncStatus nodes={nodes} syncStatuses={tsnState.syncStatuses} />
                 </div>
               )}
+              
+              {/* TSN Schedule Timeline (only in TSN mode) */}
+              {tsnConfig.enabled && tsnState.schedule && (
+                <div className="sidebar-section">
+                  <TsnTimeline schedule={tsnState.schedule} links={links} />
+                </div>
+              )}
+              
+              {/* Traffic Controls */}
+              <div className="sidebar-section">
+                <h4 className="sidebar-section-title">Traffic Controls</h4>
+                {trafficControls.length === 0 ? (
+                  <div className="sidebar-empty">
+                    <span>No traffic controls</span>
+                  </div>
+                ) : (
+                  <div className="tc-list">
+                    {trafficControls.map((tc) => (
+                      <div key={tc.metadata.uid} className="tc-item">
+                        <div className="tc-item__name">{tc.metadata.name}</div>
+                        <div className="tc-item__policy">
+                          {tc.spec.policy.bandwidth} | {tc.spec.policy.latency}
+                        </div>
+                        <span className={`tc-item__phase tc-item__phase--${(tc.status?.phase ?? 'Unknown').toLowerCase()}`}>
+                          {tc.status?.phase ?? 'Unknown'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </aside>
@@ -444,6 +493,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
               onSave={handlePolicySave}
               onReset={handlePolicyReset}
               onClose={clearSelection}
+              tsnMode={tsnConfig.enabled}
             />
           </div>
         )}

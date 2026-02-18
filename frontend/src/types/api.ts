@@ -205,3 +205,38 @@ export interface KuroApiClient {
   getNodeMetrics(nodeId: string): Promise<ApiResponse<NodeMetrics>>;
   getLinkMetrics(linkId: string): Promise<ApiResponse<LinkMetricsHistory>>;
 }
+
+// ============================================================================
+// TSN (Time-Sensitive Networking) Types
+// ============================================================================
+
+export interface TSNSchedule {
+  cycleTime: number;        // in microseconds
+  slots: TSNSlot[];
+}
+
+export interface TSNSlot {
+  id: string;
+  startTime: number;        // in microseconds from cycle start
+  duration: number;         // in microseconds
+  trafficClass: 'ST' | 'BE' | 'AVB';  // Scheduled Traffic, Best Effort, Audio Video Bridging
+  linkId: string;
+  color: string;
+}
+
+export interface TimeSyncStatus {
+  nodeId: string;
+  synced: boolean;
+  offset: number;           // offset from grandmaster in nanoseconds
+  lastSyncTime: string;
+  grandmasterId: string;
+  clockClass: number;       // PTP clock class (0-255)
+}
+
+export interface TSNConfig {
+  enabled: boolean;
+  cycleTime: number;        // in microseconds (default: 100000 = 100ms)
+  schedule?: TSNSchedule;
+  grandmasterNodeId?: string;
+  syncInterval: number;     // in milliseconds
+}

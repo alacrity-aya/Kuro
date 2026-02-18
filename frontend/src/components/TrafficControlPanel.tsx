@@ -11,6 +11,7 @@ interface TrafficControlPanelProps {
   onSave?: (linkId: string, policy: TrafficPolicy) => void;
   onReset?: (linkId: string) => void;
   onClose?: () => void;
+  tsnMode?: boolean; // TSN mode for microsecond precision
 }
 
 interface SliderConfig {
@@ -33,7 +34,8 @@ const BANDWIDTH_CONFIG: SliderConfig = {
   format: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)} Gbps` : `${v.toFixed(1)} Mbps`,
 };
 
-const LATENCY_CONFIG: SliderConfig = {
+// Standard latency config (milliseconds)
+const LATENCY_CONFIG_MS: SliderConfig = {
   min: 0,
   max: 1000,
   step: 1,
@@ -41,12 +43,41 @@ const LATENCY_CONFIG: SliderConfig = {
   format: (v) => `${v} ms`,
 };
 
-const JITTER_CONFIG: SliderConfig = {
+// TSN latency config (microseconds)
+const LATENCY_CONFIG_US: SliderConfig = {
+  min: 0,
+  max: 100000, // 100ms in microseconds
+  step: 10,
+  unit: 'μs',
+  format: (v) => {
+    if (v >= 1000) {
+      return `${v} μs (${(v / 1000).toFixed(2)} ms)`;
+    }
+    return `${v} μs`;
+  },
+};
+
+// Standard jitter config (milliseconds)
+const JITTER_CONFIG_MS: SliderConfig = {
   min: 0,
   max: 500,
   step: 1,
   unit: 'ms',
   format: (v) => `${v} ms`,
+};
+
+// TSN jitter config (microseconds)
+const JITTER_CONFIG_US: SliderConfig = {
+  min: 0,
+  max: 50000, // 50ms in microseconds
+  step: 5,
+  unit: 'μs',
+  format: (v) => {
+    if (v >= 1000) {
+      return `${v} μs (${(v / 1000).toFixed(2)} ms)`;
+    }
+    return `${v} μs`;
+  },
 };
 
 const PACKET_LOSS_CONFIG: SliderConfig = {
@@ -77,23 +108,35 @@ function parseBandwidth(value: string): number {
   }
 }
 
-function parseLatency(value: string): number {
+function parseLatency(value: string, tsnMode: boolean): number {
   const match = value.match(/^(\d+(?:\.\d+)?)(ms|us|s)?$/i);
   if (!match) return 0;
   
   const num = parseFloat(match[1]);
   const unit = (match[2] ?? 'ms').toLowerCase();
   
-  switch (unit) {
-    case 'us': return num / 1000;
-    case 'ms': return num;
-    case 's': return num * 1000;
-    default: return num;
+  // Return value in appropriate unit based on mode
+  if (tsnMode) {
+    // In TSN mode, return microseconds
+    switch (unit) {
+      case 'us': return num;
+      case 'ms': return num * 1000;
+      case 's': return num * 1000000;
+      default: return num * 1000; // assume ms if no unit
+    }
+  } else {
+    // In standard mode, return milliseconds
+    switch (unit) {
+      case 'us': return num / 1000;
+      case 'ms': return num;
+      case 's': return num * 1000;
+      default: return num;
+    }
   }
 }
 
-function parseJitter(value: string): number {
-  return parseLatency(value);
+function parseJitter(value: string, tsnMode: boolean): number {
+  return parseLatency(value, tsnMode);
 }
 
 function parsePacketLoss(value: string): number {
@@ -144,7 +187,7 @@ function Slider({ label, value, config, onChange, disabled }: SliderProps) {
 // Main Component
 // ============================================================================
 
-function TrafficControlPanel({ link, onSave, onReset, onClose }: TrafficControlPanelProps) {
+function TrafficControlPanel({ link, onSave, onReset, onClose, tsnMode = false }: TrafficControlPanelProps) {
   const [bandwidth, setBandwidth] = useState(10);
   const [latency, setLatency] = useState(0);
   const [jitter, setJitter] = useState(0);
@@ -157,12 +200,16 @@ function TrafficControlPanel({ link, onSave, onReset, onClose }: TrafficControlP
     packetLoss: number;
   } | null>(null);
 
+  // Get appropriate configs based on TSN mode
+  const latencyConfig = tsnMode ? LATENCY_CONFIG_US : LATENCY_CONFIG_MS;
+  const jitterConfig = tsnMode ? JITTER_CONFIG_US : JITTER_CONFIG_MS;
+
   // Initialize values from link policy
   useEffect(() => {
     if (link?.policy) {
       const bw = parseBandwidth(link.policy.bandwidth);
-      const lat = parseLatency(link.policy.latency);
-      const jit = parseJitter(link.policy.jitter);
+      const lat = parseLatency(link.policy.latency, tsnMode);
+      const jit = parseJitter(link.policy.jitter, tsnMode);
       const pl = parsePacketLoss(link.policy.packetLoss);
       
       setBandwidth(bw);
@@ -180,7 +227,7 @@ function TrafficControlPanel({ link, onSave, onReset, onClose }: TrafficControlP
       setOriginalValues(null);
       setHasChanges(false);
     }
-  }, [link]);
+  }, [link, tsnMode]);
 
   // Check for changes
   useEffect(() => {
@@ -196,15 +243,22 @@ function TrafficControlPanel({ link, onSave, onReset, onClose }: TrafficControlP
 
   // Format policy for API
   const formatPolicy = useCallback((): TrafficPolicy => {
+    const latencyValue = tsnMode 
+      ? `${latency}us` 
+      : `${latency}ms`;
+    const jitterValue = tsnMode 
+      ? `${jitter}us` 
+      : `${jitter}ms`;
+    
     return {
       bandwidth: bandwidth >= 1000 
         ? `${(bandwidth / 1000).toFixed(1)}Gbps` 
         : `${bandwidth.toFixed(1)}Mbps`,
-      latency: `${latency}ms`,
-      jitter: `${jitter}ms`,
+      latency: latencyValue,
+      jitter: jitterValue,
       packetLoss: `${packetLoss.toFixed(1)}%`,
     };
-  }, [bandwidth, latency, jitter, packetLoss]);
+  }, [bandwidth, latency, jitter, packetLoss, tsnMode]);
 
   // Handle save
   const handleSave = useCallback(() => {
@@ -265,15 +319,15 @@ function TrafficControlPanel({ link, onSave, onReset, onClose }: TrafficControlP
           onChange={setBandwidth}
         />
         <Slider
-          label="Latency"
+          label={tsnMode ? "Latency (TSN)" : "Latency"}
           value={latency}
-          config={LATENCY_CONFIG}
+          config={latencyConfig}
           onChange={setLatency}
         />
         <Slider
-          label="Jitter"
+          label={tsnMode ? "Jitter (TSN)" : "Jitter"}
           value={jitter}
-          config={JITTER_CONFIG}
+          config={jitterConfig}
           onChange={setJitter}
         />
         <Slider
@@ -283,6 +337,15 @@ function TrafficControlPanel({ link, onSave, onReset, onClose }: TrafficControlP
           onChange={setPacketLoss}
         />
       </div>
+
+      {tsnMode && (
+        <div className="tcp-tsn-notice">
+          <span className="tcp-tsn-notice__icon">⚡</span>
+          <span className="tcp-tsn-notice__text">
+            TSN mode: Latency and jitter are in microseconds (μs) for precise timing control.
+          </span>
+        </div>
+      )}
 
       <div className="tcp-preview">
         <span className="tcp-preview__label">Preview:</span>
