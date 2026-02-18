@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { Dashboard, TopologyList, TopologyDetail } from './pages';
+import { Dashboard, TopologyList, TopologyDetail, TopologyCreate } from './pages';
 import { useTopologyStore } from './stores';
 import type { MenuItem } from './types/api';
 import './App.css';
@@ -62,6 +62,16 @@ function AppContent() {
     navigate(`/topologies/${namespace}/${name}`);
   };
 
+  // Navigate to create topology page
+  const handleCreateTopology = () => {
+    navigate('/topologies/create');
+  };
+
+  // Handle topology created
+  const handleTopologyCreated = (name: string, namespace: string = 'default') => {
+    navigate(`/topologies/${namespace}/${name}`);
+  };
+
   return (
     <Layout
       sidebarCollapsed={sidebarCollapsed}
@@ -72,15 +82,24 @@ function AppContent() {
     >
       <div className="app-container">
         <Routes>
-          <Route path="/" element={<Dashboard onViewTopology={handleViewTopology} />} />
-          <Route path="/dashboard" element={<Dashboard onViewTopology={handleViewTopology} />} />
-          <Route path="/topologies" element={<TopologyList onViewTopology={handleViewTopology} />} />
+          <Route path="/" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
+          <Route path="/dashboard" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
+          <Route path="/topologies" element={<TopologyList onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
+          <Route 
+            path="/topologies/create" 
+            element={
+              <TopologyCreate 
+                onCreated={handleTopologyCreated}
+                onCancel={() => navigate('/topologies')} 
+              />
+            } 
+          />
           <Route 
             path="/topologies/:namespace/:name" 
             element={<TopologyDetailWrapper onBack={() => navigate('/topologies')} />} 
           />
           <Route path="/metrics" element={<MetricsPlaceholder />} />
-          <Route path="*" element={<Dashboard onViewTopology={handleViewTopology} />} />
+          <Route path="*" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
         </Routes>
       </div>
     </Layout>

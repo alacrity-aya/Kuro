@@ -4,6 +4,7 @@ import './Dashboard.css';
 
 interface DashboardProps {
   onViewTopology?: (name: string, namespace: string) => void;
+  onCreateTopology?: () => void;
 }
 
 interface StatsCardProps {
@@ -51,7 +52,7 @@ function QuickActionButton({ icon, label, onClick }: QuickActionButtonProps) {
   );
 }
 
-function Dashboard({ onViewTopology }: DashboardProps) {
+function Dashboard({ onViewTopology, onCreateTopology }: DashboardProps) {
   // Get state from store
   const topologies = useTopologyStore((state) => state.topologies);
   const trafficControls = useTopologyStore((state) => state.trafficControls);
@@ -90,7 +91,9 @@ function Dashboard({ onViewTopology }: DashboardProps) {
   );
 
   const handleCreateTopology = () => {
-    console.log('Create topology clicked');
+    if (onCreateTopology) {
+      onCreateTopology();
+    }
   };
 
   const handleCreateTrafficControl = () => {

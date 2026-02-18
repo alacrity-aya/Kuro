@@ -4,9 +4,10 @@ import './TopologyList.css';
 
 interface TopologyListProps {
   onViewTopology?: (name: string, namespace: string) => void;
+  onCreateTopology?: () => void;
 }
 
-function TopologyList({ onViewTopology }: TopologyListProps) {
+function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
   // Get state from store
   const topologies = useTopologyStore((state) => state.topologies);
   const loading = useTopologyStore((state) => state.loading);
@@ -43,8 +44,9 @@ function TopologyList({ onViewTopology }: TopologyListProps) {
   );
 
   const handleCreateTopology = () => {
-    console.log('Create topology clicked');
-    // TODO: Navigate to topology creation page
+    if (onCreateTopology) {
+      onCreateTopology();
+    }
   };
 
   const handleDeleteTopology = (name: string, namespace: string) => {
