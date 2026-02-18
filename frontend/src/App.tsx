@@ -1,156 +1,62 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { TopologyCanvas } from './components/topology';
 import { Dashboard, TopologyList, TopologyDetail } from './pages';
-import { apiClient } from './api/client';
-import type { TopologyNode, TopologyLink, MenuItem } from './types/api';
+import type { MenuItem } from './types/api';
 import './App.css';
 
-// Selected topology for detail view
-interface SelectedTopology {
-  name: string;
-  namespace: string;
+// Menu items for sidebar navigation
+const menuItems: MenuItem[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { id: 'topologies', label: 'Topologies', icon: 'topology' },
+  { id: 'metrics', label: 'Metrics', icon: 'metrics' },
+];
+
+// Get active menu item from current path
+function getActiveMenuItem(pathname: string): string {
+  if (pathname === '/' || pathname === '/dashboard') return 'dashboard';
+  if (pathname.startsWith('/topologies')) return 'topologies';
+  if (pathname.startsWith('/metrics')) return 'metrics';
+  return 'dashboard';
 }
 
-function App() {
-  const [nodes, setNodes] = useState<TopologyNode[]>([]);
-  const [links, setLinks] = useState<TopologyLink[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
+// Placeholder for Metrics page
+function MetricsPlaceholder() {
+  return (
+    <div className="app-placeholder">
+      <h2>Metrics</h2>
+      <p>Metrics visualization coming soon...</p>
+    </div>
+  );
+}
+
+// Main app content with router hooks
+function AppContent() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeMenuItem, setActiveMenuItem] = useState<string>('dashboard');
-  const [selectedTopology, setSelectedTopology] = useState<SelectedTopology | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const menuItems: MenuItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { id: 'topology-list', label: 'Topologies', icon: 'topology' },
-    { id: 'metrics', label: 'Metrics', icon: 'metrics' },
-  ];
-
-  useEffect(() => {
-    if (activeMenuItem !== 'topology-view') return;
-
-    async function loadTopology() {
-      try {
-        setLoading(true);
-        const topologyName = 'drone-swarm-demo';
-        const [nodesRes, linksRes] = await Promise.all([
-          apiClient.getTopologyNodes(topologyName),
-          apiClient.getTopologyLinks(topologyName),
-        ]);
-
-        if (nodesRes.success && nodesRes.data) {
-          setNodes(nodesRes.data);
-        }
-        if (linksRes.success && linksRes.data) {
-          setLinks(linksRes.data);
-        }
-      } catch (err) {
-        setError('Failed to load topology');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadTopology();
-  }, [activeMenuItem]);
-
-  const handleNodeClick = (node: TopologyNode) => {
-    setSelectedNodeId(node.id === selectedNodeId ? undefined : node.id);
-    console.log('Node clicked:', node);
-  };
-
-  const handleEdgeClick = (link: TopologyLink) => {
-    console.log('Edge clicked:', link);
-  };
+  const activeMenuItem = getActiveMenuItem(location.pathname);
 
   const handleMenuItemClick = (id: string) => {
-    setActiveMenuItem(id);
-    // Clear selected topology when navigating away from detail view
-    if (id !== 'topology-detail') {
-      setSelectedTopology(null);
-    }
-    if (id === 'topology-view') {
-      setLoading(true);
-      setError(null);
+    switch (id) {
+      case 'dashboard':
+        navigate('/');
+        break;
+      case 'topologies':
+        navigate('/topologies');
+        break;
+      case 'metrics':
+        navigate('/metrics');
+        break;
+      default:
+        navigate('/');
     }
   };
 
   // Navigate to topology detail page
   const handleViewTopology = (name: string, namespace: string = 'default') => {
-    setSelectedTopology({ name, namespace });
-    setActiveMenuItem('topology-detail');
-  };
-
-  // Go back from topology detail
-  const handleBackFromDetail = () => {
-    setSelectedTopology(null);
-    setActiveMenuItem('topology-list');
-  };
-
-  const renderContent = () => {
-    switch (activeMenuItem) {
-      case 'dashboard':
-        return <Dashboard onViewTopology={handleViewTopology} />;
-      case 'topology-list':
-        return <TopologyList onViewTopology={handleViewTopology} />;
-      case 'topology-detail':
-        if (selectedTopology) {
-          return (
-            <TopologyDetail
-              topologyName={selectedTopology.name}
-              namespace={selectedTopology.namespace}
-              onBack={handleBackFromDetail}
-            />
-          );
-        }
-        return <TopologyList onViewTopology={handleViewTopology} />;
-      case 'topology-view':
-        return (
-          <div className="app-topology">
-            <div className="app-topology__header">
-              <h2>Drone Swarm Demo</h2>
-              <span className="app-topology__stats">
-                {nodes.length} nodes · {links.length} links
-              </span>
-            </div>
-            {loading && (
-              <div className="app-loading">
-                <div className="app-loading__spinner" />
-                <span>Loading topology...</span>
-              </div>
-            )}
-            {error && (
-              <div className="app-error">
-                <span>⚠️ {error}</span>
-              </div>
-            )}
-            {!loading && !error && (
-              <div className="app-topology__canvas">
-                <TopologyCanvas
-                  nodes={nodes}
-                  links={links}
-                  selectedNodeId={selectedNodeId}
-                  onNodeClick={handleNodeClick}
-                  onEdgeClick={handleEdgeClick}
-                  fitView
-                />
-              </div>
-            )}
-          </div>
-        );
-      case 'metrics':
-        return (
-          <div className="app-placeholder">
-            <h2>Metrics</h2>
-            <p>Metrics visualization coming soon...</p>
-          </div>
-        );
-      default:
-        return <Dashboard onViewTopology={handleViewTopology} />;
-    }
+    navigate(`/topologies/${namespace}/${name}`);
   };
 
   return (
@@ -161,8 +67,45 @@ function App() {
       activeMenuItem={activeMenuItem}
       onMenuItemClick={handleMenuItemClick}
     >
-      <div className="app-container">{renderContent()}</div>
+      <div className="app-container">
+        <Routes>
+          <Route path="/" element={<Dashboard onViewTopology={handleViewTopology} />} />
+          <Route path="/dashboard" element={<Dashboard onViewTopology={handleViewTopology} />} />
+          <Route path="/topologies" element={<TopologyList onViewTopology={handleViewTopology} />} />
+          <Route 
+            path="/topologies/:namespace/:name" 
+            element={<TopologyDetailWrapper onBack={() => navigate('/topologies')} />} 
+          />
+          <Route path="/metrics" element={<MetricsPlaceholder />} />
+          <Route path="*" element={<Dashboard onViewTopology={handleViewTopology} />} />
+        </Routes>
+      </div>
     </Layout>
+  );
+}
+
+// Wrapper for TopologyDetail to extract route params
+function TopologyDetailWrapper({ onBack }: { onBack: () => void }) {
+  const location = useLocation();
+  // Extract namespace and name from URL path
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const namespace = pathParts[1] || 'default';
+  const name = pathParts[2] || '';
+
+  return (
+    <TopologyDetail
+      topologyName={name}
+      namespace={namespace}
+      onBack={onBack}
+    />
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 }
 

@@ -1,0 +1,14 @@
+好的，我来执行启动例行检查。## 启动检查完成
+
+**当前状态**:
+- 工作目录: `/home/alacrity/work/vibe/Kuro`
+- 已完成: FEAT-001 到 FEAT-010 (10/18 个功能)
+- 下一个功能: **FEAT-011 - Add routing with React Router**
+
+开始实现 FEAT-011...现在我理解了当前架构。当前使用的是基于状态的简单导航，需要改为 React Router。让我更新 App.tsx 配置路由。现在需要更新 Dashboard 和 TopologyList 页面，移除旧的导航 props。让我检查并更新这些页面：Dashboard 和 TopologyList 的 `onViewTopology` prop 是从 App.tsx 传入的，现在 App.tsx 已经更新了，这些组件的接口保持不变。现在运行构建验证：Error executing tool run_shell_command: 
+> frontend@0.0.0 build
+> tsc -b && vite build
+
+src/App.tsx(1,20): error TS6133: 'useEffect' is declared but its value is never read.
+
+有一个未使用的 import，让我修复：构建成功！现在提交代码并更新进度文件：
