@@ -9,6 +9,15 @@ interface PacketLossGaugeProps {
   height?: number;
 }
 
+/** Maximum reasonable packet loss percentage for display */
+const MAX_DISPLAY_LOSS = 100;
+
+/** Clamp value to reasonable range */
+function clampValue(val: number): number {
+  if (!Number.isFinite(val)) return 0;
+  return Math.max(0, Math.min(val, MAX_DISPLAY_LOSS));
+}
+
 export function PacketLossGauge({ 
   value, 
   title = 'Packet Loss',
@@ -17,10 +26,32 @@ export function PacketLossGauge({
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
+  // Clamp value to reasonable range
+  const clampedValue = clampValue(value);
+
   const handleResize = useCallback(() => {
     chartInstance.current?.resize();
   }, []);
 
+  // Separate resize event listener to avoid re-adding on every render
+  useEffect(() => {
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [handleResize]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.dispose();
+        chartInstance.current = null;
+      }
+    };
+  }, []);
+
+  // Chart render/update effect
   useEffect(() => {
     if (!chartRef.current) return;
 
@@ -35,40 +66,33 @@ export function PacketLossGauge({
       return '#E74C3C'; // Red - critical
     };
 
+    // For values > 10%, adjust max scale dynamically
+    const maxScale = Math.max(10, Math.ceil(clampedValue / 10) * 10);
+
     const option: EChartsOption = {
-      title: {
-        text: title,
-        left: 'center',
-        top: 10,
-        textStyle: {
-          fontSize: 14,
-          fontWeight: 500,
-          color: '#333',
-        },
-      },
       series: [
         {
           type: 'gauge',
-          center: ['50%', '60%'],
-          radius: '80%',
+          center: ['50%', '55%'],
+          radius: '75%',
           startAngle: 200,
           endAngle: -20,
           min: 0,
-          max: 10,
+          max: maxScale,
           splitNumber: 10,
           itemStyle: {
-            color: getColor(value),
+            color: getColor(clampedValue),
           },
           progress: {
             show: true,
-            width: 20,
+            width: 18,
           },
           pointer: {
             show: false,
           },
           axisLine: {
             lineStyle: {
-              width: 20,
+              width: 18,
               color: [[1, '#EAEDED']],
             },
           },
@@ -90,17 +114,17 @@ export function PacketLossGauge({
           detail: {
             valueAnimation: true,
             width: '60%',
-            lineHeight: 30,
+            lineHeight: 24,
             borderRadius: 8,
-            offsetCenter: [0, '15%'],
-            fontSize: 24,
+            offsetCenter: [0, '10%'],
+            fontSize: 20,
             fontWeight: 'bold',
             formatter: (val: number) => `${val.toFixed(2)}%`,
-            color: getColor(value),
+            color: getColor(clampedValue),
           },
           data: [
             {
-              value: value,
+              value: clampedValue,
             },
           ],
         },
@@ -108,23 +132,16 @@ export function PacketLossGauge({
     };
 
     chartInstance.current.setOption(option);
-
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartInstance.current) {
-        chartInstance.current.dispose();
-        chartInstance.current = null;
-      }
-    };
-  }, [value, title, handleResize]);
+  }, [clampedValue]);
 
   return (
-    <div 
-      ref={chartRef} 
-      className="packet-loss-gauge" 
-      style={{ height: `${height}px` }}
-    />
+    <div className="packet-loss-gauge-wrapper">
+      <div className="packet-loss-gauge__title">{title}</div>
+      <div
+        ref={chartRef}
+        className="packet-loss-gauge"
+        style={{ height: `${height}px` }}
+      />
+    </div>
   );
 }

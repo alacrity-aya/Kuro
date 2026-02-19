@@ -10,7 +10,7 @@
  * TODO: 需要后端 API - Prometheus Service (NodePort 30091)
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { SummaryCards } from '../components/metrics/SummaryCards';
 import { BandwidthChart } from '../components/metrics/BandwidthChart';
 import { LatencyChart, type LatencyDataPoint, type LatencyHistogramBin, aggregateLatencyData, generateHistogramFromBuckets } from '../components/metrics/LatencyChart';
@@ -135,6 +135,9 @@ export default function MetricsPage() {
   const [packetLossData, setPacketLossData] = useState<{ [pod: string]: number }>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Track if pods have been initialized to avoid stale closure issues
+  const podsInitializedRef = useRef(false);
 
   // Fetch available pods
   const fetchPods = useCallback(async () => {
@@ -142,8 +145,9 @@ export default function MetricsPage() {
     try {
       const pods = await prometheusClient.getKuroPods();
       setAvailablePods(pods);
-      // If no pods selected yet, select all by default
-      if (selectedPods.length === 0 && pods.length > 0) {
+      // Only set initial selection once
+      if (!podsInitializedRef.current && pods.length > 0) {
+        podsInitializedRef.current = true;
         setSelectedPods(pods);
       }
     } catch (err) {
@@ -152,18 +156,19 @@ export default function MetricsPage() {
       const mockPods = ['drone-0', 'drone-1', 'drone-2', 'drone-3', 'drone-4', 
                         'ground-station-0', 'ground-station-1', 'gateway-0'];
       setAvailablePods(mockPods);
-      if (selectedPods.length === 0) {
+      if (!podsInitializedRef.current) {
+        podsInitializedRef.current = true;
         setSelectedPods(mockPods);
       }
     } finally {
       setIsLoadingPods(false);
     }
-  }, [selectedPods.length]);
+  }, []); // No dependencies needed - using ref for initialization check
 
   // Fetch pods on mount
   useEffect(() => {
     fetchPods();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchPods]);
 
   // Fetch all metrics data
   const fetchMetrics = useCallback(async () => {
@@ -293,7 +298,7 @@ export default function MetricsPage() {
     if (selectedPods.length > 0) {
       fetchMetrics();
     }
-  }, [timeRange, selectedPods]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchMetrics, selectedPods.length]);
 
   // Calculate average packet loss for gauge
   const avgPacketLoss = useMemo(() => {

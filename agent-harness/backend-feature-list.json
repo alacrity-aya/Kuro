@@ -1,0 +1,877 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2026-02-19",
+  "description": "Kuro 后端功能完整清单 - 基于代码分析生成",
+  "architecture": {
+    "components": [
+      {
+        "name": "Controller",
+        "description": "中央控制器，管理 K8s CRD 和 Agent 通信",
+        "entrypoint": "cmd/controller/main.go",
+        "ports": {
+          "grpc": 9090,
+          "http": 8080,
+          "healthz": 8081
+        }
+      },
+      {
+        "name": "Agent",
+        "description": "节点代理，管理本地 Pod 和 eBPF 程序",
+        "entrypoint": "cmd/agent/main.go",
+        "ports": {
+          "metrics": 8080
+        }
+      }
+    ]
+  },
+  "features": [
+    {
+      "id": "BACKEND-001",
+      "category": "controller",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "K8s Manager 初始化",
+      "description": "Controller 启动时初始化 K8s controller-runtime Manager",
+      "implementation": {
+        "file": "internal/controller/controller.go",
+        "function": "InitK8sManager",
+        "features": [
+          "注册 NetworkTopology CRD",
+          "注册 TrafficControl CRD",
+          "配置健康检查 (healthz/readyz)",
+          "Leader Election (当前禁用)"
+        ]
+      },
+      "tests": ["make test", "kubectl get crd"],
+      "notes": "生产环境应启用 Leader Election"
+    },
+    {
+      "id": "BACKEND-002",
+      "category": "controller",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "gRPC Server",
+      "description": "Controller 提供 gRPC 服务接收 Agent 连接",
+      "implementation": {
+        "file": "internal/controller/controller.go",
+        "function": "runGrpcServer",
+        "port": 9090,
+        "proto": "api/proto/v1/simulation.proto"
+      },
+      "api": {
+        "service": "SimulationAgentService",
+        "method": "ControlStream(stream AgentMsg) returns (stream ControllerCmd)"
+      },
+      "tests": ["test/e2e/e2e_grpc_full_test.go"],
+      "notes": "双向流式 RPC"
+    },
+    {
+      "id": "BACKEND-003",
+      "category": "controller",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "HTTP API Server",
+      "description": "Controller 提供 HTTP API 供前端和外部调用",
+      "implementation": {
+        "file": "internal/controller/api/server.go",
+        "port": 8080
+      },
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/topology",
+          "description": "获取拓扑结构（所有仿真节点）"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/agents",
+          "description": "列出所有已连接的 Agent"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/policy/link",
+          "description": "手动应用链路策略"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/policy/pod",
+          "description": "手动应用 Pod 策略"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/policy/node",
+          "description": "手动应用节点策略"
+        }
+      ],
+      "tests": ["internal/controller/api/server_test.go"],
+      "notes": "当前 API 数量有限，前端需要扩展"
+    },
+    {
+      "id": "BACKEND-004",
+      "category": "controller",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "Agent 连接管理",
+      "description": "管理 Agent 的注册、心跳和断开",
+      "implementation": {
+        "file": "internal/controller/controller.go",
+        "functions": ["RegisterAgent", "UnregisterAgent", "HandleHeartbeat", "HandleAck"]
+      },
+      "features": [
+        "Agent 注册时自动触发 TrafficControl 重同步",
+        "处理 Agent 上报的 Pod 事件",
+        "处理 Agent 的命令确认 (ACK)"
+      ],
+      "knownIssues": [
+        {
+          "id": "FIXME-001",
+          "description": "Agent 重连时触发大量 K8s API Patch 请求，可能导致 Throttling",
+          "impact": "50 TrafficControls × 100 nodes = 5000 patches"
+        }
+      ],
+      "notes": "需要优化重连逻辑"
+    },
+    {
+      "id": "BACKEND-005",
+      "category": "controller",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "NetworkTopology Reconciler",
+      "description": "监听 NetworkTopology CRD 变化，创建对应的 Deployment",
+      "implementation": {
+        "file": "internal/controller/k8s/topology_controller.go",
+        "watch": "NetworkTopology CRD"
+      },
+      "features": [
+        "解析 NodeGroups 配置",
+        "创建 Deployment (支持 replicas)",
+        "创建 ConfigMap (UserProgram 注入)",
+        "设置 OwnerReference (自动清理)"
+      ],
+      "tests": ["kubectl apply -f deploy/test-topology.yaml"],
+      "notes": "支持用户代码注入"
+    },
+    {
+      "id": "BACKEND-006",
+      "category": "controller",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "TrafficControl Reconciler",
+      "description": "监听 TrafficControl CRD 变化，下发策略到 Agent",
+      "implementation": {
+        "file": "internal/controller/k8s/traffic_controller.go",
+        "watch": "TrafficControl CRD"
+      },
+      "features": [
+        "解析策略参数 (bandwidth/latency/jitter/packetLoss)",
+        "查找 Source/Destination Pods",
+        "笛卡尔积生成所有链路",
+        "通过 gRPC 下发策略到 Agent",
+        "Generation 变化检测 (避免重复处理)"
+      ],
+      "tests": ["kubectl apply -f deploy/test-traffic.yaml"],
+      "notes": "策略下发到 Source 节点的 Agent"
+    },
+    {
+      "id": "BACKEND-007",
+      "category": "controller",
+      "priority": "high",
+      "status": "implemented",
+      "name": "TrafficControl Status 更新",
+      "description": "根据 Agent ACK 更新 TrafficControl 状态",
+      "implementation": {
+        "file": "internal/controller/controller.go",
+        "function": "updateTrafficControlStatus"
+      },
+      "features": [
+        "使用 RetryOnConflict 处理并发更新",
+        "更新 ActiveNodes 列表",
+        "更新 Phase 和 Message",
+        "更新 ObservedGeneration"
+      ],
+      "notes": "Namespace 当前硬编码为 kuro-experiment"
+    },
+    {
+      "id": "BACKEND-008",
+      "category": "agent",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "Agent 主循环",
+      "description": "Agent 启动和主事件循环",
+      "implementation": {
+        "file": "internal/agent/agent.go",
+        "function": "Run"
+      },
+      "features": [
+        "启动 HTTP Metrics 服务 (:8080)",
+        "启动 gRPC Client 连接 Controller",
+        "初始化 BPF 默认规则 (ingress protection, NIC egress)",
+        "启动本地 Pod Watcher",
+        "事件转发 (LocalWatcher → gRPC Client)"
+      ],
+      "tests": ["test/e2e/e2e_watcher_test.go"],
+      "notes": "支持 Containerd 运行时"
+    },
+    {
+      "id": "BACKEND-009",
+      "category": "agent",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "本地 Pod Watcher",
+      "description": "监听本地节点上的 Pod 生命周期事件",
+      "implementation": {
+        "file": "internal/agent/watch/local_watcher.go",
+        "runtime": "internal/agent/watch/container_runtime.go"
+      },
+      "features": [
+        "通过 Containerd API 监听容器事件",
+        "获取 Pod netns 和 veth 信息",
+        "过滤 kuro.io/sim-node=true 的 Pod",
+        "上报 Pod 事件到 Controller"
+      ],
+      "tests": ["test/e2e/e2e_watcher_test.go"],
+      "notes": "支持通过环境变量配置 Containerd socket"
+    },
+    {
+      "id": "BACKEND-010",
+      "category": "agent",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "BPF Manager",
+      "description": "eBPF 程序加载和管理",
+      "implementation": {
+        "file": "internal/agent/bpf/manager.go",
+        "bpfSource": "bpf/tc.c",
+        "maps": "bpf/include/map.h"
+      },
+      "features": [
+        "加载 TC/XDP BPF 程序",
+        "Pod 接口管理 (AddPod, RemovePod, EnsurePodAttached)",
+        "策略配置 (UpdateRule, SetPolicy)",
+        "Ingress Protection (XDP)",
+        "NIC Egress Hook"
+      ],
+      "tests": ["test/bpf/bpf_dual_rate_test.go", "test/bpf/bpf_isolation_test.go"],
+      "notes": "使用 cilium/ebpf 库"
+    },
+    {
+      "id": "BACKEND-011",
+      "category": "agent",
+      "priority": "high",
+      "status": "implemented",
+      "name": "Ingress Protection (XDP)",
+      "description": "物理网卡入口流量限速",
+      "implementation": {
+        "file": "internal/agent/bpf/manager.go",
+        "function": "AttachIngressProtection",
+        "bpfProgram": "handle_xdp_ingress"
+      },
+      "features": [
+        "XDP 驱动模式优先，回退到 Generic 模式",
+        "自动检测网卡速度 (默认 1Gbps)",
+        "系统流量限制为 90% 物理容量",
+        "Token Bucket 算法"
+      ],
+      "tests": ["test/bpf/bpf_xdp_test.go"],
+      "notes": "保护系统流量不占用全部带宽"
+    },
+    {
+      "id": "BACKEND-012",
+      "category": "agent",
+      "priority": "high",
+      "status": "implemented",
+      "name": "Download Control (TC Egress)",
+      "description": "Host Veth 出口流量控制 (Host → Pod)",
+      "implementation": {
+        "file": "internal/agent/bpf/manager.go",
+        "bpfProgram": "handle_edt_download"
+      },
+      "features": [
+        "EDT (Earliest Departure Time) 算法",
+        "区分仿真流量和系统流量",
+        "端口绕过 (SSH 22, Kubelet 10250, Metrics 9100)",
+        "拓扑策略查找 (topology_policy_map)"
+      ],
+      "tests": ["test/bpf/bpf_dualdirection_test.go"],
+      "notes": "在 Host Veth Egress 挂载"
+    },
+    {
+      "id": "BACKEND-013",
+      "category": "agent",
+      "priority": "high",
+      "status": "implemented",
+      "name": "Upload Control (TC Egress)",
+      "description": "Pod eth0 出口流量控制 (Pod → Host)",
+      "implementation": {
+        "file": "internal/agent/bpf/manager.go",
+        "bpfProgram": "handle_edt_upload"
+      },
+      "features": [
+        "进入 Pod netns 挂载",
+        "EDT 算法",
+        "仿真/系统流量区分",
+        "与 Download Control 对称"
+      ],
+      "tests": ["test/bpf/bpf_dualdirection_test.go"],
+      "notes": "需要切换 netns"
+    },
+    {
+      "id": "BACKEND-014",
+      "category": "agent",
+      "priority": "high",
+      "status": "implemented",
+      "name": "NIC Egress (Global Sys Latency)",
+      "description": "物理网卡出口，为系统流量添加延迟",
+      "implementation": {
+        "file": "internal/agent/bpf/manager.go",
+        "function": "AttachNICEgress",
+        "bpfProgram": "handle_eth0_egress"
+      },
+      "features": [
+        "为系统流量添加 3ms 延迟 (SYS_LATENCY_OFFSET_NS)",
+        "仿真流量优先发送",
+        "FQ qdisc 配合"
+      ],
+      "tests": ["test/bpf/bpf_eth0_test.go"],
+      "notes": "确保仿真流量优先级高于系统流量"
+    },
+    {
+      "id": "BACKEND-015",
+      "category": "agent",
+      "priority": "high",
+      "status": "implemented",
+      "name": "Prometheus Metrics 导出",
+      "description": "Agent 暴露 Prometheus 格式的指标",
+      "implementation": {
+        "file": "internal/agent/opsapi/http_service.go",
+        "port": 8080,
+        "endpoint": "/metrics"
+      },
+      "metrics": [
+        {
+          "name": "kuro_pod_traffic_bytes_total",
+          "type": "counter",
+          "labels": ["pod", "direction", "type"],
+          "source": "MetricsMap (BPF)"
+        },
+        {
+          "name": "kuro_pod_traffic_packets_total",
+          "type": "counter",
+          "labels": ["pod", "direction", "type"],
+          "source": "MetricsMap (BPF)"
+        },
+        {
+          "name": "kuro_pod_drop_packets_total",
+          "type": "counter",
+          "labels": ["pod", "direction", "type"],
+          "source": "MetricsMap (BPF)"
+        },
+        {
+          "name": "kuro_pod_latency_seconds",
+          "type": "histogram",
+          "labels": ["pod"],
+          "source": "LatencyMap (BPF)"
+        }
+      ],
+      "tests": ["curl http://localhost:8080/metrics"],
+      "notes": "Per-CPU 聚合"
+    },
+    {
+      "id": "BACKEND-016",
+      "category": "bpf",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "EDT 流量整形",
+      "description": "核心流量整形算法实现",
+      "implementation": {
+        "file": "bpf/tc.c",
+        "function": "throttle_flow"
+      },
+      "features": [
+        "基于 skb->tstamp 的 EDT 算法",
+        "Burst Window (2ms)",
+        "Horizon 检测 (队列溢出丢弃)",
+        "Spin Lock 保护状态"
+      ],
+      "tests": ["test/bpf/benchmark_compare_htb_test.go"],
+      "notes": "性能优于 HTB"
+    },
+    {
+      "id": "BACKEND-017",
+      "category": "bpf",
+      "priority": "high",
+      "status": "implemented",
+      "name": "流量分类",
+      "description": "区分仿真流量和系统流量",
+      "implementation": {
+        "file": "bpf/tc.c"
+      },
+      "features": [
+        "端口绕过 (系统服务端口)",
+        "拓扑策略查找 (topology_policy_map)",
+        "匹配 = 仿真流量",
+        "未匹配 = 系统流量"
+      ],
+      "tests": ["test/bpf/bpf_isolation_test.go"],
+      "notes": "支持流量隔离"
+    },
+    {
+      "id": "BACKEND-018",
+      "category": "bpf",
+      "priority": "high",
+      "status": "implemented",
+      "name": "链路策略",
+      "description": "Per-link 网络参数配置",
+      "implementation": {
+        "file": "bpf/include/map.h",
+        "map": "topology_policy_map"
+      },
+      "features": [
+        "带宽限制 (bandwidth_bps)",
+        "基础延迟 (base_latency_ns)",
+        "抖动 (jitter_ns)",
+        "丢包率 (corruption_rate_ppm)",
+        "队列深度 (queue_depth_ns)"
+      ],
+      "tests": ["test/bpf/bpf_netem_test.go"],
+      "notes": "与 netem 功能对齐"
+    },
+    {
+      "id": "BACKEND-019",
+      "category": "bpf",
+      "priority": "medium",
+      "status": "implemented",
+      "name": "BPF Maps",
+      "description": "所有 BPF Map 定义",
+      "implementation": {
+        "file": "bpf/include/map.h"
+      },
+      "maps": [
+        {
+          "name": "config_map",
+          "type": "ARRAY",
+          "key": "u32",
+          "value": "struct global_config",
+          "description": "全局配置 (EDT horizon)"
+        },
+        {
+          "name": "rate_map",
+          "type": "HASH",
+          "key": "u32 (ifindex)",
+          "value": "struct io_rate",
+          "description": "接口速率限制 (Sim/Sys up/down)"
+        },
+        {
+          "name": "topology_policy_map",
+          "type": "HASH",
+          "key": "struct policy_key {src_ip, dst_ip}",
+          "value": "struct link_policy",
+          "description": "链路策略"
+        },
+        {
+          "name": "edt_download_state_map",
+          "type": "HASH",
+          "key": "u32",
+          "value": "struct edt_state",
+          "description": "Download EDT 状态"
+        },
+        {
+          "name": "edt_upload_state_map",
+          "type": "HASH",
+          "key": "u32",
+          "value": "struct edt_state",
+          "description": "Upload EDT 状态"
+        },
+        {
+          "name": "metrics_map",
+          "type": "PERCPU_ARRAY",
+          "key": "u32",
+          "value": "struct pod_stats",
+          "description": "流量统计"
+        },
+        {
+          "name": "latency_map",
+          "type": "PERCPU_ARRAY",
+          "key": "u32",
+          "value": "struct latency_hist",
+          "description": "延迟直方图"
+        },
+        {
+          "name": "ingress_config_map",
+          "type": "ARRAY",
+          "key": "u32",
+          "value": "struct ingress_config",
+          "description": "XDP Ingress 配置"
+        },
+        {
+          "name": "ingress_state_map",
+          "type": "HASH",
+          "key": "u32",
+          "value": "struct ingress_state",
+          "description": "XDP Ingress 状态"
+        }
+      ],
+      "notes": "所有 Map 都有对应的 Go 结构体"
+    },
+    {
+      "id": "BACKEND-020",
+      "category": "crd",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "NetworkTopology CRD",
+      "description": "定义网络拓扑的自定义资源",
+      "implementation": {
+        "file": "api/crd/v1alpha1/networktopology_types.go",
+        "group": "simulation.kuro.io",
+        "version": "v1alpha1"
+      },
+      "spec": {
+        "nodeGroups": [
+          {
+            "name": "string",
+            "replicas": "int32",
+            "image": "string",
+            "command": "[]string (optional)",
+            "labels": "map[string]string (optional)",
+            "userProgram": {
+              "source": "string (代码内容)",
+              "mountPath": "string",
+              "filename": "string"
+            }
+          }
+        ]
+      },
+      "status": {
+        "readyNodes": "int32"
+      },
+      "examples": ["deploy/test-topology.yaml"],
+      "notes": "支持用户代码注入"
+    },
+    {
+      "id": "BACKEND-021",
+      "category": "crd",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "TrafficControl CRD",
+      "description": "定义流量控制策略的自定义资源",
+      "implementation": {
+        "file": "api/crd/v1alpha1/trafficcontrol_types.go",
+        "group": "simulation.kuro.io",
+        "version": "v1alpha1"
+      },
+      "spec": {
+        "priority": "int32 (optional)",
+        "source": {
+          "matchLabels": "map[string]string"
+        },
+        "destination": {
+          "matchLabels": "map[string]string"
+        },
+        "policy": {
+          "bandwidth": "string (e.g., '10Mbps')",
+          "latency": "string (e.g., '50ms')",
+          "jitter": "string (e.g., '10ms')",
+          "packetLoss": "string (e.g., '0.5%')"
+        }
+      },
+      "status": {
+        "phase": "string (Pending/Active/PartialFail/Failed)",
+        "activeNodes": "[]string",
+        "message": "string",
+        "observedGeneration": "int64"
+      },
+      "examples": ["deploy/test-traffic.yaml"],
+      "notes": "策略应用于 Source → Destination 方向"
+    },
+    {
+      "id": "BACKEND-022",
+      "category": "proto",
+      "priority": "critical",
+      "status": "implemented",
+      "name": "gRPC Protocol",
+      "description": "Controller-Agent 通信协议",
+      "implementation": {
+        "file": "api/proto/v1/simulation.proto"
+      },
+      "messages": {
+        "AgentToController": [
+          {
+            "name": "Heartbeat",
+            "fields": ["node_name", "node_ip", "managed_pod_count"]
+          },
+          {
+            "name": "PodLifecycleEvent",
+            "fields": ["type (ADDED/MODIFIED/DELETED)", "pod_name", "namespace", "pod_ip", "container_id", "host_ifindex"]
+          },
+          {
+            "name": "CommandAck",
+            "fields": ["command_id", "success", "message"]
+          }
+        ],
+        "ControllerToAgent": [
+          {
+            "name": "ApplyLinkPolicy",
+            "fields": ["src_ip", "dst_ip", "policy"]
+          },
+          {
+            "name": "ApplyPodPolicy",
+            "fields": ["pod_name", "namespace", "sim_rate", "sys_rate"]
+          },
+          {
+            "name": "ApplyNodePolicy",
+            "fields": ["ingress_limit_bps", "ingress_burst_bytes"]
+          }
+        ]
+      },
+      "notes": "双向流式 RPC"
+    },
+    {
+      "id": "BACKEND-023",
+      "category": "test",
+      "priority": "high",
+      "status": "implemented",
+      "name": "BPF 测试套件",
+      "description": "eBPF 功能的集成测试",
+      "implementation": {
+        "directory": "test/bpf"
+      },
+      "tests": [
+        {
+          "file": "bpf_dual_rate_test.go",
+          "description": "双速率限制测试 (Sim/Sys)"
+        },
+        {
+          "file": "bpf_dualdirection_test.go",
+          "description": "双向流量控制测试"
+        },
+        {
+          "file": "bpf_eth0_test.go",
+          "description": "物理网卡 Egress 测试"
+        },
+        {
+          "file": "bpf_isolation_test.go",
+          "description": "流量隔离测试"
+        },
+        {
+          "file": "bpf_netem_test.go",
+          "description": "Netem 功能对齐测试"
+        }
+      ],
+      "runCommand": "sudo ./scripts/test.sh -bpf",
+      "notes": "需要 root 权限"
+    },
+    {
+      "id": "BACKEND-024",
+      "category": "test",
+      "priority": "high",
+      "status": "implemented",
+      "name": "E2E 测试套件",
+      "description": "端到端集成测试",
+      "implementation": {
+        "directory": "test/e2e"
+      },
+      "tests": [
+        {
+          "file": "e2e_grpc_full_test.go",
+          "description": "gRPC 通信测试"
+        },
+        {
+          "file": "e2e_traffic_test.go",
+          "description": "流量控制 E2E 测试"
+        },
+        {
+          "file": "e2e_watcher_test.go",
+          "description": "Pod Watcher 测试"
+        }
+      ],
+      "runCommand": "./scripts/test.sh -k8s",
+      "notes": "需要 K8s 环境"
+    },
+    {
+      "id": "BACKEND-025",
+      "category": "test",
+      "priority": "medium",
+      "status": "implemented",
+      "name": "性能基准测试",
+      "description": "BPF 性能对比测试",
+      "implementation": {
+        "directory": "test/benchmark"
+      },
+      "tests": [
+        {
+          "file": "benchmark_compare_htb_test.go",
+          "description": "EDT vs HTB 性能对比"
+        },
+        {
+          "file": "benchmark_xdp_test.go",
+          "description": "XDP 性能测试"
+        }
+      ],
+      "runCommand": "./scripts/test.sh -benchmark",
+      "notes": "验证 EDT 优于 HTB"
+    }
+  ],
+  "pendingFeatures": [
+    {
+      "id": "PENDING-001",
+      "category": "api",
+      "priority": "high",
+      "name": "前端 API 扩展",
+      "description": "前端需要的后端 API 扩展",
+      "requiredEndpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/namespaces/{namespace}/topologies",
+          "description": "列出所有 NetworkTopology"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/namespaces/{namespace}/topologies/{name}",
+          "description": "获取单个 NetworkTopology"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/namespaces/{namespace}/topologies",
+          "description": "创建 NetworkTopology"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/namespaces/{namespace}/topologies/{name}",
+          "description": "删除 NetworkTopology"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/namespaces/{namespace}/trafficcontrols",
+          "description": "列出所有 TrafficControl"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/namespaces/{namespace}/trafficcontrols/{name}",
+          "description": "获取单个 TrafficControl"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/namespaces/{namespace}/trafficcontrols",
+          "description": "创建 TrafficControl"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/namespaces/{namespace}/trafficcontrols/{name}",
+          "description": "更新 TrafficControl"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/namespaces/{namespace}/trafficcontrols/{name}",
+          "description": "删除 TrafficControl"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/namespaces/{namespace}/topologies/{name}/nodes",
+          "description": "获取拓扑节点列表"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/namespaces/{namespace}/topologies/{name}/links",
+          "description": "获取拓扑链路列表"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/metrics/summary",
+          "description": "获取指标摘要"
+        }
+      ],
+      "notes": "参考 frontend/src/api/mock.ts"
+    },
+    {
+      "id": "PENDING-002",
+      "category": "controller",
+      "priority": "medium",
+      "name": "Leader Election",
+      "description": "启用 Controller Leader Election",
+      "implementation": {
+        "file": "internal/controller/controller.go",
+        "change": "LeaderElection: true"
+      },
+      "notes": "生产环境必需"
+    },
+    {
+      "id": "PENDING-003",
+      "category": "controller",
+      "priority": "high",
+      "name": "Agent 重连优化",
+      "description": "优化 Agent 重连时的 API Throttling 问题",
+      "implementation": {
+        "file": "internal/controller/controller.go",
+        "function": "triggerResyncForNode"
+      },
+      "suggestions": [
+        "使用 EventChannel 替代 Patch",
+        "批量处理重连请求",
+        "增加重连延迟和抖动"
+      ],
+      "notes": "FIXME-001"
+    },
+    {
+      "id": "PENDING-004",
+      "category": "bpf",
+      "priority": "low",
+      "name": "link_policy 结构优化",
+      "description": "改进 link_policy 结构体定义",
+      "implementation": {
+        "file": "bpf/include/map.h"
+      },
+      "notes": "TODO in map.h"
+    },
+    {
+      "id": "PENDING-005",
+      "category": "bpf",
+      "priority": "low",
+      "name": "parse_ipv4 优化",
+      "description": "移除 parse_ipv4 中不必要的 if 语句",
+      "implementation": {
+        "file": "bpf/include/helper.h"
+      },
+      "notes": "TODO in helper.h"
+    }
+  ],
+  "deployment": {
+    "controller": {
+      "file": "deploy/controller.yaml",
+      "type": "Deployment",
+      "replicas": 1,
+      "env": [
+        "CONTROLLER_ADDR",
+        "NODE_NAME"
+      ]
+    },
+    "agent": {
+      "file": "deploy/agent.yaml",
+      "type": "DaemonSet",
+      "env": [
+        "NODE_NAME",
+        "CONTROLLER_ADDR",
+        "CONTAINERD_ADDRESS"
+      ],
+      "capabilities": [
+        "BPF",
+        "NET_ADMIN",
+        "SYS_ADMIN"
+      ]
+    },
+    "monitoring": {
+      "file": "deploy/quick-monitor.yaml",
+      "components": [
+        "Prometheus (NodePort 30091)",
+        "Grafana (NodePort 30092)"
+      ]
+    }
+  },
+  "buildCommands": {
+    "proto": "make proto",
+    "bpf": "make bpf",
+    "generate": "make generate",
+    "build": "make build",
+    "images": "make images",
+    "test": "./scripts/test.sh -all"
+  }
+}

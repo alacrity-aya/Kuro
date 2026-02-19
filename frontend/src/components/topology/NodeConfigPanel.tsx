@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useReducer, useCallback, memo, useMemo, useRef, useEffect } from 'react';
 import type { TopologyNode, NodeRole } from '../../types/api';
 import './NodeConfigPanel.css';
 
@@ -224,33 +224,92 @@ function ResourcesEditor({ resources, onChange }: ResourcesEditorProps) {
 // Main Component
 // ============================================================================
 
-function NodeConfigPanel({ node, onConfigChange, onDelete, onClose }: NodeConfigPanelProps) {
-  const [config, setConfig] = useState<NodeConfig>({
+// Get initial config from node
+function getInitialConfig(node: TopologyNode | null): NodeConfig {
+  if (node) {
+    return {
+      name: node.name,
+      role: node.role,
+      image: DEFAULT_IMAGES[node.role] || 'busybox',
+      labels: { ...node.labels },
+      replicas: 1,
+      resources: {},
+    };
+  }
+  return {
     name: '',
     role: 'custom',
     image: '',
     labels: {},
     replicas: 1,
     resources: {},
-  });
-  const [errors, setErrors] = useState<ValidationError[]>([]);
-  const [hasChanges, setHasChanges] = useState(false);
+  };
+}
 
-  // Initialize config from node
+// State type for reducer
+interface PanelState {
+  config: NodeConfig;
+  errors: ValidationError[];
+  hasChanges: boolean;
+}
+
+// Action types
+type PanelAction =
+  | { type: 'UPDATE_CONFIG'; config: Partial<NodeConfig>; errors: ValidationError[] }
+  | { type: 'SYNC_NODE'; config: NodeConfig }
+  | { type: 'CLEAR_CHANGES' };
+
+// Reducer function
+function panelReducer(state: PanelState, action: PanelAction): PanelState {
+  switch (action.type) {
+    case 'UPDATE_CONFIG':
+      return {
+        config: { ...state.config, ...action.config },
+        errors: action.errors,
+        hasChanges: true,
+      };
+    case 'SYNC_NODE':
+      return {
+        config: action.config,
+        errors: [],
+        hasChanges: false,
+      };
+    case 'CLEAR_CHANGES':
+      return {
+        ...state,
+        hasChanges: false,
+      };
+    default:
+      return state;
+  }
+}
+
+function NodeConfigPanel({ node, onConfigChange, onDelete, onClose }: NodeConfigPanelProps) {
+  // Calculate initial config from node
+  const initialConfig = useMemo(() => getInitialConfig(node), [node]);
+  
+  // Use reducer to manage panel state
+  const [state, dispatch] = useReducer(panelReducer, {
+    config: initialConfig,
+    errors: [],
+    hasChanges: false,
+  });
+
+  // Track previous node id to detect changes
+  const prevNodeIdRef = useRef(node?.id);
+
+  // Update config when node changes (different node selected)
   useEffect(() => {
-    if (node) {
-      setConfig({
-        name: node.name,
-        role: node.role,
-        image: DEFAULT_IMAGES[node.role] || 'busybox',
-        labels: { ...node.labels },
-        replicas: 1,
-        resources: {},
-      });
-      setHasChanges(false);
-      setErrors([]);
+    const nodeChanged = prevNodeIdRef.current !== node?.id;
+    
+    if (nodeChanged) {
+      prevNodeIdRef.current = node?.id;
+      dispatch({ type: 'SYNC_NODE', config: getInitialConfig(node) });
     }
   }, [node]);
+
+  // Destructure state for easier access
+  const { config, errors, hasChanges } = state;
 
   // Validate config
   const validateConfig = useCallback((cfg: NodeConfig): ValidationError[] => {
@@ -280,9 +339,7 @@ function NodeConfigPanel({ node, onConfigChange, onDelete, onClose }: NodeConfig
   const updateConfig = useCallback(
     (updates: Partial<NodeConfig>) => {
       const newConfig = { ...config, ...updates };
-      setConfig(newConfig);
-      setHasChanges(true);
-      setErrors(validateConfig(newConfig));
+      dispatch({ type: 'UPDATE_CONFIG', config: updates, errors: validateConfig(newConfig) });
     },
     [config, validateConfig]
   );
@@ -290,11 +347,10 @@ function NodeConfigPanel({ node, onConfigChange, onDelete, onClose }: NodeConfig
   // Handle save
   const handleSave = useCallback(() => {
     const errs = validateConfig(config);
-    setErrors(errs);
-
+    
     if (errs.length === 0 && node && onConfigChange) {
       onConfigChange(node.id, config);
-      setHasChanges(false);
+      dispatch({ type: 'CLEAR_CHANGES' });
     }
   }, [config, node, onConfigChange, validateConfig]);
 

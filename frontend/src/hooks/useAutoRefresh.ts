@@ -73,11 +73,17 @@ export function useAutoRefresh({
   
   const onRefreshRef = useRef(onRefresh);
   onRefreshRef.current = onRefresh;
+  
+  // Use a ref as a lock to prevent concurrent refresh operations
+  const isRefreshingRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    if (isRefreshing) return;
+    // Use ref for immediate lock check, then update state
+    if (isRefreshingRef.current) return;
     
+    isRefreshingRef.current = true;
     setIsRefreshing(true);
+    
     try {
       await onRefreshRef.current();
       setLastRefreshTime(new Date());
@@ -85,9 +91,10 @@ export function useAutoRefresh({
     } catch (error) {
       console.error('Auto refresh error:', error);
     } finally {
+      isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [isRefreshing]);
+  }, []); // Remove isRefreshing from deps - using ref instead
 
   // 初始刷新
   useEffect(() => {

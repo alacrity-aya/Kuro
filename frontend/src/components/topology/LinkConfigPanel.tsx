@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useReducer, useCallback, memo, useMemo, useRef, useEffect } from 'react';
 import type { TrafficPolicy } from '../../types/api';
 import './LinkConfigPanel.css';
 
@@ -151,6 +151,86 @@ function Slider({ label, value, config, onChange }: SliderProps) {
 // Main Component
 // ============================================================================
 
+// Helper to extract values from policy
+function getPolicyValues(policy: TrafficPolicy | null): { bandwidth: number; latency: number; jitter: number; packetLoss: number } {
+  if (policy) {
+    return {
+      bandwidth: parseBandwidth(policy.bandwidth),
+      latency: parseLatency(policy.latency),
+      jitter: parseJitter(policy.jitter),
+      packetLoss: parsePacketLoss(policy.packetLoss),
+    };
+  }
+  return { bandwidth: 10, latency: 5, jitter: 1, packetLoss: 0.1 };
+}
+
+// State type for reducer
+interface SliderState {
+  bandwidth: number;
+  latency: number;
+  jitter: number;
+  packetLoss: number;
+  originalValues: { bandwidth: number; latency: number; jitter: number; packetLoss: number } | null;
+}
+
+// Action types
+type SliderAction =
+  | { type: 'SET_BANDWIDTH'; value: number }
+  | { type: 'SET_LATENCY'; value: number }
+  | { type: 'SET_JITTER'; value: number }
+  | { type: 'SET_PACKET_LOSS'; value: number }
+  | { type: 'RESET'; values: SliderState['originalValues'] }
+  | { type: 'SYNC_POLICY'; values: { bandwidth: number; latency: number; jitter: number; packetLoss: number }; hasOriginal: boolean };
+
+// Reducer function
+function sliderReducer(state: SliderState, action: SliderAction): SliderState {
+  switch (action.type) {
+    case 'SET_BANDWIDTH':
+      return { ...state, bandwidth: action.value };
+    case 'SET_LATENCY':
+      return { ...state, latency: action.value };
+    case 'SET_JITTER':
+      return { ...state, jitter: action.value };
+    case 'SET_PACKET_LOSS':
+      return { ...state, packetLoss: action.value };
+    case 'RESET':
+      if (action.values) {
+        return {
+          bandwidth: action.values.bandwidth,
+          latency: action.values.latency,
+          jitter: action.values.jitter,
+          packetLoss: action.values.packetLoss,
+          originalValues: action.values,
+        };
+      }
+      return state;
+    case 'SYNC_POLICY':
+      return {
+        bandwidth: action.values.bandwidth,
+        latency: action.values.latency,
+        jitter: action.values.jitter,
+        packetLoss: action.values.packetLoss,
+        originalValues: action.hasOriginal ? action.values : null,
+      };
+    default:
+      return state;
+  }
+}
+
+// Check if values have changed
+function checkHasChanges(
+  current: { bandwidth: number; latency: number; jitter: number; packetLoss: number },
+  original: SliderState['originalValues']
+): boolean {
+  if (!original) return false;
+  return (
+    current.bandwidth !== original.bandwidth ||
+    current.latency !== original.latency ||
+    current.jitter !== original.jitter ||
+    current.packetLoss !== original.packetLoss
+  );
+}
+
 function LinkConfigPanel({
   linkId,
   sourceName,
@@ -160,54 +240,37 @@ function LinkConfigPanel({
   onDelete,
   onClose,
 }: LinkConfigPanelProps) {
-  const [bandwidth, setBandwidth] = useState(10);
-  const [latency, setLatency] = useState(5);
-  const [jitter, setJitter] = useState(1);
-  const [packetLoss, setPacketLoss] = useState(0.1);
-  const [hasChanges, setHasChanges] = useState(false);
-  const [originalValues, setOriginalValues] = useState<{
-    bandwidth: number;
-    latency: number;
-    jitter: number;
-    packetLoss: number;
-  } | null>(null);
+  // Calculate initial values from policy
+  const initialValues = useMemo(() => getPolicyValues(policy), [policy]);
 
-  // Initialize values from policy
+  // Use reducer to manage all slider state
+  const [state, dispatch] = useReducer(sliderReducer, {
+    bandwidth: initialValues.bandwidth,
+    latency: initialValues.latency,
+    jitter: initialValues.jitter,
+    packetLoss: initialValues.packetLoss,
+    originalValues: policy ? initialValues : null,
+  });
+
+  // Track previous link id to detect changes
+  const prevLinkIdRef = useRef(linkId);
+
+  // Destructure state for easier access
+  const { bandwidth, latency, jitter, packetLoss, originalValues } = state;
+
+  // Update values when link changes (different link selected)
   useEffect(() => {
-    if (policy) {
-      const bw = parseBandwidth(policy.bandwidth);
-      const lat = parseLatency(policy.latency);
-      const jit = parseJitter(policy.jitter);
-      const pl = parsePacketLoss(policy.packetLoss);
-
-      setBandwidth(bw);
-      setLatency(lat);
-      setJitter(jit);
-      setPacketLoss(pl);
-      setOriginalValues({ bandwidth: bw, latency: lat, jitter: jit, packetLoss: pl });
-      setHasChanges(false);
-    } else {
-      // Default values for new link
-      setBandwidth(10);
-      setLatency(5);
-      setJitter(1);
-      setPacketLoss(0.1);
-      setOriginalValues(null);
-      setHasChanges(false);
+    const linkChanged = prevLinkIdRef.current !== linkId;
+    
+    if (linkChanged) {
+      prevLinkIdRef.current = linkId;
+      const newValues = getPolicyValues(policy);
+      dispatch({ type: 'SYNC_POLICY', values: newValues, hasOriginal: !!policy });
     }
-  }, [policy]);
+  }, [linkId, policy]);
 
-  // Check for changes
-  useEffect(() => {
-    if (originalValues) {
-      const changed =
-        bandwidth !== originalValues.bandwidth ||
-        latency !== originalValues.latency ||
-        jitter !== originalValues.jitter ||
-        packetLoss !== originalValues.packetLoss;
-      setHasChanges(changed);
-    }
-  }, [bandwidth, latency, jitter, packetLoss, originalValues]);
+  // Check for changes - derived state, no useEffect needed
+  const hasChanges = checkHasChanges({ bandwidth, latency, jitter, packetLoss }, originalValues);
 
   // Format policy for output
   const formatPolicy = useCallback((): TrafficPolicy => {
@@ -226,8 +289,7 @@ function LinkConfigPanel({
   const handleApply = useCallback(() => {
     if (linkId && onPolicyChange) {
       onPolicyChange(linkId, formatPolicy());
-      setHasChanges(false);
-      setOriginalValues({ bandwidth, latency, jitter, packetLoss });
+      dispatch({ type: 'RESET', values: { bandwidth, latency, jitter, packetLoss } });
     }
   }, [linkId, onPolicyChange, formatPolicy, bandwidth, latency, jitter, packetLoss]);
 
@@ -277,25 +339,25 @@ function LinkConfigPanel({
           label="Bandwidth"
           value={bandwidth}
           config={BANDWIDTH_CONFIG}
-          onChange={setBandwidth}
+          onChange={(value) => dispatch({ type: 'SET_BANDWIDTH', value })}
         />
         <Slider
           label="Latency"
           value={latency}
           config={LATENCY_CONFIG}
-          onChange={setLatency}
+          onChange={(value) => dispatch({ type: 'SET_LATENCY', value })}
         />
         <Slider
           label="Jitter"
           value={jitter}
           config={JITTER_CONFIG}
-          onChange={setJitter}
+          onChange={(value) => dispatch({ type: 'SET_JITTER', value })}
         />
         <Slider
           label="Packet Loss"
           value={packetLoss}
           config={PACKET_LOSS_CONFIG}
-          onChange={setPacketLoss}
+          onChange={(value) => dispatch({ type: 'SET_PACKET_LOSS', value })}
         />
       </div>
 

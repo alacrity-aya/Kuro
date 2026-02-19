@@ -7,7 +7,7 @@
  * TODO: 需要后端 API - Prometheus API: /api/v1/label/pod/values
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import './PodSelector.css';
 
 export interface PodSelectorProps {
@@ -56,16 +56,11 @@ export function PodSelector({
 }: PodSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [pods, setPods] = useState<string[]>(providedPods || []);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Update pods when provided externally
-  useEffect(() => {
-    if (providedPods && providedPods.length > 0) {
-      setPods(providedPods);
-    }
-  }, [providedPods]);
+  // Use provided pods directly (derived state, no need for useEffect)
+  const pods = useMemo(() => providedPods || [], [providedPods]);
 
   // Focus search input when dropdown opens
   useEffect(() => {

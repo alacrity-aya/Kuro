@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useReducer, useMemo, useRef } from 'react';
 import type { TrafficPolicy, TopologyLink } from '../types/api';
 import './TrafficControlPanel.css';
 
@@ -187,59 +187,136 @@ function Slider({ label, value, config, onChange, disabled }: SliderProps) {
 // Main Component
 // ============================================================================
 
+// Helper to extract values from link policy
+function getPolicyValues(
+  link: TrafficControlPanelProps['link'],
+  tsnMode: boolean
+): { bandwidth: number; latency: number; jitter: number; packetLoss: number } {
+  if (link?.policy) {
+    return {
+      bandwidth: parseBandwidth(link.policy.bandwidth),
+      latency: parseLatency(link.policy.latency, tsnMode),
+      jitter: parseJitter(link.policy.jitter, tsnMode),
+      packetLoss: parsePacketLoss(link.policy.packetLoss),
+    };
+  }
+  return { bandwidth: 10, latency: 0, jitter: 0, packetLoss: 0 };
+}
+
+// State type for reducer
+interface SliderState {
+  bandwidth: number;
+  latency: number;
+  jitter: number;
+  packetLoss: number;
+  originalValues: { bandwidth: number; latency: number; jitter: number; packetLoss: number } | null;
+  hasChanges: boolean;
+}
+
+// Action types
+type SliderAction =
+  | { type: 'SET_BANDWIDTH'; value: number }
+  | { type: 'SET_LATENCY'; value: number }
+  | { type: 'SET_JITTER'; value: number }
+  | { type: 'SET_PACKET_LOSS'; value: number }
+  | { type: 'RESET'; values: SliderState['originalValues'] }
+  | { type: 'SYNC_LINK'; values: { bandwidth: number; latency: number; jitter: number; packetLoss: number }; hasOriginal: boolean };
+
+// Reducer function
+function sliderReducer(state: SliderState, action: SliderAction): SliderState {
+  switch (action.type) {
+    case 'SET_BANDWIDTH':
+      return { ...state, bandwidth: action.value };
+    case 'SET_LATENCY':
+      return { ...state, latency: action.value };
+    case 'SET_JITTER':
+      return { ...state, jitter: action.value };
+    case 'SET_PACKET_LOSS':
+      return { ...state, packetLoss: action.value };
+    case 'RESET':
+      if (action.values) {
+        return {
+          bandwidth: action.values.bandwidth,
+          latency: action.values.latency,
+          jitter: action.values.jitter,
+          packetLoss: action.values.packetLoss,
+          originalValues: action.values,
+          hasChanges: false,
+        };
+      }
+      return state;
+    case 'SYNC_LINK':
+      return {
+        bandwidth: action.values.bandwidth,
+        latency: action.values.latency,
+        jitter: action.values.jitter,
+        packetLoss: action.values.packetLoss,
+        originalValues: action.hasOriginal ? action.values : null,
+        hasChanges: false,
+      };
+    default:
+      return state;
+  }
+}
+
+// Check if values have changed
+function checkHasChanges(
+  current: { bandwidth: number; latency: number; jitter: number; packetLoss: number },
+  original: SliderState['originalValues']
+): boolean {
+  if (!original) return false;
+  return (
+    current.bandwidth !== original.bandwidth ||
+    current.latency !== original.latency ||
+    current.jitter !== original.jitter ||
+    current.packetLoss !== original.packetLoss
+  );
+}
+
 function TrafficControlPanel({ link, onSave, onReset, onClose, tsnMode = false }: TrafficControlPanelProps) {
-  const [bandwidth, setBandwidth] = useState(10);
-  const [latency, setLatency] = useState(0);
-  const [jitter, setJitter] = useState(0);
-  const [packetLoss, setPacketLoss] = useState(0);
-  const [hasChanges, setHasChanges] = useState(false);
-  const [originalValues, setOriginalValues] = useState<{
-    bandwidth: number;
-    latency: number;
-    jitter: number;
-    packetLoss: number;
-  } | null>(null);
+  // Calculate initial values from link policy
+  const initialValues = useMemo(
+    () => getPolicyValues(link, tsnMode),
+    [link, tsnMode]
+  );
+
+  // Use reducer to manage all slider state
+  const [state, dispatch] = useReducer(sliderReducer, {
+    bandwidth: initialValues.bandwidth,
+    latency: initialValues.latency,
+    jitter: initialValues.jitter,
+    packetLoss: initialValues.packetLoss,
+    originalValues: link?.policy ? initialValues : null,
+    hasChanges: false,
+  });
+
+  // Track previous link id to detect changes
+  const prevLinkIdRef = useRef(link?.id);
+  const prevTsnModeRef = useRef(tsnMode);
 
   // Get appropriate configs based on TSN mode
   const latencyConfig = tsnMode ? LATENCY_CONFIG_US : LATENCY_CONFIG_MS;
   const jitterConfig = tsnMode ? JITTER_CONFIG_US : JITTER_CONFIG_MS;
 
-  // Initialize values from link policy
+  // Destructure state for easier access
+  const { bandwidth, latency, jitter, packetLoss, originalValues } = state;
+
+  // Update values when link changes (different link selected)
   useEffect(() => {
-    if (link?.policy) {
-      const bw = parseBandwidth(link.policy.bandwidth);
-      const lat = parseLatency(link.policy.latency, tsnMode);
-      const jit = parseJitter(link.policy.jitter, tsnMode);
-      const pl = parsePacketLoss(link.policy.packetLoss);
+    const linkChanged = prevLinkIdRef.current !== link?.id;
+    const tsnModeChanged = prevTsnModeRef.current !== tsnMode;
+    
+    if (linkChanged || tsnModeChanged) {
+      prevLinkIdRef.current = link?.id;
+      prevTsnModeRef.current = tsnMode;
       
-      setBandwidth(bw);
-      setLatency(lat);
-      setJitter(jit);
-      setPacketLoss(pl);
-      setOriginalValues({ bandwidth: bw, latency: lat, jitter: jit, packetLoss: pl });
-      setHasChanges(false);
-    } else {
-      // Default values for new policy
-      setBandwidth(10);
-      setLatency(0);
-      setJitter(0);
-      setPacketLoss(0);
-      setOriginalValues(null);
-      setHasChanges(false);
+      const newValues = getPolicyValues(link, tsnMode);
+      dispatch({ type: 'SYNC_LINK', values: newValues, hasOriginal: !!link?.policy });
     }
   }, [link, tsnMode]);
 
-  // Check for changes
-  useEffect(() => {
-    if (originalValues) {
-      const changed = 
-        bandwidth !== originalValues.bandwidth ||
-        latency !== originalValues.latency ||
-        jitter !== originalValues.jitter ||
-        packetLoss !== originalValues.packetLoss;
-      setHasChanges(changed);
-    }
-  }, [bandwidth, latency, jitter, packetLoss, originalValues]);
+  // Check for changes - derived state, no useEffect needed
+  const currentHasChanges = checkHasChanges({ bandwidth, latency, jitter, packetLoss }, originalValues);
 
   // Format policy for API
   const formatPolicy = useCallback((): TrafficPolicy => {
@@ -264,19 +341,14 @@ function TrafficControlPanel({ link, onSave, onReset, onClose, tsnMode = false }
   const handleSave = useCallback(() => {
     if (link && onSave) {
       onSave(link.id, formatPolicy());
-      setHasChanges(false);
-      setOriginalValues({ bandwidth, latency, jitter, packetLoss });
+      dispatch({ type: 'RESET', values: { bandwidth, latency, jitter, packetLoss } });
     }
   }, [link, onSave, formatPolicy, bandwidth, latency, jitter, packetLoss]);
 
   // Handle reset
   const handleReset = useCallback(() => {
     if (originalValues) {
-      setBandwidth(originalValues.bandwidth);
-      setLatency(originalValues.latency);
-      setJitter(originalValues.jitter);
-      setPacketLoss(originalValues.packetLoss);
-      setHasChanges(false);
+      dispatch({ type: 'RESET', values: originalValues });
     } else if (link && onReset) {
       onReset(link.id);
     }
@@ -316,25 +388,25 @@ function TrafficControlPanel({ link, onSave, onReset, onClose, tsnMode = false }
           label="Bandwidth"
           value={bandwidth}
           config={BANDWIDTH_CONFIG}
-          onChange={setBandwidth}
+          onChange={(value) => dispatch({ type: 'SET_BANDWIDTH', value })}
         />
         <Slider
           label={tsnMode ? "Latency (TSN)" : "Latency"}
           value={latency}
           config={latencyConfig}
-          onChange={setLatency}
+          onChange={(value) => dispatch({ type: 'SET_LATENCY', value })}
         />
         <Slider
           label={tsnMode ? "Jitter (TSN)" : "Jitter"}
           value={jitter}
           config={jitterConfig}
-          onChange={setJitter}
+          onChange={(value) => dispatch({ type: 'SET_JITTER', value })}
         />
         <Slider
           label="Packet Loss"
           value={packetLoss}
           config={PACKET_LOSS_CONFIG}
-          onChange={setPacketLoss}
+          onChange={(value) => dispatch({ type: 'SET_PACKET_LOSS', value })}
         />
       </div>
 
@@ -358,20 +430,20 @@ function TrafficControlPanel({ link, onSave, onReset, onClose, tsnMode = false }
         <button
           className="tcp-btn tcp-btn--secondary"
           onClick={handleReset}
-          disabled={!hasChanges && !originalValues}
+          disabled={!currentHasChanges && !originalValues}
         >
           Reset
         </button>
         <button
           className="tcp-btn tcp-btn--primary"
           onClick={handleSave}
-          disabled={!hasChanges}
+          disabled={!currentHasChanges}
         >
           Apply Changes
         </button>
       </div>
 
-      {hasChanges && (
+      {currentHasChanges && (
         <div className="tcp-unsaved">
           You have unsaved changes
         </div>

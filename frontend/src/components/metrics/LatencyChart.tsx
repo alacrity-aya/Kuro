@@ -436,6 +436,12 @@ export function LatencyChart({
     chartInstance.current.setOption(option, true);
   }, [histogramData, darkMode, colors]);
 
+  // Resize event listener - separate from render effect to avoid re-binding
+  useEffect(() => {
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [handleResize]);
+
   // Switch between views
   useEffect(() => {
     if (isLoading) return;
@@ -445,10 +451,7 @@ export function LatencyChart({
     } else {
       renderHistogramChart();
     }
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [viewMode, renderTrendChart, renderHistogramChart, handleResize, isLoading]);
+  }, [viewMode, renderTrendChart, renderHistogramChart, isLoading]);
 
   // Calculate summary stats
   const stats = useMemo(() => {
