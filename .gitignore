@@ -16,3 +16,5 @@
 # iFlow CLI related files (user-specific configuration and cache)
 .iflow/
 *.iflow*
+
+/logs
