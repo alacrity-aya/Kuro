@@ -62,8 +62,8 @@
         "验证全屏切换功能",
         "截图记录"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "使用 Grafana 的 iframe 嵌入模式，URL: http://localhost:30092/d/kuro-dashboard",
       "retryCount": 0,
       "backendRequired": true,
