@@ -4,7 +4,7 @@
  * 整合 Prometheus metrics 数据展示，包括：
  * - 拓扑概览卡片
  * - 带宽趋势图表
- * - 延迟分布图表
+ * - 延迟分布图表 (P50/P95/P99)
  * - 丢包率监控
  * 
  * TODO: 需要后端 API - Prometheus Service (NodePort 30091)
@@ -13,7 +13,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { SummaryCards } from '../components/metrics/SummaryCards';
 import { BandwidthChart } from '../components/metrics/BandwidthChart';
-import { LatencyChart } from '../components/metrics/LatencyChart';
+import { LatencyChart, type LatencyDataPoint, type LatencyHistogramBin, aggregateLatencyData, generateHistogramFromBuckets } from '../components/metrics/LatencyChart';
 import { PacketLossGauge } from '../components/metrics/PacketLossGauge';
 import { TimeRangeSelector, calculateTimeRange, getRecommendedStep } from '../components/metrics/TimeRangeSelector';
 import { RefreshControl } from '../components/metrics/RefreshControl';
@@ -73,6 +73,44 @@ function aggregateTimeSeries(vectors: RangeVector[]): TimeSeriesPoint[] {
 }
 
 // ============================================================================
+// Generate Latency Data from Prometheus results
+// ============================================================================
+
+function generateLatencyData(
+  p50Result: RangeVector[],
+  p95Result: RangeVector[],
+  p99Result: RangeVector[]
+): LatencyDataPoint[] {
+  if (p50Result.length === 0 || p95Result.length === 0 || p99Result.length === 0) {
+    return [];
+  }
+
+  // Use first result from each query
+  const p50Data = p50Result[0].values;
+  const p95Data = p95Result[0].values;
+  const p99Data = p99Result[0].values;
+
+  return aggregateLatencyData(p50Data, p95Data, p99Data);
+}
+
+// ============================================================================
+// Generate Histogram Bins from bucket data
+// ============================================================================
+
+function generateHistogramBins(bucketResult: InstantVector[]): LatencyHistogramBin[] {
+  if (bucketResult.length === 0) return [];
+
+  const buckets = bucketResult
+    .filter(v => v.metric.le)
+    .map(v => ({
+      le: v.metric.le || '0',
+      value: parseFloat(v.value[1]),
+    }));
+
+  return generateHistogramFromBuckets(buckets);
+}
+
+// ============================================================================
 // Metrics Page Component
 // ============================================================================
 
@@ -88,7 +126,8 @@ export default function MetricsPage() {
   // Metrics data state
   const [summaryData, setSummaryData] = useState<MetricsSummary | null>(null);
   const [bandwidthData, setBandwidthData] = useState<TimeSeriesPoint[]>([]);
-  const [latencyData, setLatencyData] = useState<TimeSeriesPoint[]>([]);
+  const [latencyData, setLatencyData] = useState<LatencyDataPoint[]>([]);
+  const [latencyHistogramData, setLatencyHistogramData] = useState<LatencyHistogramBin[]>([]);
   const [packetLossData, setPacketLossData] = useState<{ [pod: string]: number }>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,17 +170,38 @@ export default function MetricsPage() {
       const { start, end } = calculateTimeRange(timeRange);
       const step = getRecommendedStep(timeRange);
       
-      // Fetch data in parallel
-      const [bandwidthResult, latencyResult, packetLossResult] = await Promise.all([
+      // Fetch latency percentiles in parallel with other metrics
+      const [
+        bandwidthResult,
+        latencyP50Result,
+        latencyP95Result,
+        latencyP99Result,
+        latencyBucketsResult,
+        packetLossResult,
+      ] = await Promise.all([
         // Bandwidth query - total sim traffic
         prometheusClient.rangeQuery(
           kuroQueries.bandwidth.totalRate(),
           { start, end, step }
         ),
-        // Latency query - average
+        // Latency P50 query
         prometheusClient.rangeQuery(
-          kuroQueries.latency.avg(),
+          kuroQueries.latency.p50(),
           { start, end, step }
+        ),
+        // Latency P95 query
+        prometheusClient.rangeQuery(
+          kuroQueries.latency.p95(),
+          { start, end, step }
+        ),
+        // Latency P99 query
+        prometheusClient.rangeQuery(
+          kuroQueries.latency.p99(),
+          { start, end, step }
+        ),
+        // Latency histogram buckets for distribution view
+        prometheusClient.instantQuery(
+          `sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (le)`
         ),
         // Packet loss query
         prometheusClient.instantQuery(kuroQueries.packetLoss.rate()),
@@ -157,14 +217,17 @@ export default function MetricsPage() {
         })));
       }
       
-      // Process latency data (convert seconds to milliseconds)
-      if (latencyResult.length > 0) {
-        const aggregated = aggregateTimeSeries(latencyResult);
-        setLatencyData(aggregated.map(p => ({
-          ...p,
-          value: p.value * 1000, // sec to ms
-        })));
-      }
+      // Process latency data - P50/P95/P99
+      const latencyPoints = generateLatencyData(
+        latencyP50Result,
+        latencyP95Result,
+        latencyP99Result
+      );
+      setLatencyData(latencyPoints);
+
+      // Process latency histogram data
+      const histogramBins = generateHistogramBins(latencyBucketsResult);
+      setLatencyHistogramData(histogramBins);
       
       // Process packet loss data - filter by selected pods
       const lossData: { [pod: string]: number } = {};
@@ -190,7 +253,8 @@ export default function MetricsPage() {
       // Fallback to mock data on error
       setSummaryData(generateMockMetricsSummary());
       setBandwidthData(generateMockTimeSeries(30, 50, 15));
-      setLatencyData(generateMockTimeSeries(30, 45, 10));
+      setLatencyData(generateMockLatencyData(30));
+      setLatencyHistogramData(generateMockHistogramBins());
       setPacketLossData({
         'drone-0': 0.12,
         'drone-1': 0.08,
@@ -313,16 +377,20 @@ export default function MetricsPage() {
           </div>
         </div>
 
-        {/* Latency Chart */}
+        {/* Latency Chart - Enhanced with P50/P95/P99 */}
         <div className="metrics-page__chart-container">
-          <h2 className="metrics-page__chart-title">Latency Trend</h2>
+          <h2 className="metrics-page__chart-title">Latency Distribution</h2>
           <div className="metrics-page__chart">
             {latencyData.length > 0 ? (
               <LatencyChart
-                data={latencyData}
+                trendData={latencyData}
+                histogramData={latencyHistogramData}
                 title=""
                 maxLatency={100}
                 height={250}
+                showViewToggle={true}
+                darkMode={true}
+                isLoading={isLoading}
               />
             ) : (
               <div className="metrics-page__chart-empty">
@@ -390,4 +458,34 @@ function generateMockTimeSeries(count: number, base: number, variance: number): 
     currentValue = value;
     return { timestamp, value: Math.max(0, value) };
   });
+}
+
+function generateMockLatencyData(count: number): LatencyDataPoint[] {
+  const now = Date.now();
+  const interval = 60000; // 1 minute
+  let p50 = 25;
+  let p95 = 45;
+  let p99 = 65;
+
+  return Array.from({ length: count }, (_, i) => {
+    const timestamp = now - (count - i - 1) * interval;
+    // Random walk for each percentile
+    p50 = Math.max(5, p50 + (Math.random() - 0.5) * 10);
+    p95 = Math.max(p50 + 10, p95 + (Math.random() - 0.5) * 15);
+    p99 = Math.max(p95 + 5, p99 + (Math.random() - 0.5) * 20);
+    
+    return { timestamp, p50, p95, p99 };
+  });
+}
+
+function generateMockHistogramBins(): LatencyHistogramBin[] {
+  return [
+    { range: '0-10ms', count: 150, percentage: 15 },
+    { range: '10-25ms', count: 320, percentage: 32 },
+    { range: '25-50ms', count: 280, percentage: 28 },
+    { range: '50-100ms', count: 180, percentage: 18 },
+    { range: '100-250ms', count: 50, percentage: 5 },
+    { range: '250-500ms', count: 15, percentage: 1.5 },
+    { range: '500-1000ms', count: 5, percentage: 0.5 },
+  ];
 }

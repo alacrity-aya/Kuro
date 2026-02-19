@@ -156,8 +156,8 @@
         "验证 P95/P99 显示",
         "截图记录"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "查询: histogram_quantile(0.95, rate(kuro_pod_latency_seconds_bucket[5m]))",
       "retryCount": 0,
       "backendRequired": true,

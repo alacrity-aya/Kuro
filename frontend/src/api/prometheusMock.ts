@@ -166,20 +166,83 @@ export function mockInstantQuery(query: string): PrometheusResponse<InstantQuery
     };
   }
 
-  // Latency histogram query
+  // Latency percentile instant query (histogram_quantile)
+  if (query.includes('histogram_quantile') && query.includes('kuro_pod_latency_seconds_bucket')) {
+    const results: InstantVector[] = [];
+    
+    // Extract quantile from query
+    const quantileMatch = query.match(/histogram_quantile\((\d+\.?\d*)/);
+    const quantile = quantileMatch ? parseFloat(quantileMatch[1]) : 0.95;
+    
+    // Base latency depends on quantile
+    const baseLatency = 0.02 + (quantile * 0.05);
+    
+    // Check if aggregating by pod
+    const hasByPod = query.includes('by (pod');
+    
+    if (hasByPod) {
+      MOCK_PODS.forEach(pod => {
+        const latency = baseLatency + Math.random() * 0.02;
+        results.push({
+          metric: { pod },
+          value: [now, latency.toFixed(6)]
+        });
+      });
+    } else {
+      // Check if aggregating by le (for histogram buckets)
+      const hasByLe = query.includes('by (le)');
+      if (hasByLe) {
+        // Return bucket aggregation for histogram view
+        LATENCY_BUCKETS.forEach(le => {
+          const bucketValue = le === '+Inf' ? 1000 : parseFloat(le) * 500 * (1 + Math.random());
+          results.push({
+            metric: { le },
+            value: [now, bucketValue.toFixed(0)]
+          });
+        });
+      } else {
+        // Single result
+        results.push({
+          metric: {},
+          value: [now, (baseLatency + Math.random() * 0.02).toFixed(6)]
+        });
+      }
+    }
+    
+    return {
+      status: 'success',
+      data: { resultType: 'vector', result: results }
+    };
+  }
+
+  // Latency histogram bucket query
   if (query.includes('kuro_pod_latency_seconds_bucket')) {
     const results: InstantVector[] = [];
     
-    MOCK_PODS.forEach(pod => {
+    // Check if this is an aggregation query (for histogram bins)
+    const isAggregated = query.includes('sum(') && query.includes('by (le)');
+    
+    if (isAggregated) {
+      // Return aggregated buckets for histogram display
       LATENCY_BUCKETS.forEach(le => {
-        // Generate cumulative histogram values
-        const bucketValue = le === '+Inf' ? 1000 : parseFloat(le) * 1000 * (1 + Math.random());
+        const bucketValue = le === '+Inf' ? 1000 : parseFloat(le) * 500 * (1 + Math.random());
         results.push({
-          metric: { pod, le },
+          metric: { le },
           value: [now, bucketValue.toFixed(0)]
         });
       });
-    });
+    } else {
+      // Per-pod bucket data
+      MOCK_PODS.forEach(pod => {
+        LATENCY_BUCKETS.forEach(le => {
+          const bucketValue = le === '+Inf' ? 1000 : parseFloat(le) * 1000 * (1 + Math.random());
+          results.push({
+            metric: { pod, le },
+            value: [now, bucketValue.toFixed(0)]
+          });
+        });
+      });
+    }
 
     return {
       status: 'success',
@@ -275,7 +338,61 @@ export function mockRangeQuery(
     };
   }
 
-  // Latency histogram query
+  // Latency percentile query (histogram_quantile)
+  if (query.includes('histogram_quantile') && query.includes('kuro_pod_latency_seconds_bucket')) {
+    const results: RangeVector[] = [];
+    
+    // Extract quantile from query (e.g., 0.50, 0.95, 0.99)
+    const quantileMatch = query.match(/histogram_quantile\((\d+\.?\d*)/);
+    const quantile = quantileMatch ? parseFloat(quantileMatch[1]) : 0.95;
+    
+    // Base latency depends on quantile (higher quantile = higher latency)
+    const baseLatency = 0.02 + (quantile * 0.05); // 20-70ms base
+    
+    // Check if aggregating by pod or single result
+    const hasByPod = query.includes('by (pod');
+    
+    if (hasByPod) {
+      // Return per-pod latency
+      MOCK_PODS.forEach(pod => {
+        let currentValue = baseLatency + Math.random() * 0.02;
+        const values: Array<[number, string]> = [];
+        
+        for (let i = 0; i < pointCount; i++) {
+          const timestamp = start + i * stepSeconds;
+          values.push([timestamp, currentValue.toFixed(6)]);
+          currentValue = generateWalkValue(currentValue, 0.01, 0.001);
+        }
+        
+        results.push({
+          metric: { pod },
+          values
+        });
+      });
+    } else {
+      // Single aggregated result
+      let currentValue = baseLatency + Math.random() * 0.02;
+      const values: Array<[number, string]> = [];
+      
+      for (let i = 0; i < pointCount; i++) {
+        const timestamp = start + i * stepSeconds;
+        values.push([timestamp, currentValue.toFixed(6)]);
+        currentValue = generateWalkValue(currentValue, 0.01, 0.001);
+      }
+      
+      results.push({
+        metric: {},
+        values
+      });
+    }
+    
+    return {
+      status: 'success',
+      data: { resultType: 'matrix', result: results }
+    };
+  }
+
+  // Latency histogram bucket query
   if (query.includes('kuro_pod_latency_seconds_bucket')) {
     const results: RangeVector[] = [];
     
@@ -297,6 +414,57 @@ export function mockRangeQuery(
       });
     });
 
+    return {
+      status: 'success',
+      data: { resultType: 'matrix', result: results }
+    };
+  }
+  
+  // Latency sum/count query for average calculation
+  if (query.includes('kuro_pod_latency_seconds_sum')) {
+    const results: RangeVector[] = [];
+    
+    MOCK_PODS.forEach(pod => {
+      let currentValue = 100 + Math.random() * 50;
+      const values: Array<[number, string]> = [];
+      
+      for (let i = 0; i < pointCount; i++) {
+        const timestamp = start + i * stepSeconds;
+        values.push([timestamp, currentValue.toFixed(2)]);
+        currentValue = generateWalkValue(currentValue, 10, 0);
+      }
+      
+      results.push({
+        metric: { pod },
+        values
+      });
+    });
+    
+    return {
+      status: 'success',
+      data: { resultType: 'matrix', result: results }
+    };
+  }
+  
+  if (query.includes('kuro_pod_latency_seconds_count')) {
+    const results: RangeVector[] = [];
+    
+    MOCK_PODS.forEach(pod => {
+      let currentValue = 5000 + Math.random() * 1000;
+      const values: Array<[number, string]> = [];
+      
+      for (let i = 0; i < pointCount; i++) {
+        const timestamp = start + i * stepSeconds;
+        values.push([timestamp, currentValue.toFixed(0)]);
+        currentValue = generateWalkValue(currentValue, 100, 0);
+      }
+      
+      results.push({
+        metric: { pod },
+        values
+      });
+    });
+    
     return {
       status: 'success',
       data: { resultType: 'matrix', result: results }
