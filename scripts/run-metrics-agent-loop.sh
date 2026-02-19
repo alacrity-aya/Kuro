@@ -318,6 +318,7 @@ run_iflow_session() {
     iflow -y \
           --max-tokens 100000 \
           --max-turns 50 \
+          --thinking \
           -p "$prompt" \
           2>&1 | tee "$session_log"
     

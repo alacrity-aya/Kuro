@@ -163,6 +163,21 @@ export interface LinkMetricsHistory {
   packetLoss: TimeSeriesPoint[];
 }
 
+/**
+ * Metrics summary for dashboard overview
+ * TODO: 需要后端 API - GET /api/v1/metrics/summary
+ */
+export interface MetricsSummary {
+  totalNodes: number;
+  runningNodes: number;
+  totalLinks: number;
+  activeLinks: number;
+  avgBandwidthMbps: number;
+  avgLatencyMs: number;
+  avgPacketLoss: number;
+  healthScore: number;  // 0-100
+}
+
 // ============================================================================
 // API Response Types
 // ============================================================================

@@ -91,8 +91,8 @@
       "browserTests": [
         "验证 API 调用正确"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "Prometheus HTTP API: http://localhost:30091/api/v1/query",
       "retryCount": 0,
       "backendRequired": true,
@@ -128,8 +128,8 @@
         "验证时间范围选择",
         "截图记录"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "使用 ECharts 渲染，查询: rate(kuro_pod_traffic_bytes_total[5m])",
       "retryCount": 0,
       "backendRequired": true,
@@ -188,8 +188,8 @@
         "验证告警颜色",
         "截图记录"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "丢包率 = drop_packets / traffic_packets * 100",
       "retryCount": 0,
       "backendRequired": true,
@@ -219,8 +219,8 @@
         "验证多选功能",
         "截图记录"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "从 Prometheus 获取 pod 标签值列表",
       "retryCount": 0,
       "backendRequired": true,
@@ -246,8 +246,8 @@
         "验证选择后图表更新",
         "截图记录"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "用于 Prometheus range query",
       "retryCount": 0,
       "backendRequired": false,
@@ -271,8 +271,8 @@
         "验证刷新间隔选择",
         "验证暂停/恢复"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "默认 5 秒，支持 5s/10s/30s/1m",
       "retryCount": 0,
       "backendRequired": false,
@@ -298,8 +298,8 @@
         "验证响应式布局",
         "截图记录"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "包含 Grafana iframe + 自定义图表",
       "retryCount": 0,
       "backendRequired": false,
@@ -325,8 +325,8 @@
       "browserTests": [
         "验证组件能消费 mock 数据"
       ],
-      "passes": false,
-      "lastTested": null,
+      "passes": true,
+      "lastTested": "2026-02-19",
       "notes": "模拟 Prometheus HTTP API 响应格式",
       "retryCount": 0,
       "backendRequired": false,

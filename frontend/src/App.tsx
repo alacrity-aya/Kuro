@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { Dashboard, TopologyList, TopologyDetail, TopologyCreate } from './pages';
+import { Dashboard, TopologyList, TopologyDetail, TopologyCreate, MetricsPage } from './pages';
 import { useTopologyStore } from './stores';
 import type { MenuItem } from './types/api';
 import './App.css';
@@ -18,16 +18,6 @@ function getActiveMenuItem(pathname: string): string {
   if (pathname.startsWith('/topologies')) return 'topologies';
   if (pathname.startsWith('/metrics')) return 'metrics';
   return 'dashboard';
-}
-
-// Placeholder for Metrics page
-function MetricsPlaceholder() {
-  return (
-    <div className="app-placeholder">
-      <h2>Metrics</h2>
-      <p>Metrics visualization coming soon...</p>
-    </div>
-  );
 }
 
 // Main app content with router hooks
@@ -98,7 +88,7 @@ function AppContent() {
             path="/topologies/:namespace/:name" 
             element={<TopologyDetailWrapper onBack={() => navigate('/topologies')} />} 
           />
-          <Route path="/metrics" element={<MetricsPlaceholder />} />
+          <Route path="/metrics" element={<MetricsPage />} />
           <Route path="*" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
         </Routes>
       </div>
