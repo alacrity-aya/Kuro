@@ -18,6 +18,7 @@ import { PacketLossGauge } from '../components/metrics/PacketLossGauge';
 import { TimeRangeSelector, calculateTimeRange, getRecommendedStep } from '../components/metrics/TimeRangeSelector';
 import { RefreshControl } from '../components/metrics/RefreshControl';
 import { PodSelector } from '../components/metrics/PodSelector';
+import { GrafanaEmbed } from '../components/metrics/GrafanaEmbed';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { prometheusClient, kuroQueries, bytesToMbps } from '../api/prometheus';
 import type { MetricsSummary, TimeSeriesPoint } from '../types/api';
@@ -117,6 +118,9 @@ function generateHistogramBins(bucketResult: InstantVector[]): LatencyHistogramB
 export default function MetricsPage() {
   // Time range state
   const [timeRange, setTimeRange] = useState('15m');
+  
+  // View mode state (charts or grafana)
+  const [viewMode, setViewMode] = useState<'charts' | 'grafana'>('charts');
   
   // Pod selection state
   const [selectedPods, setSelectedPods] = useState<string[]>([]);
@@ -305,6 +309,27 @@ export default function MetricsPage() {
         <h1 className="metrics-page__title">Network Metrics</h1>
         
         <div className="metrics-page__controls">
+          {/* View Mode Toggle */}
+          <div className="metrics-page__control-group">
+            <span className="metrics-page__control-label">View</span>
+            <div className="metrics-page__view-toggle">
+              <button
+                className={`metrics-page__view-btn ${viewMode === 'charts' ? 'metrics-page__view-btn--active' : ''}`}
+                onClick={() => setViewMode('charts')}
+                title="Show charts view"
+              >
+                Charts
+              </button>
+              <button
+                className={`metrics-page__view-btn ${viewMode === 'grafana' ? 'metrics-page__view-btn--active' : ''}`}
+                onClick={() => setViewMode('grafana')}
+                title="Show Grafana dashboard"
+              >
+                Grafana
+              </button>
+            </div>
+          </div>
+        
           {/* Pod Selector */}
           <div className="metrics-page__control-group">
             <span className="metrics-page__control-label">Pods</span>
@@ -356,8 +381,9 @@ export default function MetricsPage() {
         <SummaryCards data={summaryData} isLoading={isLoading} />
       </section>
 
-      {/* Charts Grid */}
-      <section className="metrics-page__section metrics-page__section--charts">
+      {/* Charts Grid - only show in charts mode */}
+      {viewMode === 'charts' && (
+        <section className="metrics-page__section metrics-page__section--charts">
         {/* Bandwidth Chart */}
         <div className="metrics-page__chart-container">
           <h2 className="metrics-page__chart-title">Bandwidth Trend</h2>
@@ -429,6 +455,20 @@ export default function MetricsPage() {
           </div>
         </div>
       </section>
+      )}
+
+      {/* Grafana Dashboard View - only show in grafana mode */}
+      {viewMode === 'grafana' && (
+        <section className="metrics-page__section metrics-page__section--grafana">
+          <GrafanaEmbed
+            dashboardUid="kuro-dashboard"
+            refresh={`${refreshInterval / 1000}s`}
+            theme="dark"
+            height={600}
+            title="Kuro Network Dashboard"
+          />
+        </section>
+      )}
 
       {/* Info footer */}
       <div className="metrics-page__footer">

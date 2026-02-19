@@ -44,6 +44,39 @@
   color: #8b8ba7;
 }
 
+/* View Toggle */
+.metrics-page__view-toggle {
+  display: flex;
+  background: #1a1a28;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.metrics-page__view-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8b8ba7;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.metrics-page__view-btn:hover {
+  color: #d4d4d4;
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.metrics-page__view-btn--active {
+  color: #fff;
+  background: #6366f1;
+}
+
+.metrics-page__view-btn--active:hover {
+  background: #5558e8;
+}
+
 /* Error Banner */
 .metrics-page__error {
   display: flex;
@@ -86,6 +119,10 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 20px;
+}
+
+.metrics-page__section--grafana {
+  min-height: 600px;
 }
 
 /* Chart Container */

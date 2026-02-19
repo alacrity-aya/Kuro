@@ -8,3 +8,5 @@ export type { TimeRangeOption } from './TimeRangeSelector';
 export { RefreshControl } from './RefreshControl';
 export { PodSelector } from './PodSelector';
 export type { PodSelectorProps } from './PodSelector';
+export { GrafanaEmbed, checkGrafanaHealth, getGrafanaDashboards } from './GrafanaEmbed';
+export type { GrafanaEmbedProps } from './GrafanaEmbed';
