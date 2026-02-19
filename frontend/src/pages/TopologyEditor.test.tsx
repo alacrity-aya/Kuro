@@ -92,6 +92,7 @@ vi.mock('reactflow', () => {
     },
     addEdge: vi.fn((edge, edges) => [...edges, edge]),
     MarkerType: { ArrowClosed: 'arrowClosed' },
+    SelectionMode: { Partial: 1, Full: 2 },
   };
 });
 
@@ -118,6 +119,32 @@ vi.mock('../components/topology/NodeConfigPanel', () => ({
 
 // Mock CSS import
 vi.mock('./TopologyEditor.css', () => ({}));
+
+// Mock topologyConverter to return no errors
+vi.mock('../utils/topologyConverter', () => ({
+  editorStateToYaml: () => ({
+    yaml: 'mock: yaml',
+    errors: [],
+    warnings: [],
+  }),
+}));
+
+// Mock YamlPreviewDialog
+vi.mock('../components/topology/YamlPreviewDialog', () => ({
+  default: ({ isOpen, onSave, onClose }: { isOpen: boolean; onSave?: () => void; onClose: () => void }) => {
+    if (!isOpen) return null;
+    return (
+      <div data-testid="yaml-preview-dialog">
+        <button data-testid="dialog-save-button" onClick={() => { onSave?.(); onClose(); }}>
+          Save
+        </button>
+        <button data-testid="dialog-close-button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    );
+  },
+}));
 
 describe('TopologyEditor', () => {
   const mockOnSave = vi.fn();
@@ -272,10 +299,21 @@ describe('TopologyEditor', () => {
     });
   });
 
-  it('calls onSave when Save button is clicked', () => {
+  it('calls onSave when Save button is clicked', async () => {
     render(<TopologyEditor onSave={mockOnSave} />);
+    
+    // Click Save Topology button to open preview dialog
     const saveButton = screen.getByText('Save Topology');
     fireEvent.click(saveButton);
+    
+    // Dialog should open
+    expect(screen.getByTestId('yaml-preview-dialog')).toBeInTheDocument();
+    
+    // Click Save in dialog
+    const dialogSaveButton = screen.getByTestId('dialog-save-button');
+    fireEvent.click(dialogSaveButton);
+    
+    // onSave should be called
     expect(mockOnSave).toHaveBeenCalledTimes(1);
   });
 
