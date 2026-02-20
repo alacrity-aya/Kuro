@@ -73,7 +73,7 @@ interface CardConfig {
  * - Loading skeleton state
  * - Real-time value updates
  *
- * TODO: 需要后端 API - GET /api/v1/metrics/summary
+ * TODO: Requires backend API - GET /api/v1/metrics/summary
  */
 export function SummaryCards({ data, isLoading = false, className = '' }: SummaryCardsProps) {
   // Calculate health status

@@ -1,23 +1,23 @@
-# Kuro 低代码编辑器开发计划
+# Kuro Low-Code Editor Development Plan
 
-**版本:** 2.0  
-**日期:** 2026-02-18  
-**状态:** 待开发
-
----
-
-## 背景
-
-当前 Kuro 前端支持通过 YAML 编辑器创建拓扑，但用户希望有一个更直观的低代码平台：
-- 通过拖拽添加节点
-- 在配置框中配置 image, role, labels 等
-- 配置节点之间的链路网络仿真参数
+**Version:** 2.0  
+**Date:** 2026-02-18  
+**Status:** Pending Development
 
 ---
 
-## 后端能力分析
+## Background
 
-### NodeGroup CRD 支持
+The current Kuro frontend supports creating topologies through a YAML editor, but users want a more intuitive low-code platform:
+- Add nodes through drag and drop
+- Configure image, role, labels, etc. in configuration panels
+- Configure network simulation parameters for links between nodes
+
+---
+
+## Backend Capability Analysis
+
+### NodeGroup CRD Support
 
 ```yaml
 spec:
@@ -36,7 +36,7 @@ spec:
         filename: main.py
 ```
 
-### TrafficControl CRD 支持
+### TrafficControl CRD Support
 
 ```yaml
 spec:
@@ -54,28 +54,28 @@ spec:
     packetLoss: 0.5%
 ```
 
-### 后端 API
+### Backend API
 
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/v1/topology` | GET | 获取拓扑节点列表 |
-| `/api/v1/policy/link` | POST | 应用链路策略 |
-| `/api/v1/policy/pod` | POST | 应用 Pod 策略 |
-| `/api/v1/policy/node` | POST | 应用节点策略 |
+| Endpoint | Method | Function |
+|----------|--------|----------|
+| `/api/v1/topology` | GET | Get topology node list |
+| `/api/v1/policy/link` | POST | Apply link policy |
+| `/api/v1/policy/pod` | POST | Apply Pod policy |
+| `/api/v1/policy/node` | POST | Apply node policy |
 
 ---
 
-## 功能开发计划
+## Feature Development Plan
 
-### Phase 1: 低代码编辑器基础 (高优先级)
+### Phase 1: Low-Code Editor Basics (High Priority)
 
-#### LC-001: Node Palette - 节点工具栏
+#### LC-001: Node Palette - Node Toolbar
 
-**目标:** 提供可拖拽的节点类型工具栏
+**Goal:** Provide a draggable node type toolbar
 
-**实现细节:**
+**Implementation Details:**
 
-1. 创建 `NodePalette` 组件 (`frontend/src/components/topology/NodePalette.tsx`)
+1. Create `NodePalette` component (`frontend/src/components/topology/NodePalette.tsx`)
    ```tsx
    interface NodePaletteProps {
      nodeTypes: NodeTypeDefinition[];
@@ -83,7 +83,7 @@ spec:
    }
    ```
 
-2. 创建 `DraggableNodeItem` 组件
+2. Create `DraggableNodeItem` component
    ```tsx
    interface DraggableNodeItemProps {
      type: string;
@@ -93,7 +93,7 @@ spec:
    }
    ```
 
-3. 预定义节点类型:
+3. Predefined node types:
    ```typescript
    const NODE_TYPES = [
      { type: 'drone', icon: '🚁', label: 'Drone', color: '#3b82f6' },
@@ -105,7 +105,7 @@ spec:
    ];
    ```
 
-4. 拖拽处理:
+4. Drag handling:
    ```typescript
    const onDragStart = (event: React.DragEvent, nodeType: string) => {
      event.dataTransfer.setData('application/reactflow', nodeType);
@@ -113,28 +113,28 @@ spec:
    };
    ```
 
-**文件清单:**
+**File List:**
 - `frontend/src/components/topology/NodePalette.tsx`
 - `frontend/src/components/topology/NodePalette.css`
 - `frontend/src/components/topology/DraggableNodeItem.tsx`
-- `frontend/src/components/topology/index.ts` (更新导出)
+- `frontend/src/components/topology/index.ts` (update exports)
 
-**测试步骤:**
-1. 运行 `npm run test:run`
-2. 导航到拓扑创建页面
-3. 验证节点工具栏显示
-4. 拖拽节点到画布
-5. 验证节点成功添加
+**Test Steps:**
+1. Run `npm run test:run`
+2. Navigate to topology creation page
+3. Verify node toolbar displays
+4. Drag node to canvas
+5. Verify node added successfully
 
 ---
 
-#### LC-002: Node Configuration Panel - 节点配置面板
+#### LC-002: Node Configuration Panel - Node Configuration Panel
 
-**目标:** 点击节点后显示配置面板，支持配置所有 NodeGroup 字段
+**Goal:** Display configuration panel after clicking a node, supporting configuration of all NodeGroup fields
 
-**实现细节:**
+**Implementation Details:**
 
-1. 创建 `NodeConfigPanel` 组件 (`frontend/src/components/topology/NodeConfigPanel.tsx`)
+1. Create `NodeConfigPanel` component (`frontend/src/components/topology/NodeConfigPanel.tsx`)
    ```tsx
    interface NodeConfigPanelProps {
      node: TopologyNode | null;
@@ -143,14 +143,14 @@ spec:
    }
    ```
 
-2. 创建表单字段组件:
-   - `ImageInput` - 镜像选择/输入
-   - `LabelsEditor` - 标签键值对编辑器
-   - `CommandInput` - 启动命令编辑器
-   - `ReplicasInput` - 副本数输入
-   - `UserProgramEditor` - 用户代码编辑器
+2. Create form field components:
+   - `ImageInput` - Image selection/input
+   - `LabelsEditor` - Label key-value editor
+   - `CommandInput` - Startup command editor
+   - `ReplicasInput` - Replica count input
+   - `UserProgramEditor` - User code editor
 
-3. 表单验证:
+3. Form validation:
    ```typescript
    const validateNodeConfig = (config: NodeGroupConfig): ValidationResult => {
      const errors: string[] = [];
@@ -161,7 +161,7 @@ spec:
    };
    ```
 
-**文件清单:**
+**File List:**
 - `frontend/src/components/topology/NodeConfigPanel.tsx`
 - `frontend/src/components/topology/NodeConfigPanel.css`
 - `frontend/src/components/topology/ImageInput.tsx`
@@ -169,22 +169,22 @@ spec:
 - `frontend/src/components/topology/CommandInput.tsx`
 - `frontend/src/types/nodeConfig.ts`
 
-**测试步骤:**
-1. 运行 `npm run test:run`
-2. 拖拽添加一个新节点
-3. 点击节点打开配置面板
-4. 修改各字段
-5. 验证实时预览更新
+**Test Steps:**
+1. Run `npm run test:run`
+2. Drag to add a new node
+3. Click node to open configuration panel
+4. Modify various fields
+5. Verify real-time preview updates
 
 ---
 
-#### LC-003: Link Drawing - 链路绘制功能
+#### LC-003: Link Drawing - Link Drawing Feature
 
-**目标:** 支持通过拖拽在节点之间创建链路连接
+**Goal:** Support creating link connections between nodes through drag
 
-**实现细节:**
+**Implementation Details:**
 
-1. 扩展 `TopologyCanvas` 支持连接创建:
+1. Extend `TopologyCanvas` to support connection creation:
    ```tsx
    const onConnect = useCallback((connection: Connection) => {
      const newLink: TopologyLink = {
@@ -203,16 +203,16 @@ spec:
    }, []);
    ```
 
-2. 创建 `LinkCreationHandler`:
+2. Create `LinkCreationHandler`:
    ```typescript
    const handleLinkCreation = (sourceId: string, targetId: string) => {
-     // 检查是否已存在相同连接
-     // 创建默认策略
-     // 添加到 links 状态
+     // Check if same connection already exists
+     // Create default policy
+     // Add to links state
    };
    ```
 
-3. 支持删除链路:
+3. Support link deletion:
    ```typescript
    const handleKeyDown = useCallback((event: KeyboardEvent) => {
      if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -223,27 +223,27 @@ spec:
    }, [selectedLinkId]);
    ```
 
-**文件清单:**
-- `frontend/src/components/topology/TopologyCanvas.tsx` (修改)
+**File List:**
+- `frontend/src/components/topology/TopologyCanvas.tsx` (modify)
 - `frontend/src/hooks/useLinkManagement.ts`
-- `frontend/src/components/topology/TopologyCanvas.css` (更新)
+- `frontend/src/components/topology/TopologyCanvas.css` (update)
 
-**测试步骤:**
-1. 运行 `npm run test:run`
-2. 添加两个节点到画布
-3. 拖拽创建链路
-4. 验证链路显示
-5. 删除链路
+**Test Steps:**
+1. Run `npm run test:run`
+2. Add two nodes to canvas
+3. Drag to create link
+4. Verify link display
+5. Delete link
 
 ---
 
-#### LC-004: Link Configuration Panel - 链路配置面板增强
+#### LC-004: Link Configuration Panel - Link Configuration Panel Enhancement
 
-**目标:** 增强链路配置面板，支持完整的网络仿真参数配置
+**Goal:** Enhance link configuration panel to support full network simulation parameter configuration
 
-**实现细节:**
+**Implementation Details:**
 
-1. 增强现有 `TrafficControlPanel`:
+1. Enhance existing `TrafficControlPanel`:
    ```tsx
    interface TrafficControlPanelProps {
      link: TopologyLink | null;
@@ -253,12 +253,12 @@ spec:
    }
    ```
 
-2. 添加更多参数:
-   - Priority (优先级)
-   - Queue Depth (队列深度)
-   - Corruption Rate (误码率)
+2. Add more parameters:
+   - Priority
+   - Queue Depth
+   - Corruption Rate
 
-3. 参数格式化:
+3. Parameter formatting:
    ```typescript
    const formatBandwidth = (value: number): string => {
      if (value >= 1e9) return `${(value / 1e9).toFixed(1)}Gbps`;
@@ -268,27 +268,27 @@ spec:
    };
    ```
 
-**文件清单:**
-- `frontend/src/components/TrafficControlPanel.tsx` (修改)
-- `frontend/src/components/TrafficControlPanel.css` (更新)
+**File List:**
+- `frontend/src/components/TrafficControlPanel.tsx` (modify)
+- `frontend/src/components/TrafficControlPanel.css` (update)
 - `frontend/src/utils/policyFormatters.ts`
 
-**测试步骤:**
-1. 运行 `npm run test:run`
-2. 创建链路
-3. 点击链路打开配置面板
-4. 配置各参数
-5. 保存配置
+**Test Steps:**
+1. Run `npm run test:run`
+2. Create link
+3. Click link to open configuration panel
+4. Configure parameters
+5. Save configuration
 
 ---
 
-#### LC-005: Topology Editor Page - 拓扑编辑页面
+#### LC-005: Topology Editor Page - Topology Editor Page
 
-**目标:** 创建专用的拓扑编辑页面，集成所有编辑组件
+**Goal:** Create dedicated topology editor page integrating all editing components
 
-**实现细节:**
+**Implementation Details:**
 
-1. 页面布局:
+1. Page layout:
    ```
    ┌─────────────────────────────────────────────────────────┐
    │ [Node Palette] │ [Canvas] │ [Config Panel] │
@@ -302,49 +302,49 @@ spec:
    └─────────────────────────────────────────────────────────┘
    ```
 
-2. 创建 `TopologyEditor` 页面:
+2. Create `TopologyEditor` page:
    ```tsx
    interface TopologyEditorProps {
-     topologyId?: string; // 编辑现有拓扑时传入
+     topologyId?: string; // Pass when editing existing topology
      onSave: (topology: NetworkTopology) => void;
    }
    ```
 
-3. 集成子组件:
-   - NodePalette (左侧)
-   - TopologyCanvas (中间)
-   - NodeConfigPanel / TrafficControlPanel (右侧)
+3. Integrate sub-components:
+   - NodePalette (left side)
+   - TopologyCanvas (center)
+   - NodeConfigPanel / TrafficControlPanel (right side)
 
-**文件清单:**
+**File List:**
 - `frontend/src/pages/TopologyEditor.tsx`
 - `frontend/src/pages/TopologyEditor.css`
-- `frontend/src/App.tsx` (添加路由)
+- `frontend/src/App.tsx` (add route)
 
-**测试步骤:**
-1. 运行 `npm run test:run`
-2. 导航到 /topologies/new
-3. 验证页面布局
-4. 测试完整编辑流程
-5. 截图验证
+**Test Steps:**
+1. Run `npm run test:run`
+2. Navigate to /topologies/new
+3. Verify page layout
+4. Test complete editing flow
+5. Screenshot verification
 
 ---
 
-#### LC-006: Topology Save - 拓扑保存功能
+#### LC-006: Topology Save - Topology Save Feature
 
-**目标:** 将可视化编辑的拓扑保存为 CRD YAML 格式
+**Goal:** Save visually edited topology as CRD YAML format
 
-**实现细节:**
+**Implementation Details:**
 
-1. 创建转换函数:
+1. Create conversion function:
    ```typescript
    const editorStateToCRD = (
      nodes: EditorNode[],
      links: EditorLink[]
    ): { topology: NetworkTopology; trafficControls: TrafficControl[] } => {
-     // 1. 聚合节点为 NodeGroups
+     // 1. Aggregate nodes into NodeGroups
      const nodeGroups = aggregateNodeGroups(nodes);
      
-     // 2. 生成 NetworkTopology CRD
+     // 2. Generate NetworkTopology CRD
      const topology: NetworkTopology = {
        apiVersion: 'simulation.kuro.io/v1alpha1',
        kind: 'NetworkTopology',
@@ -352,14 +352,14 @@ spec:
        spec: { nodeGroups },
      };
      
-     // 3. 生成 TrafficControl CRDs
+     // 3. Generate TrafficControl CRDs
      const trafficControls = generateTrafficControls(links);
      
      return { topology, trafficControls };
    };
    ```
 
-2. 创建 YAML 预览对话框:
+2. Create YAML preview dialog:
    ```tsx
    interface YamlPreviewDialogProps {
      topology: NetworkTopology;
@@ -369,74 +369,74 @@ spec:
    }
    ```
 
-**文件清单:**
+**File List:**
 - `frontend/src/utils/topologyConverter.ts`
 - `frontend/src/components/topology/YamlPreviewDialog.tsx`
 - `frontend/src/stores/editorStore.ts`
 
-**测试步骤:**
-1. 运行 `npm run test:run`
-2. 创建拓扑
-3. 点击保存
-4. 验证 YAML 格式
-5. 确认保存
+**Test Steps:**
+1. Run `npm run test:run`
+2. Create topology
+3. Click save
+4. Verify YAML format
+5. Confirm save
 
 ---
 
-### Phase 2: 高级功能 (中优先级)
+### Phase 2: Advanced Features (Medium Priority)
 
-#### LC-007: Node Group Management - 节点组管理
+#### LC-007: Node Group Management - Node Group Management
 
-**目标:** 支持将多个节点组织成节点组
+**Goal:** Support organizing multiple nodes into node groups
 
-**实现细节:**
-- 创建 NodeGroupPanel 组件
-- 支持多选节点
-- 支持配置副本数
-- 支持批量配置标签
-
----
-
-#### LC-008: Topology Templates - 拓扑模板库
-
-**目标:** 提供预定义的拓扑模板
-
-**预定义模板:**
-1. **Drone Swarm** - 1个地面站 + N个无人机
-2. **IoT Network** - 网关 + 多个传感器节点
-3. **Microservices** - API网关 + 多个服务
-4. **Star Topology** - 中心节点 + 多个边缘节点
-5. **Mesh Network** - 全连接网络
+**Implementation Details:**
+- Create NodeGroupPanel component
+- Support multi-select nodes
+- Support configuring replica count
+- Support batch label configuration
 
 ---
 
-#### LC-009: Real-time Validation - 实时验证
+#### LC-008: Topology Templates - Topology Template Library
 
-**目标:** 实时验证拓扑配置
+**Goal:** Provide predefined topology templates
 
-**验证规则:**
-1. 节点名称唯一性
-2. 必填字段检查
-3. IP 地址格式验证
-4. 镜像名称格式验证
-5. 孤立节点警告
-
----
-
-#### LC-010: Undo/Redo - 撤销/重做
-
-**目标:** 支持编辑操作的撤销和重做
-
-**实现细节:**
-- 使用 Zustand 的 temporal 中间件
-- 支持快捷键 Ctrl+Z / Ctrl+Y
-- 支持最多 50 步历史记录
+**Predefined Templates:**
+1. **Drone Swarm** - 1 ground station + N drones
+2. **IoT Network** - Gateway + multiple sensor nodes
+3. **Microservices** - API gateway + multiple services
+4. **Star Topology** - Central node + multiple edge nodes
+5. **Mesh Network** - Fully connected network
 
 ---
 
-## 开发顺序
+#### LC-009: Real-time Validation - Real-time Validation
 
-推荐按以下顺序开发：
+**Goal:** Real-time validation of topology configuration
+
+**Validation Rules:**
+1. Node name uniqueness
+2. Required field check
+3. IP address format validation
+4. Image name format validation
+5. Orphaned node warning
+
+---
+
+#### LC-010: Undo/Redo - Undo/Redo
+
+**Goal:** Support undo and redo of edit operations
+
+**Implementation Details:**
+- Use Zustand's temporal middleware
+- Support shortcuts Ctrl+Z / Ctrl+Y
+- Support up to 50 history steps
+
+---
+
+## Development Order
+
+Recommended development order:
 
 ```
 Week 1: LC-001 (Node Palette) → LC-003 (Link Drawing)
@@ -448,38 +448,38 @@ Week 5: LC-009 (Validation) → LC-010 (Undo/Redo)
 
 ---
 
-## 运行开发 Agent
+## Running Development Agent
 
 ```bash
-# 启动开发循环
+# Start development loop
 ./scripts/run-agent-loop.sh
 
-# 或使用快速脚本
+# Or use quick script
 ./scripts/kuro-test-quick.sh
 ```
 
 ---
 
-## 注意事项
+## Notes
 
-1. **每个 Feature 的最后一步必须是测试**
-   - 代码测试: `npm run test:run`
-   - 浏览器测试: 使用 MCP 浏览器工具
-   - 截图保存: 至少 2 张截图
+1. **The last step of each Feature must be testing**
+   - Code test: `npm run test:run`
+   - Browser test: Use MCP browser tools
+   - Screenshot save: At least 2 screenshots
 
-2. **遵循现有代码风格**
-   - 使用 TypeScript
-   - 使用 Zustand 进行状态管理
-   - 使用 React Flow 进行拓扑可视化
-   - 组件放在 `frontend/src/components/` 目录
+2. **Follow existing code style**
+   - Use TypeScript
+   - Use Zustand for state management
+   - Use React Flow for topology visualization
+   - Place components in `frontend/src/components/` directory
 
-3. **后端 API 集成**
-   - 当前使用 Mock API
-   - 保持 API 接口一致
-   - 未来可无缝切换到真实后端
+3. **Backend API Integration**
+   - Currently using Mock API
+   - Keep API interface consistent
+   - Can seamlessly switch to real backend in the future
 
 ---
 
-## 更新日志
+## Changelog
 
-- 2026-02-18: 创建低代码编辑器开发计划，添加 10 个新功能
+- 2026-02-18: Created low-code editor development plan, added 10 new features

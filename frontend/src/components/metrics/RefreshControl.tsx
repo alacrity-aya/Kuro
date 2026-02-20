@@ -1,6 +1,6 @@
 /**
  * Refresh Control Component
- * 用于控制仪表板自动刷新
+ * Used to control dashboard auto-refresh
  */
 
 import './RefreshControl.css';
@@ -11,21 +11,21 @@ import {
 } from '../../hooks/useAutoRefresh';
 
 interface RefreshControlProps {
-  /** 当前刷新间隔 (ms) */
+  /** Current refresh interval (ms) */
   interval: number;
-  /** 设置刷新间隔 */
+  /** Set refresh interval */
   onIntervalChange: (ms: number) => void;
-  /** 是否启用自动刷新 */
+  /** Whether auto-refresh is enabled */
   enabled: boolean;
-  /** 设置是否启用 */
+  /** Set enabled state */
   onEnabledChange: (enabled: boolean) => void;
-  /** 手动刷新回调 */
+  /** Manual refresh callback */
   onRefresh: () => void;
-  /** 上次刷新时间 */
+  /** Last refresh time */
   lastRefreshTime?: Date | null;
-  /** 是否正在刷新 */
+  /** Is refreshing */
   isRefreshing?: boolean;
-  /** 自定义刷新间隔选项 */
+  /** Custom refresh interval options */
   intervals?: RefreshInterval[];
 }
 
@@ -41,7 +41,7 @@ export function RefreshControl({
 }: RefreshControlProps) {
   return (
     <div className="refresh-control">
-      {/* 手动刷新按钮 */}
+      {/* Manual refresh button */}
       <button
         className="refresh-control__btn refresh-control__btn--refresh"
         onClick={onRefresh}
@@ -53,7 +53,7 @@ export function RefreshControl({
         </span>
       </button>
 
-      {/* 自动刷新开关 */}
+      {/* Auto-refresh toggle */}
       <button
         className={`refresh-control__btn refresh-control__btn--toggle ${enabled ? 'active' : ''}`}
         onClick={() => onEnabledChange(!enabled)}
@@ -62,7 +62,7 @@ export function RefreshControl({
         {enabled ? '⏸' : '▶'}
       </button>
 
-      {/* 刷新间隔选择 */}
+      {/* Refresh interval selector */}
       <select
         className="refresh-control__select"
         value={interval}
@@ -77,7 +77,7 @@ export function RefreshControl({
         ))}
       </select>
 
-      {/* 上次刷新时间 */}
+      {/* Last refresh time */}
       <span className="refresh-control__time">
         {formatLastRefreshTime(lastRefreshTime)}
       </span>

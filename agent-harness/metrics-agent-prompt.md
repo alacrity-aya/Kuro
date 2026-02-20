@@ -1,12 +1,12 @@
 # Metrics Agent Prompt - Kuro Frontend
 
-你是 Kuro 前端项目的 **Metrics Agent**。你的任务是基于后端的 Prometheus/Grafana 集成，实现 Metrics 监控页面。
+You are the **Metrics Agent** for the Kuro frontend project. Your task is to implement the Metrics monitoring page based on the backend's Prometheus/Grafana integration.
 
-## 核心理解
+## Core Understanding
 
-### 后端架构
+### Backend Architecture
 
-Kuro 后端已经实现了 Prometheus metrics 导出：
+The Kuro backend has already implemented Prometheus metrics export:
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -16,130 +16,130 @@ Kuro 后端已经实现了 Prometheus metrics 导出：
         │                       │                       │
         │ Prometheus format     │ PromQL queries        │ Dashboards
         ▼                       ▼                       ▼
-   eBPF metrics          时序数据存储            可视化面板
+   eBPF metrics          Time series storage       Visualization panels
 ```
 
-### Prometheus Metrics (后端已实现)
+### Prometheus Metrics (Backend Already Implemented)
 
-后端 Agent 暴露的 metrics (`internal/agent/opsapi/http_service.go`):
+Metrics exposed by the backend Agent (`internal/agent/opsapi/http_service.go`):
 
 ```promql
-# 流量统计
+# Traffic statistics
 kuro_pod_traffic_bytes_total{pod, direction, type}
 kuro_pod_traffic_packets_total{pod, direction, type}
 
-# 丢包统计
+# Drop statistics
 kuro_pod_drop_bytes_total{pod, direction, type}
 kuro_pod_drop_packets_total{pod, direction, type}
 
-# 延迟直方图
+# Latency histogram
 kuro_pod_latency_seconds_bucket{pod, le}
 kuro_pod_latency_seconds_count{pod}
 
 # Labels:
-# - pod: Pod 名称
+# - pod: Pod name
 # - direction: download/upload
-# - type: sim/sys (模拟流量/系统流量)
+# - type: sim/sys (simulation traffic/system traffic)
 ```
 
-### 服务端点 (deploy/quick-monitor.yaml)
+### Service Endpoints (deploy/quick-monitor.yaml)
 
-| 服务 | 端口 | 用途 |
-|------|------|------|
-| Prometheus | NodePort 30091 | 时序数据查询 |
-| Grafana | NodePort 30092 | 仪表板可视化 |
-| Kuro Agent | 8080 | 直接 metrics 端点 |
-
----
-
-## ⚠️ 重要约束
-
-### 后端约束
-- **不修改后端代码**
-- 后端已实现 Prometheus metrics 导出
-- 前端通过 Prometheus HTTP API 查询数据
-- 或直接嵌入 Grafana iframe
-
-### Mock 约束
-- 开发时使用 mock 数据
-- Mock 数据格式需符合 Prometheus API 规范
-- 明确标注需要后端 API 的地方
-
-### 测试约束
-- 每完成一个功能，必须运行 `npm run build` 验证
-- 构建失败 = 功能未完成
+| Service | Port | Purpose |
+|---------|------|---------|
+| Prometheus | NodePort 30091 | Time series data query |
+| Grafana | NodePort 30092 | Dashboard visualization |
+| Kuro Agent | 8080 | Direct metrics endpoint |
 
 ---
 
-## Session 启动流程
+## ⚠️ Important Constraints
 
-### Step 1: 确认工作目录
+### Backend Constraints
+- **Do not modify backend code**
+- Backend has already implemented Prometheus metrics export
+- Frontend queries data via Prometheus HTTP API
+- Or embed Grafana iframe directly
+
+### Mock Constraints
+- Use mock data during development
+- Mock data format must conform to Prometheus API specification
+- Clearly mark places that require backend API
+
+### Testing Constraints
+- After completing each feature, must run `npm run build` to verify
+- Build failure = Feature not complete
+
+---
+
+## Session Startup Flow
+
+### Step 1: Confirm Working Directory
 ```bash
-pwd  # 应该是 /home/alacrity/work/vibe/Kuro
+pwd  # Should be /home/alacrity/work/vibe/Kuro
 ```
 
-### Step 2: 阅读功能列表
+### Step 2: Read Feature List
 ```bash
 cat agent-harness/metrics-feature-list.json
 ```
 
-### Step 3: 理解后端 Prometheus 集成
+### Step 3: Understand Backend Prometheus Integration
 ```bash
-# 查看 Agent metrics 实现
+# View Agent metrics implementation
 cat internal/agent/opsapi/http_service.go | grep -A 50 "handleMetrics"
 
-# 查看 Prometheus/Grafana 部署配置
+# View Prometheus/Grafana deployment configuration
 cat deploy/quick-monitor.yaml
 ```
 
-### Step 4: 选择下一个待实现功能
-从 `metrics-feature-list.json` 中按开发顺序选择功能。
+### Step 4: Select Next Feature to Implement
+Select the next pending feature from `metrics-feature-list.json` in development order.
 
 ---
 
-## 开发顺序
+## Development Order
 
-### Phase 1: 基础设施
+### Phase 1: Infrastructure
 
-| ID | 功能 | 说明 |
-|----|------|------|
-| METRICS-010 | Mock Prometheus 数据 | 模拟 Prometheus API 响应 |
-| METRICS-002 | Prometheus 查询服务 | HTTP API 客户端 |
-| METRICS-007 | 时间范围选择器 | 5m/15m/1h/6h/24h |
-| METRICS-008 | 自动刷新控制 | 5s/10s/30s/1m |
+| ID | Feature | Description |
+|----|---------|-------------|
+| METRICS-010 | Mock Prometheus Data | Simulate Prometheus API responses |
+| METRICS-002 | Prometheus Query Service | HTTP API client |
+| METRICS-007 | Time Range Selector | 5m/15m/1h/6h/24h |
+| METRICS-008 | Auto Refresh Control | 5s/10s/30s/1m |
 
-### Phase 2: 核心图表
+### Phase 2: Core Charts
 
-| ID | 功能 | PromQL 查询 |
-|----|------|-------------|
-| METRICS-003 | 带宽流量图表 | `rate(kuro_pod_traffic_bytes_total[5m])` |
-| METRICS-004 | 延迟分布图表 | `histogram_quantile(0.95, ...)` |
-| METRICS-005 | 丢包率监控 | `drop_packets / traffic_packets` |
+| ID | Feature | PromQL Query |
+|----|---------|--------------|
+| METRICS-003 | Bandwidth Traffic Chart | `rate(kuro_pod_traffic_bytes_total[5m])` |
+| METRICS-004 | Latency Distribution Chart | `histogram_quantile(0.95, ...)` |
+| METRICS-005 | Packet Loss Rate Monitoring | `drop_packets / traffic_packets` |
 
-### Phase 3: 页面集成
+### Phase 3: Page Integration
 
-| ID | 功能 |
-|----|------|
-| METRICS-006 | Pod 选择器 |
-| METRICS-009 | Metrics 页面布局 |
+| ID | Feature |
+|----|---------|
+| METRICS-006 | Pod Selector |
+| METRICS-009 | Metrics Page Layout |
 
-### Phase 4: Grafana 集成 (需要后端)
+### Phase 4: Grafana Integration (Requires Backend)
 
-| ID | 功能 |
-|----|------|
-| METRICS-001 | Grafana iframe 集成 |
-| METRICS-011 | Grafana Dashboard 配置文档 |
+| ID | Feature |
+|----|---------|
+| METRICS-001 | Grafana iframe Integration |
+| METRICS-011 | Grafana Dashboard Configuration Documentation |
 
 ---
 
-## Prometheus API 客户端实现
+## Prometheus API Client Implementation
 
 ### frontend/src/api/prometheus.ts
 
 ```typescript
 /**
- * Prometheus HTTP API 客户端
- * 文档: https://prometheus.io/docs/prometheus/latest/querying/api/
+ * Prometheus HTTP API Client
+ * Documentation: https://prometheus.io/docs/prometheus/latest/querying/api/
  */
 
 const PROMETHEUS_URL = import.meta.env.VITE_PROMETHEUS_URL || 'http://localhost:30091';
@@ -163,7 +163,7 @@ interface RangeVector {
 
 export const prometheusClient = {
   /**
-   * 即时查询
+   * Instant Query
    * GET /api/v1/query?query=<query>
    */
   async instantQuery(query: string): Promise<InstantVector[]> {
@@ -181,7 +181,7 @@ export const prometheusClient = {
   },
 
   /**
-   * 范围查询
+   * Range Query
    * GET /api/v1/query_range?query=<query>&start=<start>&end=<end>&step=<step>
    */
   async rangeQuery(
@@ -209,7 +209,7 @@ export const prometheusClient = {
   },
 
   /**
-   * 获取标签值列表
+   * Get Label Values
    * GET /api/v1/label/<label>/values
    */
   async getLabelValues(label: string): Promise<string[]> {
@@ -222,58 +222,58 @@ export const prometheusClient = {
 
 ---
 
-## 常用 PromQL 查询
+## Common PromQL Queries
 
-### 带宽查询
+### Bandwidth Queries
 
 ```promql
-# 各 Pod 下载带宽 (Mbps)
+# Download bandwidth per Pod (Mbps)
 sum(rate(kuro_pod_traffic_bytes_total{direction="download", type="sim"}[5m])) by (pod) * 8 / 1e6
 
-# 各 Pod 上传带宽 (Mbps)
+# Upload bandwidth per Pod (Mbps)
 sum(rate(kuro_pod_traffic_bytes_total{direction="upload", type="sim"}[5m])) by (pod) * 8 / 1e6
 
-# 总带宽趋势
+# Total bandwidth trend
 sum(rate(kuro_pod_traffic_bytes_total{type="sim"}[5m])) * 8 / 1e6
 ```
 
-### 延迟查询
+### Latency Queries
 
 ```promql
-# P95 延迟
+# P95 Latency
 histogram_quantile(0.95, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (pod, le))
 
-# P99 延迟
+# P99 Latency
 histogram_quantile(0.99, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (pod, le))
 
-# 平均延迟
+# Average Latency
 rate(kuro_pod_latency_seconds_sum[5m]) / rate(kuro_pod_latency_seconds_count[5m])
 ```
 
-### 丢包率查询
+### Packet Loss Rate Queries
 
 ```promql
-# 各 Pod 丢包率 (%)
+# Packet loss rate per Pod (%)
 sum(rate(kuro_pod_drop_packets_total[5m])) by (pod) 
   / sum(rate(kuro_pod_traffic_packets_total[5m])) by (pod) * 100
 ```
 
 ---
 
-## Mock 数据格式
+## Mock Data Format
 
 ### frontend/src/api/prometheusMock.ts
 
 ```typescript
 /**
- * Mock Prometheus API 响应
- * 格式参考: https://prometheus.io/docs/prometheus/latest/querying/api/
+ * Mock Prometheus API Response
+ * Format reference: https://prometheus.io/docs/prometheus/latest/querying/api/
  */
 
-// Mock Pod 名称列表
+// Mock Pod name list
 const MOCK_PODS = ['drone-0', 'drone-1', 'drone-2', 'ground-station-0', 'gateway-0'];
 
-// 生成模拟的即时查询响应
+// Generate mock instant query response
 export function mockInstantQuery(query: string): PrometheusResponse {
   const now = Date.now() / 1000;
   
@@ -289,7 +289,7 @@ export function mockInstantQuery(query: string): PrometheusResponse {
   };
 }
 
-// 生成模拟的范围查询响应
+// Generate mock range query response
 export function mockRangeQuery(
   query: string,
   start: number,
@@ -323,7 +323,7 @@ export function mockRangeQuery(
   };
 }
 
-// 获取 Mock Pod 列表
+// Get Mock Pod list
 export function mockLabelValues(label: string): PrometheusResponse {
   if (label === 'pod') {
     return { status: 'success', data: MOCK_PODS };
@@ -342,7 +342,7 @@ function parseDuration(d: string): number {
 
 ---
 
-## Grafana iframe 集成
+## Grafana iframe Integration
 
 ### frontend/src/components/metrics/GrafanaEmbed.tsx
 
@@ -365,21 +365,21 @@ export function GrafanaEmbed({
 }: GrafanaEmbedProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   
-  // TODO: 需要配置 VITE_GRAFANA_URL 环境变量
+  // TODO: Need to configure VITE_GRAFANA_URL environment variable
   const grafanaUrl = import.meta.env.VITE_GRAFANA_URL || 'http://localhost:30092';
   
-  // 构建 iframe URL
-  // 参考: https://grafana.com/docs/grafana/latest/dashboards/create-dashboards/#embed-dashboard
+  // Build iframe URL
+  // Reference: https://grafana.com/docs/grafana/latest/dashboards/create-dashboards/#embed-dashboard
   const embedPath = panelId
-    ? `/d-solo/${dashboardUid}`  // 单个面板
-    : `/d/${dashboardUid}`;       // 整个仪表板
+    ? `/d-solo/${dashboardUid}`  // Single panel
+    : `/d/${dashboardUid}`;       // Entire dashboard
     
   const params = new URLSearchParams({
     orgId: '1',
     refresh,
     theme,
     ...(panelId && { panelId: panelId.toString() }),
-    // 隐藏 Grafana 导航栏
+    // Hide Grafana navigation bar
     kiosk: 'tv',
   });
   
@@ -390,7 +390,7 @@ export function GrafanaEmbed({
       <div className="grafana-embed__toolbar">
         <span>Grafana Dashboard</span>
         <button onClick={() => setIsFullscreen(!isFullscreen)}>
-          {isFullscreen ? '退出全屏' : '全屏'}
+          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
         </button>
       </div>
       <iframe
@@ -407,7 +407,7 @@ export function GrafanaEmbed({
 
 ---
 
-## CSS 样式 (深色主题)
+## CSS Styles (Dark Theme)
 
 ```css
 /* MetricsPage.css */
@@ -419,7 +419,7 @@ export function GrafanaEmbed({
   color: #d4d4d4;
 }
 
-/* 工具栏 */
+/* Toolbar */
 .metrics-toolbar {
   display: flex;
   justify-content: space-between;
@@ -430,7 +430,7 @@ export function GrafanaEmbed({
   margin-bottom: 16px;
 }
 
-/* 图表容器 */
+/* Chart container */
 .metrics-chart {
   background: #1a1a2e;
   border: 1px solid #2a2a3e;
@@ -468,48 +468,48 @@ export function GrafanaEmbed({
 
 ---
 
-## 验证清单
+## Verification Checklist
 
-每个功能完成后：
+After completing each feature:
 
 ```bash
-# 1. 类型检查
+# 1. Type check
 cd frontend && npx tsc --noEmit
 
-# 2. 运行测试
+# 2. Run tests
 npm run test:run
 
-# 3. 构建验证
+# 3. Build verification
 npm run build
 
-# 4. 启动开发服务器
+# 4. Start development server
 npm run dev
-# 访问 http://localhost:5173/metrics
+# Visit http://localhost:5173/metrics
 ```
 
 ---
 
-## 提交规范
+## Commit Convention
 
 ```bash
-git commit -m "feat(metrics): [功能描述] (METRICS-xxx)
+git commit -m "feat(metrics): [Feature Description] (METRICS-xxx)
 
-- 实现了 xxx 组件
-- 添加了 xxx Prometheus 查询
-- 使用 mock 数据支持开发
+- Implemented xxx component
+- Added xxx Prometheus query
+- Used mock data to support development
 
 PromQL: rate(kuro_pod_traffic_bytes_total[5m])
-TODO: 需要配置 VITE_PROMETHEUS_URL 环境变量
+TODO: Need to configure VITE_PROMETHEUS_URL environment variable
 "
 ```
 
 ---
 
-## 会话结束
+## Session End
 
-输出会话摘要：
+Output session summary:
 
-1. **完成的功能**: 列出 ID 和名称
-2. **构建验证结果**: 成功/失败
-3. **更新的文件**: 列出所有修改的文件
-4. **下一步建议**: 下一个要实现的功能
+1. **Completed Features**: List IDs and names
+2. **Build Verification Result**: Success/Failure
+3. **Updated Files**: List all modified files
+4. **Next Steps**: Next feature to implement

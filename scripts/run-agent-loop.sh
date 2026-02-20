@@ -1,21 +1,21 @@
 #!/bin/bash
-# loop_iflow.sh - 循环运行 iflow 执行多次开发流程
-# 用法: ./loop_iflow.sh <次数>
+# loop_iflow.sh - Loop running iflow to execute multiple development cycles
+# Usage: ./loop_iflow.sh <count>
 
 # ============================================
-# 配置
+# Configuration
 # ============================================
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WORK_DIR="$PROJECT_ROOT"
 FRONTEND_DIR="$WORK_DIR/frontend"
 
-# 日志文件
+# Log files
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
 MAIN_LOG="$LOG_DIR/loop_$(date +%Y%m%d_%H%M%S).log"
 
-# 颜色
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -24,53 +24,53 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# 循环计数器文件（用于 Ctrl+C 后恢复）
+# Loop counter file (for resuming after Ctrl+C)
 COUNTER_FILE="$LOG_DIR/.loop_counter"
 
 # ============================================
-# 信号处理 - 优雅退出
+# Signal handling - Graceful exit
 # ============================================
 cleanup() {
     echo ""
     echo -e "${YELLOW}========================================${NC}"
-    echo -e "${YELLOW}  收到中断信号，正在保存状态...${NC}"
+    echo -e "${YELLOW}  Received interrupt signal, saving state...${NC}"
     echo -e "${YELLOW}========================================${NC}"
     
-    # 保存当前进度
+    # Save current progress
     echo "$CURRENT_ITERATION" > "$COUNTER_FILE"
     
-    echo -e "${GREEN}状态已保存。下次运行将从第 $((CURRENT_ITERATION + 1)) 次继续。${NC}"
-    echo -e "${CYAN}日志目录: $LOG_DIR${NC}"
+    echo -e "${GREEN}State saved. Next run will continue from iteration $((CURRENT_ITERATION + 1)).${NC}"
+    echo -e "${CYAN}Log directory: $LOG_DIR${NC}"
     exit 0
 }
 
 trap cleanup SIGINT SIGTERM
 
 # ============================================
-# 帮助信息
+# Help information
 # ============================================
 show_help() {
-    echo "长时间运行 Agent 循环脚本"
+    echo "Long Running Agent Loop Script"
     echo ""
-    echo "用法: $0 <循环次数>"
+    echo "Usage: $0 <loop_count>"
     echo ""
-    echo "参数:"
-    echo "  循环次数    执行 iflow 的次数"
+    echo "Arguments:"
+    echo "  loop_count    Number of times to execute iflow"
     echo ""
-    echo "示例:"
-    echo "  $0 10    # 运行 10 次"
-    echo "  $0 5     # 运行 5 次"
+    echo "Examples:"
+    echo "  $0 10    # Run 10 times"
+    echo "  $0 5     # Run 5 times"
     echo ""
-    echo "选项:"
-    echo "  -h, --help    显示帮助信息"
-    echo "  --resume      从上次中断处继续"
-    echo "  --no-verify   跳过测试验证"
+    echo "Options:"
+    echo "  -h, --help    Show help information"
+    echo "  --resume      Resume from last interruption"
+    echo "  --no-verify   Skip test verification"
     echo ""
-    echo "日志目录: $LOG_DIR"
+    echo "Log directory: $LOG_DIR"
 }
 
 # ============================================
-# 获取特征进度
+# Get feature progress
 # ============================================
 get_feature_progress() {
     local feature_file="$WORK_DIR/agent-harness/feature_list.json"
@@ -79,17 +79,17 @@ get_feature_progress() {
             local total=$(jq 'length' "$feature_file" 2>/dev/null || echo "0")
             local complete=$(jq '[.[] | select(.passes == true)] | length' "$feature_file" 2>/dev/null || echo "0")
             local incomplete=$((total - complete))
-            echo "$complete/$total 完成, $incomplete 待完成"
+            echo "$complete/$total completed, $incomplete remaining"
         else
-            echo "(安装 jq 查看详情)"
+            echo "(install jq for details)"
         fi
     else
-        echo "未初始化"
+        echo "Not initialized"
     fi
 }
 
 # ============================================
-# 显示会话开始信息
+# Show session start information
 # ============================================
 show_session_header() {
     local session=$1
@@ -97,16 +97,16 @@ show_session_header() {
     
     echo ""
     echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║${NC}  ${BOLD}会话 $session / $total${NC}"
+    echo -e "${BOLD}${CYAN}║${NC}  ${BOLD}Session $session / $total${NC}"
     echo -e "${BOLD}${CYAN}╠══════════════════════════════════════════════════╣${NC}"
-    echo -e "${BOLD}${CYAN}║${NC}  进度: $(get_feature_progress)"
-    echo -e "${BOLD}${CYAN}║${NC}  目录: $WORK_DIR"
+    echo -e "${BOLD}${CYAN}║${NC}  Progress: $(get_feature_progress)"
+    echo -e "${BOLD}${CYAN}║${NC}  Directory: $WORK_DIR"
     echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
 # ============================================
-# 显示会话结束信息
+# Show session end information
 # ============================================
 show_session_footer() {
     local duration=$1
@@ -115,68 +115,68 @@ show_session_footer() {
     echo ""
     if [ "$verified" = "true" ]; then
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}  ✅ 会话完成并通过验证，耗时: ${duration} 秒${NC}"
-        echo -e "${GREEN}  进度: $(get_feature_progress)${NC}"
+        echo -e "${GREEN}  ✅ Session completed and verified, duration: ${duration}s${NC}"
+        echo -e "${GREEN}  Progress: $(get_feature_progress)${NC}"
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     else
         echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${RED}  ❌ 会话完成但验证失败，耗时: ${duration} 秒${NC}"
-        echo -e "${RED}  已回滚本次提交${NC}"
+        echo -e "${RED}  ❌ Session completed but verification failed, duration: ${duration}s${NC}"
+        echo -e "${RED}  Commit has been rolled back${NC}"
         echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     fi
 }
 
 # ============================================
-# 验证构建
+# Verify build
 # ============================================
 verify_build() {
     if [ ! -d "$FRONTEND_DIR" ]; then
-        echo -e "${YELLOW}  ⚠ frontend 目录不存在，跳过构建验证${NC}"
+        echo -e "${YELLOW}  ⚠ frontend directory does not exist, skipping build verification${NC}"
         return 0
     fi
     
-    echo -e "${CYAN}  🔍 运行构建验证...${NC}"
+    echo -e "${CYAN}  🔍 Running build verification...${NC}"
     
     cd "$FRONTEND_DIR"
     
-    # 检查 node_modules
+    # Check node_modules
     if [ ! -d "node_modules" ]; then
-        echo -e "${YELLOW}  📦 安装依赖...${NC}"
+        echo -e "${YELLOW}  📦 Installing dependencies...${NC}"
         npm install --silent 2>&1 | tail -5
     fi
     
-    # 运行构建
-    echo -e "${CYAN}  🏗 执行 npm run build...${NC}"
+    # Run build
+    echo -e "${CYAN}  🏗 Executing npm run build...${NC}"
     if npm run build 2>&1; then
-        echo -e "${GREEN}  ✅ 构建成功${NC}"
+        echo -e "${GREEN}  ✅ Build successful${NC}"
         return 0
     else
-        echo -e "${RED}  ❌ 构建失败${NC}"
+        echo -e "${RED}  ❌ Build failed${NC}"
         return 1
     fi
 }
 
 # ============================================
-# 回滚最后一次提交
+# Rollback last commit
 # ============================================
 rollback_last_commit() {
-    echo -e "${YELLOW}  ⏪ 回滚最后一次提交...${NC}"
+    echo -e "${YELLOW}  ⏪ Rolling back last commit...${NC}"
     cd "$WORK_DIR"
     git reset --hard HEAD~1 2>/dev/null
-    echo -e "${YELLOW}  已回滚${NC}"
+    echo -e "${YELLOW}  Rolled back${NC}"
 }
 
 # ============================================
-# 重置 feature_list.json 中最后一个完成的 feature
+# Reset last completed feature in feature_list.json
 # ============================================
 reset_last_feature() {
     local feature_file="$WORK_DIR/agent-harness/feature_list.json"
     if [ -f "$feature_file" ] && command -v jq &> /dev/null; then
-        # 找到最后一个 passes: true 的 feature 并重置
+        # Find last feature with passes: true and reset it
         jq '(. | map(select(.passes == true)) | last | .passes = false) // empty | . as $last | .[] | if .id == $last.id then .passes = false else . end' "$feature_file" > "${feature_file}.tmp" 2>/dev/null
         if [ -s "${feature_file}.tmp" ]; then
             mv "${feature_file}.tmp" "$feature_file"
-            echo -e "${YELLOW}  已重置 feature_list.json 中最后完成的 feature${NC}"
+            echo -e "${YELLOW}  Reset last completed feature in feature_list.json${NC}"
         else
             rm -f "${feature_file}.tmp"
         fi
@@ -184,112 +184,112 @@ reset_last_feature() {
 }
 
 # ============================================
-# 生成 iflow prompt
+# Generate iflow prompt
 # ============================================
 generate_prompt() {
     cat << 'PROMPT_EOF'
-你是 Coding Agent，负责 Kuro 前端项目的开发。
+You are the Coding Agent, responsible for developing the Kuro frontend project.
 
-## ⚠️ 关键要求：必须测试通过才能完成
+## ⚠️ Key Requirements: Must pass tests before completion
 
-**在你标记任何功能完成之前，必须执行以下验证步骤：**
+**Before marking any feature as complete, you must perform the following verification steps:**
 
-1. 运行构建：`cd frontend && npm run build`
-2. 确保构建成功，没有任何错误
-3. 只有构建成功才能继续
+1. Run build: `cd frontend && npm run build`
+2. Ensure build succeeds without any errors
+3. Only proceed if build is successful
 
-**如果构建失败：**
-- 修复错误后重新构建
-- 不要标记功能为完成
-- 不要提交代码
+**If build fails:**
+- Fix errors and rebuild
+- Do not mark feature as complete
+- Do not commit code
 
-## 启动例行检查 (必须执行)
+## Startup Routine Check (Must Execute)
 
-1. 确认工作目录:
+1. Confirm working directory:
    ```bash
    pwd
    ```
 
-2. 读取进度文件:
+2. Read progress file:
    ```bash
    cat agent-harness/claude-progress.txt
    ```
 
-3. 读取功能列表:
+3. Read feature list:
    ```bash
    cat agent-harness/feature_list.json
    ```
 
-4. 查看最近的 git 提交:
+4. View recent git commits:
    ```bash
    git log --oneline -10
    ```
 
-## 工作流程
+## Workflow
 
-1. **选择功能**: 从 agent-harness/feature_list.json 中选择优先级最高的未完成功能 (passes: false)
+1. **Select Feature**: Choose the highest priority incomplete feature from agent-harness/feature_list.json (passes: false)
 
-2. **实现功能**: 编写代码，保持简洁聚焦
+2. **Implement Feature**: Write code, keep it simple and focused
 
-3. **⚠️ 测试验证 (必须通过), 需要对当前feature的功能和代码的构建进行测试**: 
+3. **⚠️ Test Verification (Must Pass), Need to test current feature functionality and code build**:
    ```bash
    cd frontend
-   npm install  # 如果需要
-   npm run build  # 必须成功！
+   npm install  # If needed
+   npm run build  # Must succeed!
    ```
 
-4. **提交代码** (仅在测试通过后):
+4. **Commit Code** (Only after tests pass):
    ```bash
    git add .
-   git commit -m "feat: [功能描述]"
+   git commit -m "feat: [feature description]"
    ```
 
-5. **更新功能列表**: 只修改对应功能的 passes 字段为 true
+5. **Update Feature List**: Only modify the passes field of the corresponding feature to true
 
-6. **更新进度文件**: 在 agent-harness/claude-progress.txt 追加本次会话记录
+6. **Update Progress File**: Append session record to agent-harness/claude-progress.txt
 
-## 重要规则
+## Important Rules
 
-- 🚫 **构建失败 = 功能未完成**
-- 每个会话只处理一个功能
-- 永远不要删除或修改功能描述
-- 所有 API 使用 mock 数据
-- 离开时确保环境干净
+- 🚫 **Build failure = Feature not complete**
+- Each session handles only one feature
+- Never delete or modify feature descriptions
+- All APIs use mock data
+- Ensure clean environment before leaving
 
-## 会话结束
+## Session End
 
-输出会话摘要：
-1. 完成的工作
-2. 构建验证结果（成功/失败）
-3. 下一步建议
+Output session summary:
+1. Work completed
+2. Build verification result (success/failure)
+3. Next step suggestions
 PROMPT_EOF
 }
 
 # ============================================
-# 运行单个 iflow 会话
+# Run single iflow session
 # ============================================
 run_iflow_session() {
     local session_num=$1
     local total=$2
     local no_verify=$3
     
-    # 显示会话头
+    # Show session header
     show_session_header "$session_num" "$total" | tee -a "$MAIN_LOG" > /dev/tty
     
-    # 会话日志文件
+    # Session log file
     local session_log="$LOG_DIR/session_${session_num}_$(date +%Y%m%d_%H%M%S).log"
     
-    # 生成 prompt
+    # Generate prompt
     local prompt=$(generate_prompt)
     
     cd "$WORK_DIR"
     
     local start_time=$(date +%s)
     
-    # 记录 session 前的 commit 数量
+    # Record commit count before session
     local commits_before=$(git rev-list --count HEAD 2>/dev/null || echo "0")
     
-    # 运行 iflow - 直接透传输出
+    # Run iflow - pass through output directly
     iflow -y \
           --max-tokens 100000 \
           --max-turns 50 \
@@ -300,49 +300,49 @@ run_iflow_session() {
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
     
-    # 验证阶段
+    # Verification phase
     local verified="true"
     
     if [ "$no_verify" != "true" ]; then
         echo ""
         echo -e "${BOLD}${BLUE}═════════════════════════════════════════════════${NC}"
-        echo -e "${BOLD}${BLUE}  验证阶段${NC}"
+        echo -e "${BOLD}${BLUE}  Verification Phase${NC}"
         echo -e "${BOLD}${BLUE}═════════════════════════════════════════════════${NC}"
         
         if ! verify_build; then
             verified="false"
             echo ""
-            echo -e "${RED}  ❌ 验证失败，回滚更改...${NC}"
+            echo -e "${RED}  ❌ Verification failed, rolling back changes...${NC}"
             rollback_last_commit
             reset_last_feature
         fi
     fi
     
-    # 显示会话尾
+    # Show session footer
     show_session_footer "$duration" "$verified" | tee -a "$MAIN_LOG" > /dev/tty
     
     return 0
 }
 
 # ============================================
-# 检查是否所有特征完成
+# Check if all features are complete
 # ============================================
 check_completion() {
     local feature_file="$WORK_DIR/agent-harness/feature_list.json"
     if [ -f "$feature_file" ] && command -v jq &> /dev/null; then
         local incomplete=$(jq '[.[] | select(.passes == false)] | length' "$feature_file" 2>/dev/null || echo "1")
         if [ "$incomplete" -eq 0 ]; then
-            return 0  # 所有特征完成
+            return 0  # All features complete
         fi
     fi
-    return 1  # 还有未完成的特征
+    return 1  # Still have incomplete features
 }
 
 # ============================================
-# 主程序
+# Main program
 # ============================================
 
-# 解析参数
+# Parse arguments
 RESUME=false
 NO_VERIFY=false
 while [[ $# -gt 0 ]]; do
@@ -368,68 +368,68 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 如果没有指定循环次数
+# If no loop count specified
 if [ -z "$ITERATIONS" ]; then
-    echo "错误: 请指定循环次数"
+    echo "Error: Please specify loop count"
     show_help
     exit 1
 fi
 
-# 恢复或初始化计数器
+# Restore or initialize counter
 if [ "$RESUME" = true ] && [ -f "$COUNTER_FILE" ]; then
     START_ITERATION=$(($(cat "$COUNTER_FILE") + 1))
-    echo -e "${GREEN}从上次中断处恢复，从第 $START_ITERATION 次开始${NC}"
+    echo -e "${GREEN}Resuming from last interruption, starting from iteration $START_ITERATION${NC}"
 else
     START_ITERATION=1
 fi
 
-# 开始
+# Start
 echo ""
 echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${BLUE}║${NC}     ${BOLD}Kuro 前端开发 - Long Running Agent${NC}"
+echo -e "${BOLD}${BLUE}║${NC}     ${BOLD}Kuro Frontend Development - Long Running Agent${NC}"
 echo -e "${BOLD}${BLUE}╠══════════════════════════════════════════════════╣${NC}"
-echo -e "${BOLD}${BLUE}║${NC}  循环次数: $ITERATIONS"
-echo -e "${BOLD}${BLUE}║${NC}  工作目录: $WORK_DIR"
-echo -e "${BOLD}${BLUE}║${NC}  日志目录: $LOG_DIR"
-echo -e "${BOLD}${BLUE}║${NC}  验证模式: $([ "$NO_VERIFY" = true ] && echo "关闭" || echo "开启")"
+echo -e "${BOLD}${BLUE}║${NC}  Loop count: $ITERATIONS"
+echo -e "${BOLD}${BLUE}║${NC}  Working directory: $WORK_DIR"
+echo -e "${BOLD}${BLUE}║${NC}  Log directory: $LOG_DIR"
+echo -e "${BOLD}${BLUE}║${NC}  Verification mode: $([ "$NO_VERIFY" = true ] && echo "disabled" || echo "enabled")"
 echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# 主循环
+# Main loop
 CURRENT_ITERATION=$START_ITERATION
 for i in $(seq "$START_ITERATION" "$ITERATIONS"); do
     CURRENT_ITERATION=$i
     
     run_iflow_session "$i" "$ITERATIONS" "$NO_VERIFY"
     
-    # 检查是否所有特征都完成了
+    # Check if all features are complete
     if check_completion; then
         echo ""
         echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
-        echo -e "${GREEN}  🎉 所有功能已完成！提前结束循环。${NC}"
+        echo -e "${GREEN}  🎉 All features completed! Ending loop early.${NC}"
         echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
         rm -f "$COUNTER_FILE"
         exit 0
     fi
     
-    # 如果不是最后一次，显示分隔
+    # If not the last iteration, show separator
     if [ "$i" -lt "$ITERATIONS" ]; then
         echo ""
-        echo -e "${YELLOW}>>> 等待 3 秒后开始下一个会话... (Ctrl+C 可安全中断)${NC}"
+        echo -e "${YELLOW}>>> Waiting 3 seconds before next session... (Ctrl+C to safely interrupt)${NC}"
         sleep 3
     fi
 done
 
-# 结束
+# End
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}${GREEN}║${NC}     ${BOLD}循环执行完成！${NC}"
+echo -e "${BOLD}${GREEN}║${NC}     ${BOLD}Loop execution completed!${NC}"
 echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════╣${NC}"
-echo -e "${BOLD}${GREEN}║${NC}  总执行次数: $ITERATIONS"
-echo -e "${BOLD}${GREEN}║${NC}  最终进度: $(get_feature_progress)"
-echo -e "${BOLD}${GREEN}║${NC}  日志目录: $LOG_DIR"
+echo -e "${BOLD}${GREEN}║${NC}  Total executions: $ITERATIONS"
+echo -e "${BOLD}${GREEN}║${NC}  Final progress: $(get_feature_progress)"
+echo -e "${BOLD}${GREEN}║${NC}  Log directory: $LOG_DIR"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# 清理计数器文件
+# Clean up counter file
 rm -f "$COUNTER_FILE"

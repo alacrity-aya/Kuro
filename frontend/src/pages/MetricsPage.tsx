@@ -1,13 +1,13 @@
 /**
  * Metrics Page - Kuro Network Monitoring Dashboard
  * 
- * 整合 Prometheus metrics 数据展示，包括：
- * - 拓扑概览卡片
- * - 带宽趋势图表
- * - 延迟分布图表 (P50/P95/P99)
- * - 丢包率监控
+ * Integrates Prometheus metrics data display, including:
+ * - Topology overview cards
+ * - Bandwidth trend charts
+ * - Latency distribution charts (P50/P95/P99)
+ * - Packet loss monitoring
  * 
- * TODO: 需要后端 API - Prometheus Service (NodePort 30091)
+ * TODO: Requires backend API - Prometheus Service (NodePort 30091)
  */
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';

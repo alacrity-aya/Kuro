@@ -1,8 +1,8 @@
 /**
- * Mock Prometheus API 响应
- * 格式参考: https://prometheus.io/docs/prometheus/latest/querying/api/
+ * Mock Prometheus API Response
+ * Format reference: https://prometheus.io/docs/prometheus/latest/querying/api/
  * 
- * TODO: 需要后端 API - Prometheus Service (NodePort 30091)
+ * TODO: Requires backend API - Prometheus Service (NodePort 30091)
  */
 
 // ============================================================================
@@ -70,7 +70,7 @@ function generateWalkValue(previous: number, step: number, min: number = 0): num
 // ============================================================================
 
 /**
- * 模拟 Prometheus 即时查询
+ * Mock Prometheus instant query
  * GET /api/v1/query?query=<query>
  */
 export function mockInstantQuery(query: string): PrometheusResponse<InstantQueryResult> {
@@ -287,7 +287,7 @@ export function mockInstantQuery(query: string): PrometheusResponse<InstantQuery
 // ============================================================================
 
 /**
- * 模拟 Prometheus 范围查询
+ * Mock Prometheus range query
  * GET /api/v1/query_range?query=<query>&start=<start>&end=<end>&step=<step>
  */
 export function mockRangeQuery(
@@ -509,7 +509,7 @@ export function mockRangeQuery(
 // ============================================================================
 
 /**
- * 模拟获取标签值列表
+ * Mock get label values list
  * GET /api/v1/label/<label>/values
  */
 export function mockLabelValues(label: string): PrometheusResponse<string[]> {
@@ -532,7 +532,7 @@ export function mockLabelValues(label: string): PrometheusResponse<string[]> {
 // ============================================================================
 
 /**
- * 模拟获取所有 metric 名称
+ * Mock get all metric names
  * GET /api/v1/label/__name__/values
  */
 export function mockMetricNames(): PrometheusResponse<string[]> {

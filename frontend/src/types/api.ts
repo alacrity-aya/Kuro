@@ -165,7 +165,7 @@ export interface LinkMetricsHistory {
 
 /**
  * Metrics summary for dashboard overview
- * TODO: 需要后端 API - GET /api/v1/metrics/summary
+ * TODO: Requires backend API - GET /api/v1/metrics/summary
  */
 export interface MetricsSummary {
   totalNodes: number;

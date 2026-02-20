@@ -1,6 +1,6 @@
 /**
  * Auto Refresh Hook
- * 用于控制仪表板自动刷新间隔
+ * Used to control dashboard auto-refresh interval
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -19,36 +19,36 @@ export const REFRESH_INTERVALS: RefreshInterval[] = [
 ];
 
 export interface UseAutoRefreshOptions {
-  /** 初始刷新间隔 (ms)，默认 5000 */
+  /** Initial refresh interval (ms), default 5000 */
   initialInterval?: number;
-  /** 是否初始启用自动刷新，默认 true */
+  /** Whether to initially enable auto-refresh, default true */
   initialEnabled?: boolean;
-  /** 刷新回调函数 */
+  /** Refresh callback function */
   onRefresh: () => void | Promise<void>;
 }
 
 export interface UseAutoRefreshReturn {
-  /** 当前刷新间隔 */
+  /** Current refresh interval */
   interval: number;
-  /** 设置刷新间隔 */
+  /** Set refresh interval */
   setInterval: (ms: number) => void;
-  /** 是否启用自动刷新 */
+  /** Whether auto-refresh is enabled */
   enabled: boolean;
-  /** 设置是否启用 */
+  /** Set enabled state */
   setEnabled: (enabled: boolean) => void;
-  /** 手动触发刷新 */
+  /** Manually trigger refresh */
   refresh: () => void;
-  /** 上次刷新时间 */
+  /** Last refresh time */
   lastRefreshTime: Date | null;
-  /** 是否正在刷新 */
+  /** Is refreshing */
   isRefreshing: boolean;
-  /** 刷新计数 */
+  /** Refresh count */
   refreshCount: number;
 }
 
 /**
- * 自动刷新 Hook
- * 
+ * Auto Refresh Hook
+ *
  * @example
  * ```tsx
  * const { enabled, setEnabled, interval, setInterval, refresh, isRefreshing } = useAutoRefresh({
@@ -96,12 +96,12 @@ export function useAutoRefresh({
     }
   }, []); // Remove isRefreshing from deps - using ref instead
 
-  // 初始刷新
+  // Initial refresh
   useEffect(() => {
     refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 自动刷新定时器
+  // Auto refresh timer
   useEffect(() => {
     if (!enabled || interval <= 0) return;
 
@@ -131,7 +131,7 @@ export function useAutoRefresh({
 }
 
 /**
- * 格式化上次刷新时间
+ * Format last refresh time
  */
 export function formatLastRefreshTime(time: Date | null): string {
   if (!time) return 'Never';

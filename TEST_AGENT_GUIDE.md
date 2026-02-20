@@ -1,198 +1,198 @@
-# Kuro Frontend Test Agent 使用指南
+# Kuro Frontend Test Agent User Guide
 
-## 简介
+## Introduction
 
-Kuro Test Agent 是一个长时间运行的前端自动化测试框架，支持代码层面测试和浏览器E2E测试。
+Kuro Test Agent is a long-running frontend automation testing framework that supports both code-level tests and browser E2E tests.
 
-## 快速开始
+## Quick Start
 
-### 1. 使用交互式菜单（推荐新手）
+### 1. Use Interactive Menu (Recommended for Beginners)
 
 ```bash
 ./scripts/kuro-test-quick.sh
 ```
 
-选择菜单选项即可开始测试。
+Select menu options to start testing.
 
-### 2. 直接运行完整测试
+### 2. Run Full Tests Directly
 
 ```bash
-# 运行所有测试直到完成（包含自动修复）
+# Run all tests until completion (includes auto-fix)
 ./scripts/kuro-test-agent.sh
 
-# 只运行代码测试（快速）
+# Run code tests only (fast)
 ./scripts/kuro-test-agent.sh --no-browser
 
-# 从上次中断处恢复
+# Resume from last interruption
 ./scripts/kuro-test-agent.sh --resume
 ```
 
-### 3. 监控测试进度
+### 3. Monitor Test Progress
 
-在另一个终端运行：
+Run in another terminal:
 
 ```bash
-# 查看当前状态
+# View current status
 ./scripts/kuro-test-monitor.sh status
 
-# 持续监控
+# Continuous monitoring
 ./scripts/kuro-test-monitor.sh watch
 
-# 查看最近日志
+# View recent logs
 ./scripts/kuro-test-monitor.sh logs 100
 ```
 
-## 常用命令速查
+## Common Commands Reference
 
-| 命令 | 说明 |
-|------|------|
-| `./kuro-test-quick.sh` | 交互式菜单 |
-| `./kuro-test-quick.sh full` | 完整测试 |
-| `./kuro-test-quick.sh code` | 代码测试 |
-| `./kuro-test-quick.sh single FEAT-015` | 单个功能 |
-| `./kuro-test-agent.sh -i 10` | 运行10次迭代 |
-| `./kuro-test-agent.sh --no-browser` | 跳过浏览器测试 |
-| `./kuro-test-agent.sh --no-fix` | 禁用自动修复 |
+| Command | Description |
+|---------|-------------|
+| `./kuro-test-quick.sh` | Interactive menu |
+| `./kuro-test-quick.sh full` | Full test |
+| `./kuro-test-quick.sh code` | Code tests |
+| `./kuro-test-quick.sh single FEAT-015` | Single feature |
+| `./kuro-test-agent.sh -i 10` | Run 10 iterations |
+| `./kuro-test-agent.sh --no-browser` | Skip browser tests |
+| `./kuro-test-agent.sh --no-fix` | Disable auto-fix |
 
-## 测试流程
+## Test Workflow
 
 ```
-1. 启动开发服务器
+1. Start development server
         ↓
-2. 选择待测功能（按优先级）
+2. Select feature to test (by priority)
         ↓
-3. 代码层面测试
-   ├── TypeScript类型检查
-   ├── 单元测试 (vitest)
-   └── 生产构建 (vite build)
+3. Code-level tests
+   ├── TypeScript type checking
+   ├── Unit tests (vitest)
+   └── Production build (vite build)
         ↓
-4. 浏览器E2E测试 (如通过代码测试)
-   ├── 导航到页面
-   ├── 执行交互
-   ├── 验证结果
-   └── 截图记录
+4. Browser E2E tests (if code tests pass)
+   ├── Navigate to page
+   ├── Execute interactions
+   ├── Verify results
+   └── Take screenshots
         ↓
-5. 更新状态
-   ├── 更新test-feature-list.json
-   ├── 保存测试状态
-   └── 生成报告
+5. Update status
+   ├── Update test-feature-list.json
+   ├── Save test state
+   └── Generate report
         ↓
-6. 下一个功能或完成
+6. Next feature or complete
 ```
 
-## 功能测试清单
+## Feature Test List
 
-当前有 **10个功能** 待测试：
+Currently there are **10 features** to test:
 
-### 高优先级
+### High Priority
 - FEAT-014: Production Build Verification
 - FEAT-015: Node Local View
 - FEAT-016: Topology Creation with YAML Editor
 - DASH-001: Dashboard Statistics Display
 - CANVAS-001: Topology Canvas Visualization
 
-### 中优先级
+### Medium Priority
 - FEAT-017: TSN Mode
 - FEAT-018: Topology Export/Import
 - LIST-001: Topology List Filtering
 - LAYOUT-001: Sidebar Navigation
 - TC-001: Traffic Control Panel
 
-## 输出文件
+## Output Files
 
-测试过程中会生成以下文件：
+The following files are generated during testing:
 
 ```
 logs/
-├── agent.log                    # 主日志
-├── dev-server.log              # 开发服务器日志
+├── agent.log                    # Main log
+├── dev-server.log              # Development server log
 ├── .state/
-│   ├── test_state.json         # 测试状态
-│   ├── checkpoint.txt          # 检查点
-│   └── agent.pid               # 进程ID
-├── screenshots/                # 浏览器测试截图
+│   ├── test_state.json         # Test state
+│   ├── checkpoint.txt          # Checkpoint
+│   └── agent.pid               # Process ID
+├── screenshots/                # Browser test screenshots
 │   └── FEAT-XXX_*.png
-├── reports/                    # 测试报告
-│   ├── test_report_*.html      # HTML报告
-│   └── test_report_*.json      # JSON报告
-└── session_*_*.log             # 会话日志
+├── reports/                    # Test reports
+│   ├── test_report_*.html      # HTML report
+│   └── test_report_*.json      # JSON report
+└── session_*_*.log             # Session logs
 ```
 
-## 测试通过标准
+## Test Passing Criteria
 
-### 代码层面
-- ✅ TypeScript类型检查通过 (`tsc --noEmit`)
-- ✅ 单元测试全部通过 (`npm run test:run`)
-- ✅ 生产构建成功 (`npm run build`)
+### Code Level
+- ✅ TypeScript type check passes (`tsc --noEmit`)
+- ✅ All unit tests pass (`npm run test:run`)
+- ✅ Production build succeeds (`npm run build`)
 
-### 浏览器层面
-- ✅ 页面正常加载，无白屏/错误
-- ✅ 关键交互功能正常工作
-- ✅ 至少3张截图已保存
-- ✅ 无console.error错误
+### Browser Level
+- ✅ Page loads normally, no white screen/errors
+- ✅ Key interactive features work properly
+- ✅ At least 3 screenshots saved
+- ✅ No console.error errors
 
-## 中断与恢复
+## Interruption and Recovery
 
-测试过程中可以随时按 `Ctrl+C` 中断：
+You can interrupt at any time during testing by pressing `Ctrl+C`:
 
 ```bash
-# 中断后会自动保存状态
+# State is automatically saved after interruption
 ^C
-[INFO] 状态已保存。下次运行将从中断处恢复。
+[INFO] State saved. Next run will resume from interruption point.
 
-# 从上次中断处恢复
+# Resume from last interruption
 ./scripts/kuro-test-agent.sh --resume
 ```
 
-## 故障排除
+## Troubleshooting
 
-### 端口被占用
+### Port Already in Use
 
 ```bash
-# 检查端口
+# Check port
 lsof -i :5173
 
-# 手动停止开发服务器
+# Manually stop development server
 pkill -f "vite"
 ```
 
-### 测试agent卡住
+### Test Agent Stuck
 
 ```bash
-# 检查agent状态
+# Check agent status
 ./scripts/kuro-test-monitor.sh status
 
-# 强制停止
+# Force stop
 rm -f logs/.state/agent.pid
 pkill -f "kuro-test-agent"
 ```
 
-### 清理重新测试
+### Clean and Retest
 
 ```bash
 ./scripts/kuro-test-quick.sh clean
-# 或
+# or
 rm -rf logs/*
 ```
 
-## 查看报告
+## View Reports
 
-测试完成后可以查看生成的HTML报告：
+After testing completes, you can view the generated HTML reports:
 
 ```bash
-# 列出所有报告
+# List all reports
 ls -la logs/reports/
 
-# 查看最新报告
+# View latest report
 firefox logs/reports/test_report_*.html
-# 或
+# or
 google-chrome logs/reports/test_report_*.html
 ```
 
-## 添加新功能测试
+## Add New Feature Tests
 
-1. 编辑 `agent-harness/test-feature-list.json`
-2. 添加新的feature对象：
+1. Edit `agent-harness/test-feature-list.json`
+2. Add new feature object:
 
 ```json
 {
@@ -201,73 +201,73 @@ google-chrome logs/reports/test_report_*.html
   "priority": "high",
   "name": "New Feature Name",
   "description": "Feature description",
-  "codeTests": ["测试步骤1", "测试步骤2"],
-  "browserTests": ["浏览器测试步骤1"],
+  "codeTests": ["Test step 1", "Test step 2"],
+  "browserTests": ["Browser test step 1"],
   "passes": false,
   "lastTested": null,
   "notes": ""
 }
 ```
 
-3. 运行测试：
+3. Run test:
 
 ```bash
 ./scripts/kuro-test-agent.sh -f FEAT-019
 ```
 
-## 架构说明
+## Architecture Overview
 
-测试Agent包含三个主要脚本：
+The Test Agent contains three main scripts:
 
-1. **kuro-test-agent.sh** - 核心引擎
-   - 智能调度算法
-   - 代码测试执行
-   - 浏览器E2E测试协调
-   - 自动修复触发
-   - 报告生成
+1. **kuro-test-agent.sh** - Core Engine
+   - Intelligent scheduling algorithm
+   - Code test execution
+   - Browser E2E test coordination
+   - Auto-fix triggering
+   - Report generation
 
-2. **kuro-test-monitor.sh** - 监控工具
-   - 实时状态显示
-   - 日志查看
-   - 快速报告生成
+2. **kuro-test-monitor.sh** - Monitoring Tool
+   - Real-time status display
+   - Log viewing
+   - Quick report generation
 
-3. **kuro-test-quick.sh** - 快速启动
-   - 交互式菜单
-   - 常用命令快捷方式
+3. **kuro-test-quick.sh** - Quick Launch
+   - Interactive menu
+   - Common command shortcuts
 
-## 注意事项
+## Important Notes
 
-1. **截图证据**: 浏览器测试必须保存至少3张截图
-2. **独立性**: 每个功能测试应该独立运行
-3. **失败处理**: 代码测试失败会跳过浏览器测试
-4. **资源管理**: 脚本自动管理开发服务器启停
-5. **状态持久化**: 使用 `--resume` 可从中断处恢复
+1. **Screenshot Evidence**: Browser tests must save at least 3 screenshots
+2. **Independence**: Each feature test should run independently
+3. **Failure Handling**: Code test failures will skip browser tests
+4. **Resource Management**: Scripts automatically manage development server start/stop
+5. **State Persistence**: Use `--resume` to recover from interruption point
 
-## 获取帮助
+## Getting Help
 
 ```bash
-# 查看帮助
+# View help
 ./scripts/kuro-test-agent.sh --help
 ./scripts/kuro-test-monitor.sh help
 ./scripts/kuro-test-quick.sh help
 
-# 查看README
+# View README
 cat agent-harness/README.md
 ```
 
-## 示例会话
+## Example Session
 
 ```bash
-# 终端1: 启动测试
+# Terminal 1: Start test
 $ ./scripts/kuro-test-quick.sh
-选择 [0-7]: 1
-[INFO] 启动完整测试...
+Select [0-7]: 1
+[INFO] Starting full test...
 ...
 
-# 终端2: 监控进度
+# Terminal 2: Monitor progress
 $ ./scripts/kuro-test-monitor.sh watch
-刷新显示当前状态...
+Refreshing current status display...
 
-# 测试完成后查看报告
+# View report after testing completes
 $ firefox logs/reports/test_report_*.html
 ```

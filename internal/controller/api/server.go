@@ -53,7 +53,7 @@ func (s *HTTPServer) Run() error {
 // Handlers
 // =============================================================
 
-// 1. 获取拓扑结构
+// 1. Get topology structure
 func (s *HTTPServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

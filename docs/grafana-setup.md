@@ -1,56 +1,56 @@
-# Grafana Dashboard 配置指南
+# Grafana Dashboard Configuration Guide
 
-本文档说明如何为 Kuro 配置 Grafana 监控仪表板。
+This document explains how to configure Grafana monitoring dashboards for Kuro.
 
-## 前提条件
+## Prerequisites
 
-- Kubernetes 集群已部署 Kuro Agent (DaemonSet)
-- Agent 已暴露 Prometheus metrics 端点 (`:8080/metrics`)
+- Kubernetes cluster with Kuro Agent (DaemonSet) deployed
+- Agent has exposed Prometheus metrics endpoint (`:8080/metrics`)
 
-## 部署监控栈
+## Deploy Monitoring Stack
 
-使用 `deploy/quick-monitor.yaml` 一键部署 Prometheus + Grafana：
+Use `deploy/quick-monitor.yaml` to deploy Prometheus + Grafana with one command:
 
 ```bash
 kubectl apply -f deploy/quick-monitor.yaml
 ```
 
-该命令会创建：
+This command will create:
 - `kuro-monitor` namespace
-- Prometheus 服务 (NodePort 30091)
-- Grafana 服务 (NodePort 30092)
-- Kuro Agent metrics 服务发现配置
+- Prometheus service (NodePort 30091)
+- Grafana service (NodePort 30092)
+- Kuro Agent metrics service discovery configuration
 
-## 访问 Grafana
+## Access Grafana
 
 ```bash
-# 端口转发（推荐）
+# Port forwarding (recommended)
 kubectl port-forward -n kuro-monitor svc/grafana 30092:3000
 
-# 或直接访问 NodePort
+# Or access NodePort directly
 # http://<node-ip>:30092
 ```
 
-默认凭据：
-- 用户名: `admin`
-- 密码: `admin`
+Default credentials:
+- Username: `admin`
+- Password: `admin`
 
-## 配置 Prometheus 数据源
+## Configure Prometheus Data Source
 
-1. 登录 Grafana 后，进入 **Configuration** → **Data Sources**
-2. 点击 **Add data source**
-3. 选择 **Prometheus**
-4. 配置连接：
+1. After logging into Grafana, go to **Configuration** → **Data Sources**
+2. Click **Add data source**
+3. Select **Prometheus**
+4. Configure connection:
    - Name: `Kuro Prometheus`
-   - URL: `http://prometheus:9090` (集群内服务名)
+   - URL: `http://prometheus:9090` (in-cluster service name)
    - Access: `Server (default)`
-5. 点击 **Save & Test** 确认连接成功
+5. Click **Save & Test** to confirm connection is successful
 
-## 创建 Kuro Dashboard
+## Create Kuro Dashboard
 
-### 方式一：手动创建面板
+### Method 1: Manually Create Panels
 
-#### 1. 带宽监控面板
+#### 1. Bandwidth Monitoring Panel
 
 **Query:**
 ```promql
@@ -61,7 +61,7 @@ sum(rate(kuro_pod_traffic_bytes_total{type="sim"}[5m])) by (pod, direction) * 8 
 - Legend: `{{pod}} - {{direction}}`
 - Unit: `Mbps`
 
-#### 2. 延迟分布面板 (P95/P99)
+#### 2. Latency Distribution Panel (P95/P99)
 
 **Query (P95):**
 ```promql
@@ -77,7 +77,7 @@ histogram_quantile(0.99, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (pod,
 - Legend: `{{pod}} P95`
 - Unit: `seconds`
 
-#### 3. 丢包率面板
+#### 3. Packet Loss Rate Panel
 
 **Query:**
 ```promql
@@ -92,9 +92,9 @@ sum(rate(kuro_pod_drop_packets_total[5m])) by (pod)
   - Yellow: 0.1 - 1.0
   - Red: > 1.0
 
-### 方式二：导入 Dashboard JSON
+### Method 2: Import Dashboard JSON
 
-将以下 JSON 保存为 `kuro-dashboard.json` 并导入：
+Save the following JSON as `kuro-dashboard.json` and import:
 
 ```json
 {
@@ -143,44 +143,44 @@ sum(rate(kuro_pod_drop_packets_total[5m])) by (pod)
 }
 ```
 
-导入步骤：
-1. 进入 **Dashboards** → **Import**
-2. 上传 JSON 文件或粘贴内容
-3. 选择 Prometheus 数据源
-4. 点击 **Import**
+Import steps:
+1. Go to **Dashboards** → **Import**
+2. Upload JSON file or paste content
+3. Select Prometheus data source
+4. Click **Import**
 
-## 前端集成
+## Frontend Integration
 
-Grafana Dashboard 可通过 iframe 嵌入前端页面：
+Grafana Dashboard can be embedded in frontend pages via iframe:
 
 ```typescript
-// 参考 frontend/src/components/metrics/GrafanaEmbed.tsx
+// Reference frontend/src/components/metrics/GrafanaEmbed.tsx
 const iframeUrl = `${grafanaUrl}/d-solo/kuro-dashboard?orgId=1&refresh=5s&theme=dark&panelId=${panelId}`;
 ```
 
-支持的 embed 模式：
-- `/d/{uid}` - 完整仪表板
-- `/d-solo/{uid}?panelId={id}` - 单个面板
+Supported embed modes:
+- `/d/{uid}` - Full dashboard
+- `/d-solo/{uid}?panelId={id}` - Single panel
 
-## 常用 PromQL 查询
+## Common PromQL Queries
 
-### 流量统计
+### Traffic Statistics
 
 ```promql
-# 总流量速率
+# Total traffic rate
 sum(rate(kuro_pod_traffic_bytes_total[5m])) * 8 / 1e6
 
-# 按 Pod 分组
+# Grouped by Pod
 sum(rate(kuro_pod_traffic_bytes_total{type="sim"}[5m])) by (pod) * 8 / 1e6
 
-# 按方向分组
+# Grouped by direction
 sum(rate(kuro_pod_traffic_bytes_total{direction="download"}[5m])) * 8 / 1e6
 ```
 
-### 延迟统计
+### Latency Statistics
 
 ```promql
-# 平均延迟
+# Average latency
 rate(kuro_pod_latency_seconds_sum[5m]) / rate(kuro_pod_latency_seconds_count[5m])
 
 # P50/P95/P99
@@ -189,66 +189,66 @@ histogram_quantile(0.95, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (le))
 histogram_quantile(0.99, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (le))
 ```
 
-### 丢包统计
+### Packet Loss Statistics
 
 ```promql
-# 总丢包率
+# Total packet loss rate
 sum(rate(kuro_pod_drop_packets_total[5m])) / sum(rate(kuro_pod_traffic_packets_total[5m])) * 100
 
-# 按 Pod 丢包率
+# Packet loss rate per Pod
 sum(rate(kuro_pod_drop_packets_total[5m])) by (pod) 
   / sum(rate(kuro_pod_traffic_packets_total[5m])) by (pod) * 100
 ```
 
-## 告警配置
+## Alert Configuration
 
-在 Grafana 中配置告警规则：
+Configure alert rules in Grafana:
 
-1. 进入 Dashboard → 面板 → Edit → Alert
-2. 添加告警规则：
+1. Go to Dashboard → Panel → Edit → Alert
+2. Add alert rule:
 
-**丢包率告警:**
+**Packet Loss Rate Alert:**
 ```yaml
-条件: WHEN last() OF query(A) IS ABOVE 1
-评估: 每 30 秒
-消息: Kuro Pod {{pod}} 丢包率超过 1%
+Condition: WHEN last() OF query(A) IS ABOVE 1
+Evaluation: Every 30 seconds
+Message: Kuro Pod {{pod}} packet loss rate exceeds 1%
 ```
 
-**延迟告警:**
+**Latency Alert:**
 ```yaml
-条件: WHEN last() OF query(A) IS ABOVE 0.1
-评估: 每 30 秒
-消息: Kuro Pod {{pod}} P95 延迟超过 100ms
+Condition: WHEN last() OF query(A) IS ABOVE 0.1
+Evaluation: Every 30 seconds
+Message: Kuro Pod {{pod}} P95 latency exceeds 100ms
 ```
 
-## 故障排查
+## Troubleshooting
 
-### Prometheus 无法抓取 metrics
+### Prometheus Cannot Scrape Metrics
 
 ```bash
-# 检查 Agent Service
+# Check Agent Service
 kubectl get svc -n kuro-system kuro-agent-metrics
 
-# 检查 Agent Pod endpoints
+# Check Agent Pod endpoints
 kubectl get endpoints -n kuro-system kuro-agent-metrics
 
-# 查看 Prometheus targets
+# View Prometheus targets
 # http://localhost:30091/targets
 ```
 
-### Grafana 无法连接 Prometheus
+### Grafana Cannot Connect to Prometheus
 
 ```bash
-# 检查 Prometheus 服务
+# Check Prometheus service
 kubectl get svc -n kuro-monitor prometheus
 
-# 从 Grafana Pod 测试连接
+# Test connection from Grafana Pod
 kubectl exec -n kuro-monitor -it deploy/grafana -- \
   curl http://prometheus:9090/-/healthy
 ```
 
-## 参考链接
+## Reference Links
 
-- [Prometheus 文档](https://prometheus.io/docs/)
-- [Grafana 文档](https://grafana.com/docs/)
-- [Kuro Metrics 架构](../docs/design.md)
+- [Prometheus Documentation](https://prometheus.io/docs/)
+- [Grafana Documentation](https://grafana.com/docs/)
+- [Kuro Metrics Architecture](../docs/design.md)

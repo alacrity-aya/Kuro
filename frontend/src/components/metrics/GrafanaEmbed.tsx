@@ -1,14 +1,14 @@
 /**
  * Grafana Embed Component
  * 
- * 嵌入 Grafana 仪表板 iframe，支持：
- * - 整个仪表板嵌入
- * - 单个面板嵌入
- * - 全屏切换
- * - 自动刷新
+ * Embeds Grafana dashboard iframe, supports:
+ * - Full dashboard embed
+ * - Single panel embed
+ * - Fullscreen toggle
+ * - Auto refresh
  * 
- * TODO: 需要配置 VITE_GRAFANA_URL 环境变量
- * TODO: 需要后端 API - Grafana Service (NodePort 30092)
+ * TODO: Requires VITE_GRAFANA_URL environment variable configuration
+ * TODO: Requires backend API - Grafana Service (NodePort 30092)
  */
 
 import { useState, useMemo, useCallback } from 'react';

@@ -6,19 +6,19 @@
 
 ---
 
-## 1. 现有后端 API 分析
+## 1. Existing Backend API Analysis
 
-### 已有 API (Controller HTTP Server :8080)
+### Existing APIs (Controller HTTP Server :8080)
 
-| 端点 | 方法 | 功能 | 前端可用性 |
-|------|------|------|-----------|
-| `/api/v1/topology` | GET | 获取拓扑节点列表 | ✅ 可用 |
-| `/api/v1/agents` | GET | 获取已连接 Agent 列表 | ✅ 可用 |
-| `/api/v1/policy/link` | POST | 应用链路策略 | ✅ 可用 |
-| `/api/v1/policy/pod` | POST | 应用 Pod 策略 | ✅ 可用 |
-| `/api/v1/policy/node` | POST | 应用节点策略 | ✅ 可用 |
+| Endpoint | Method | Function | Frontend Availability |
+|----------|--------|----------|----------------------|
+| `/api/v1/topology` | GET | Get topology node list | ✅ Available |
+| `/api/v1/agents` | GET | Get connected Agent list | ✅ Available |
+| `/api/v1/policy/link` | POST | Apply link policy | ✅ Available |
+| `/api/v1/policy/pod` | POST | Apply Pod policy | ✅ Available |
+| `/api/v1/policy/node` | POST | Apply node policy | ✅ Available |
 
-### 已有数据模型
+### Existing Data Models
 
 ```
 TopologyNode {
@@ -30,32 +30,32 @@ TopologyNode {
 }
 ```
 
-### 现有 API 的不足
+### Limitations of Existing APIs
 
-| 缺失功能 | 前端需求影响 |
-|---------|-------------|
-| 无 NetworkTopology CRUD | 无法创建/删除拓扑 |
-| 无 TrafficControl CRUD | 无法配置链路规则 |
-| 无连接/边信息 | 无法绘制拓扑图连线 |
-| 无 WebSocket 实时推送 | 无法实时更新状态 |
-| Controller 无 metrics 端点 | 无法获取聚合监控数据 |
+| Missing Feature | Frontend Impact |
+|-----------------|-----------------|
+| No NetworkTopology CRUD | Cannot create/delete topologies |
+| No TrafficControl CRUD | Cannot configure link rules |
+| No connection/edge information | Cannot draw topology graph connections |
+| No WebSocket real-time push | Cannot update status in real-time |
+| Controller has no metrics endpoint | Cannot get aggregated monitoring data |
 
 ---
 
-## 2. 前端需要的后端 API
+## 2. Backend APIs Needed by Frontend
 
-### 2.1 拓扑管理 API
+### 2.1 Topology Management API
 
-| 端点 | 方法 | 描述 | 优先级 |
-|------|------|------|--------|
-| `/api/v1/topologies` | GET | 列出所有 NetworkTopology | P0 |
-| `/api/v1/topologies` | POST | 创建 NetworkTopology | P0 |
-| `/api/v1/topologies/{name}` | GET | 获取单个拓扑详情 | P0 |
-| `/api/v1/topologies/{name}` | DELETE | 删除拓扑 | P0 |
-| `/api/v1/topologies/{name}/nodes` | GET | 获取拓扑下所有节点（已有） | P0 |
-| `/api/v1/topologies/{name}/links` | GET | 获取拓扑下所有连接 | P1 |
+| Endpoint | Method | Description | Priority |
+|----------|--------|-------------|----------|
+| `/api/v1/topologies` | GET | List all NetworkTopologies | P0 |
+| `/api/v1/topologies` | POST | Create NetworkTopology | P0 |
+| `/api/v1/topologies/{name}` | GET | Get single topology details | P0 |
+| `/api/v1/topologies/{name}` | DELETE | Delete topology | P0 |
+| `/api/v1/topologies/{name}/nodes` | GET | Get all nodes under topology (existing) | P0 |
+| `/api/v1/topologies/{name}/links` | GET | Get all connections under topology | P1 |
 
-**GET /api/v1/topologies/{name}/links 响应示例：**
+**GET /api/v1/topologies/{name}/links Response Example:**
 
 ```json
 {
@@ -74,17 +74,17 @@ TopologyNode {
 }
 ```
 
-### 2.2 流量控制 API
+### 2.2 Traffic Control API
 
-| 端点 | 方法 | 描述 | 优先级 |
-|------|------|------|--------|
-| `/api/v1/traffic-controls` | GET | 列出所有 TrafficControl | P0 |
-| `/api/v1/traffic-controls` | POST | 创建 TrafficControl | P0 |
-| `/api/v1/traffic-controls/{name}` | GET | 获取单个规则详情 | P0 |
-| `/api/v1/traffic-controls/{name}` | PATCH | 更新流量规则 | P0 |
-| `/api/v1/traffic-controls/{name}` | DELETE | 删除规则 | P0 |
+| Endpoint | Method | Description | Priority |
+|----------|--------|-------------|----------|
+| `/api/v1/traffic-controls` | GET | List all TrafficControls | P0 |
+| `/api/v1/traffic-controls` | POST | Create TrafficControl | P0 |
+| `/api/v1/traffic-controls/{name}` | GET | Get single rule details | P0 |
+| `/api/v1/traffic-controls/{name}` | PATCH | Update traffic rule | P0 |
+| `/api/v1/traffic-controls/{name}` | DELETE | Delete rule | P0 |
 
-**TrafficControl 请求/响应示例：**
+**TrafficControl Request/Response Example:**
 
 ```json
 // POST /api/v1/traffic-controls
@@ -113,15 +113,15 @@ TopologyNode {
 }
 ```
 
-### 2.3 实时监控 API
+### 2.3 Real-time Monitoring API
 
-| 端点 | 方法 | 描述 | 优先级 |
-|------|------|------|--------|
-| `/api/v1/metrics/topology/{name}` | GET | 获取拓扑聚合指标 | P0 |
-| `/api/v1/metrics/node/{podName}` | GET | 获取单节点指标 | P1 |
-| `/ws/topology/{name}` | WebSocket | 实时拓扑状态推送 | P2 |
+| Endpoint | Method | Description | Priority |
+|----------|--------|-------------|----------|
+| `/api/v1/metrics/topology/{name}` | GET | Get topology aggregated metrics | P0 |
+| `/api/v1/metrics/node/{podName}` | GET | Get single node metrics | P1 |
+| `/ws/topology/{name}` | WebSocket | Real-time topology status push | P2 |
 
-**GET /api/v1/metrics/topology/{name} 响应示例：**
+**GET /api/v1/metrics/topology/{name} Response Example:**
 
 ```json
 {
@@ -149,12 +149,12 @@ TopologyNode {
 }
 ```
 
-### 2.4 WebSocket 实时推送
+### 2.4 WebSocket Real-time Push
 
 ```
 ws://controller:8080/ws/topology/{name}
 
-// 服务端推送消息格式
+// Server push message format
 {
   "type": "node_status",
   "data": {
@@ -176,31 +176,31 @@ ws://controller:8080/ws/topology/{name}
 
 ---
 
-## 3. 后端改造需求
+## 3. Backend Modification Requirements
 
-### 3.1 需要新增的代码
+### 3.1 Code to Add
 
-| 文件 | 改动 |
-|------|------|
-| `internal/controller/api/server.go` | 新增拓扑和流量控制的 CRUD handlers |
-| `internal/controller/api/handlers_topology.go` | 新增拓扑管理 handlers（拆分文件） |
-| `internal/controller/api/handlers_traffic.go` | 新增流量控制 handlers（拆分文件） |
-| `internal/controller/api/handlers_metrics.go` | 新增指标聚合 handlers |
-| `internal/controller/api/websocket.go` | 新增 WebSocket 支持 |
-| `internal/domain/models.go` | 扩展响应结构体 |
+| File | Change |
+|------|--------|
+| `internal/controller/api/server.go` | Add topology and traffic control CRUD handlers |
+| `internal/controller/api/handlers_topology.go` | Add topology management handlers (split file) |
+| `internal/controller/api/handlers_traffic.go` | Add traffic control handlers (split file) |
+| `internal/controller/api/handlers_metrics.go` | Add metrics aggregation handlers |
+| `internal/controller/api/websocket.go` | Add WebSocket support |
+| `internal/domain/models.go` | Extend response structures |
 
-### 3.2 Controller 需要新增的能力
+### 3.2 Capabilities Controller Needs to Add
 
-1. **直接操作 CRD** - 现有代码通过 K8s client 已经支持
-2. **聚合 Metrics** - 需要从 Agent 的 `/metrics` 端点拉取并聚合
-3. **推导连接关系** - 根据 TrafficControl CRD + Pod Labels 推导拓扑图的边
-4. **WebSocket Hub** - 管理客户端连接，广播实时事件
+1. **Direct CRD Operations** - Existing code already supports via K8s client
+2. **Aggregated Metrics** - Need to pull and aggregate from Agent's `/metrics` endpoint
+3. **Derive Connections** - Derive topology graph edges based on TrafficControl CRD + Pod Labels
+4. **WebSocket Hub** - Manage client connections, broadcast real-time events
 
-### 3.3 Metrics 数据流
+### 3.3 Metrics Data Flow
 
 ```
 Agent (:8080/metrics)  ──┐
-Agent (:8080/metrics)  ──┼──> Controller (聚合) ──> Frontend
+Agent (:8080/metrics)  ──┼──> Controller (aggregate) ──> Frontend
 Agent (:8080/metrics)  ──┘           │
                                       │
 VictoriaMetrics <─────────────────────┘
@@ -209,45 +209,45 @@ VictoriaMetrics <─────────────────────
 
 ---
 
-## 4. 前端架构建议
+## 4. Frontend Architecture Recommendations
 
-### 4.1 技术栈建议
+### 4.1 Technology Stack Recommendations
 
-| 层级 | 技术 | 理由 |
-|------|------|------|
-| 框架 | React 18 | 生态成熟，TypeScript 支持好 |
-| 构建工具 | Vite | 开发快，HMR 好 |
-| 拓扑图 | React Flow | 轻量，支持拖拽，社区活跃 |
-| 图表 | ECharts | 支持实时数据，图表类型丰富 |
-| 状态管理 | Zustand | 轻量，TypeScript 友好 |
-| HTTP 客户端 | TanStack Query | 自动缓存，后台刷新 |
-| WebSocket |原生 WebSocket + React Hook | 简单场景无需复杂库 |
+| Layer | Technology | Reason |
+|-------|------------|--------|
+| Framework | React 18 | Mature ecosystem, good TypeScript support |
+| Build Tool | Vite | Fast development, good HMR |
+| Topology Graph | React Flow | Lightweight, supports drag-drop, active community |
+| Charts | ECharts | Supports real-time data, rich chart types |
+| State Management | Zustand | Lightweight, TypeScript friendly |
+| HTTP Client | TanStack Query | Auto caching, background refresh |
+| WebSocket | Native WebSocket + React Hook | Simple scenarios don't need complex libraries |
 
-### 4.2 前端目录结构
+### 4.2 Frontend Directory Structure
 
 ```
 frontend/
 ├── src/
-│   ├── api/                 # API 客户端
-│   │   ├── client.ts        # Axios 实例
-│   │   ├── topology.ts      # 拓扑 API
-│   │   ├── traffic.ts       # 流量控制 API
-│   │   └── metrics.ts       # 监控 API
+│   ├── api/                 # API client
+│   │   ├── client.ts        # Axios instance
+│   │   ├── topology.ts      # Topology API
+│   │   ├── traffic.ts       # Traffic control API
+│   │   └── metrics.ts       # Monitoring API
 │   ├── components/
-│   │   ├── topology/        # 拓扑图组件
+│   │   ├── topology/        # Topology graph components
 │   │   │   ├── TopologyCanvas.tsx
 │   │   │   ├── NodeCard.tsx
 │   │   │   └── EdgeLabel.tsx
-│   │   ├── metrics/         # 监控组件
+│   │   ├── metrics/         # Monitoring components
 │   │   │   ├── BandwidthChart.tsx
 │   │   │   ├── LatencyChart.tsx
 │   │   │   └── PacketLossGauge.tsx
-│   │   └── common/          # 通用组件
+│   │   └── common/          # Common components
 │   ├── pages/
-│   │   ├── Dashboard.tsx    # 仪表盘
-│   │   ├── TopologyList.tsx # 拓扑列表
-│   │   ├── TopologyDetail.tsx # 拓扑详情
-│   │   └── TrafficControl.tsx # 流量控制
+│   │   ├── Dashboard.tsx    # Dashboard
+│   │   ├── TopologyList.tsx # Topology list
+│   │   ├── TopologyDetail.tsx # Topology details
+│   │   └── TrafficControl.tsx # Traffic control
 │   ├── hooks/
 │   │   ├── useTopology.ts
 │   │   ├── useMetrics.ts
@@ -255,15 +255,15 @@ frontend/
 │   ├── stores/
 │   │   └── topologyStore.ts
 │   └── types/
-│       └── api.ts           # API 类型定义
+│       └── api.ts           # API type definitions
 ├── package.json
 ├── vite.config.ts
 └── tsconfig.json
 ```
 
-### 4.3 关键组件设计
+### 4.3 Key Component Design
 
-#### TopologyCanvas 组件
+#### TopologyCanvas Component
 
 ```tsx
 interface TopologyCanvasProps {
@@ -273,13 +273,13 @@ interface TopologyCanvasProps {
   onLinkClick?: (link: TopologyLink) => void;
 }
 
-// 使用 React Flow
+// Using React Flow
 function TopologyCanvas({ nodes, links, onNodeClick }: TopologyCanvasProps) {
-  // 将业务数据转换为 React Flow 格式
+  // Convert business data to React Flow format
   const flowNodes = nodes.map(n => ({
     id: n.name,
     data: { label: n.name, ...n },
-    position: { x: 0, y: 0 }, // 自动布局
+    position: { x: 0, y: 0 }, // Auto layout
   }));
   
   const flowEdges = links.map(l => ({
@@ -319,39 +319,39 @@ function useTopologyWebSocket(topologyName: string) {
 
 ---
 
-## 5. API 实现优先级
+## 5. API Implementation Priority
 
 ### Phase 1 (MVP)
 
-| API | 前端功能 | 后端改动量 |
-|-----|---------|-----------|
-| GET /api/v1/topologies | 拓扑列表页 | 小 - 直接 List CRD |
-| GET /api/v1/topologies/{name}/nodes | 拓扑详情页节点 | 已有 |
-| GET /api/v1/topologies/{name}/links | 拓扑详情页连线 | 中 - 需要推导逻辑 |
-| GET /api/v1/traffic-controls | 流量规则列表 | 小 |
-| PATCH /api/v1/traffic-controls/{name} | 调整参数滑块 | 小 - 已有类似逻辑 |
+| API | Frontend Feature | Backend Effort |
+|-----|------------------|----------------|
+| GET /api/v1/topologies | Topology list page | Small - Direct List CRD |
+| GET /api/v1/topologies/{name}/nodes | Topology detail page nodes | Already exists |
+| GET /api/v1/topologies/{name}/links | Topology detail page connections | Medium - Needs derivation logic |
+| GET /api/v1/traffic-controls | Traffic rules list | Small |
+| PATCH /api/v1/traffic-controls/{name} | Adjust parameter sliders | Small - Similar logic exists |
 
 ### Phase 2
 
-| API | 前端功能 | 后端改动量 |
-|-----|---------|-----------|
-| POST /api/v1/topologies | 创建拓扑 | 中 - 需要验证 |
-| GET /api/v1/metrics/topology/{name} | 监控面板 | 大 - 需要聚合 Agent metrics |
+| API | Frontend Feature | Backend Effort |
+|-----|------------------|----------------|
+| POST /api/v1/topologies | Create topology | Medium - Needs validation |
+| GET /api/v1/metrics/topology/{name} | Monitoring dashboard | Large - Needs Agent metrics aggregation |
 
 ### Phase 3
 
-| API | 前端功能 | 后端改动量 |
-|-----|---------|-----------|
-| /ws/topology/{name} | 实时更新 | 大 - WebSocket Hub |
-| 低代码编辑器集成 | 代码注入 | 中 - 复用现有 CRD |
+| API | Frontend Feature | Backend Effort |
+|-----|------------------|----------------|
+| /ws/topology/{name} | Real-time updates | Large - WebSocket Hub |
+| Low-code editor integration | Code injection | Medium - Reuse existing CRD |
 
 ---
 
-## 6. 后端最小改动清单
+## 6. Backend Minimal Change List
 
-为了支持 V1 前端，后端需要新增以下代码：
+To support V1 frontend, backend needs to add the following code:
 
-### 6.1 新增 handler (internal/controller/api/)
+### 6.1 New Handlers (internal/controller/api/)
 
 ```go
 // handlers_topology.go
@@ -372,28 +372,28 @@ func (s *HTTPServer) handleDeleteTrafficControl(w, r)
 func (s *HTTPServer) handleGetTopologyMetrics(w, r) // GET /api/v1/metrics/topology/{name}
 ```
 
-### 6.2 连接推导逻辑
+### 6.2 Connection Derivation Logic
 
 ```go
-// 根据 TrafficControl CRD + Pod Labels 推导拓扑图的边
+// Derive topology graph edges based on TrafficControl CRD + Pod Labels
 func (c *ControllerManager) DeriveLinks(topologyName string) ([]Link, error) {
-    // 1. 获取该拓扑下所有 Pod
-    // 2. 获取所有 TrafficControl 规则
-    // 3. 对每个规则，匹配 Source/Destination Labels
-    // 4. 生成所有 (srcPod, dstPod) 连接对
+    // 1. Get all Pods under this topology
+    // 2. Get all TrafficControl rules
+    // 3. For each rule, match Source/Destination Labels
+    // 4. Generate all (srcPod, dstPod) connection pairs
 }
 ```
 
 ---
 
-## 7. 数据契约
+## 7. Data Contract
 
-### 前端需要的完整类型定义
+### Complete Type Definitions Needed by Frontend
 
 ```typescript
 // types/api.ts
 
-// 拓扑节点
+// Topology node
 interface TopologyNode {
   name: string;
   group: string;
@@ -402,7 +402,7 @@ interface TopologyNode {
   status: 'Running' | 'Pending' | 'Failed' | 'Unknown';
 }
 
-// 拓扑连接
+// Topology connection
 interface TopologyLink {
   id: string;
   source: string;      // Pod name
@@ -463,7 +463,7 @@ interface LinkPolicySpec {
   packetLoss?: string;
 }
 
-// 监控指标
+// Monitoring metrics
 interface TopologyMetrics {
   timestamp: string;
   summary: {
@@ -491,8 +491,8 @@ interface NodeMetrics {
 
 ---
 
-## 8. 下一步行动
+## 8. Next Steps
 
-1. **后端**：实现 Phase 1 API（拓扑列表、连接推导、流量控制 CRUD）
-2. **前端**：初始化 React 项目，实现拓扑列表页
-3. **联调**：使用 Mock 数据验证前端组件，逐步接入真实 API
+1. **Backend**: Implement Phase 1 APIs (topology list, connection derivation, traffic control CRUD)
+2. **Frontend**: Initialize React project, implement topology list page
+3. **Integration Testing**: Use mock data to verify frontend components, gradually integrate real APIs

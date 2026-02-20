@@ -1,6 +1,6 @@
 /**
  * Time Range Selector Component
- * 用于 Prometheus 范围查询的时间范围选择
+ * Used for Prometheus range query time range selection
  */
 
 import './TimeRangeSelector.css';
@@ -51,7 +51,7 @@ export function TimeRangeSelector({
 }
 
 /**
- * 计算时间范围的时间戳
+ * Calculate timestamps for time range
  */
 export function calculateTimeRange(range: string): { start: number; end: number } {
   const now = Math.floor(Date.now() / 1000);
@@ -69,7 +69,7 @@ export function calculateTimeRange(range: string): { start: number; end: number 
 }
 
 /**
- * 获取推荐的 step 值
+ * Get recommended step value
  */
 export function getRecommendedStep(range: string): string {
   switch (range) {

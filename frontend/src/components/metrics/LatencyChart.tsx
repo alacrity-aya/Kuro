@@ -1,18 +1,18 @@
 /**
- * LatencyChart - 延迟分布图表组件
+ * LatencyChart - Latency Distribution Chart Component
  * 
- * 功能：
- * - 支持 P50/P95/P99 百分位延迟趋势图
- * - 支持延迟分布直方图视图
- * - 多 Pod 延迟对比
- * - 深色主题
+ * Features:
+ * - Supports P50/P95/P99 percentile latency trend chart
+ * - Supports latency distribution histogram view
+ * - Multi-Pod latency comparison
+ * - Dark theme
  * 
- * PromQL 查询:
+ * PromQL queries:
  * - P50: histogram_quantile(0.50, rate(kuro_pod_latency_seconds_bucket[5m]))
  * - P95: histogram_quantile(0.95, rate(kuro_pod_latency_seconds_bucket[5m]))
  * - P99: histogram_quantile(0.99, rate(kuro_pod_latency_seconds_bucket[5m]))
  * 
- * TODO: 需要后端 API - Prometheus Service (NodePort 30091)
+ * TODO: Requires backend API - Prometheus Service (NodePort 30091)
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -39,29 +39,29 @@ export interface LatencyHistogramBin {
 }
 
 export interface LatencyChartProps {
-  /** 趋势数据 (新格式，包含 P50/P95/P99) */
+  /** Trend data (new format, includes P50/P95/P99) */
   trendData?: LatencyDataPoint[];
-  /** 单值时间序列数据 (旧格式，向后兼容) */
+  /** Single-value time series data (old format, backward compatible) */
   data?: TimeSeriesPoint[];
-  /** 直方图数据 */
+  /** Histogram data */
   histogramData?: LatencyHistogramBin[];
-  /** 图表标题 */
+  /** Chart title */
   title?: string;
-  /** 最大延迟值 (ms) */
+  /** Maximum latency value (ms) */
   maxLatency?: number;
-  /** 图表高度 */
+  /** Chart height */
   height?: number;
-  /** 初始视图模式 */
+  /** Initial view mode */
   defaultView?: 'trend' | 'histogram';
-  /** 是否显示视图切换按钮 */
+  /** Whether to show view toggle button */
   showViewToggle?: boolean;
-  /** 是否深色主题 */
+  /** Whether dark theme */
   darkMode?: boolean;
-  /** 选中的百分位 */
+  /** Selected percentiles */
   selectedPercentiles?: ('p50' | 'p95' | 'p99')[];
-  /** 是否正在加载 */
+  /** Loading state */
   isLoading?: boolean;
-  /** 多 Pod 趋势数据 */
+  /** Multi-Pod trend data */
   multiPodTrendData?: Map<string, LatencyDataPoint[]>;
 }
 
@@ -536,7 +536,7 @@ export function LatencyChart({
 // ============================================================================
 
 /**
- * 从 Prometheus histogram 数据生成直方图 bins
+ * Generate histogram bins from Prometheus histogram data
  */
 export function generateHistogramFromBuckets(
   buckets: Array<{ le: string; value: number }>
@@ -571,7 +571,7 @@ export function generateHistogramFromBuckets(
 }
 
 /**
- * 从多个时间序列数据生成 LatencyDataPoint 数组
+ * Generate LatencyDataPoint array from multiple time series data
  */
 export function aggregateLatencyData(
   p50Data: Array<[number, string]>,

@@ -1,16 +1,16 @@
 #!/bin/bash
-# Kuro Frontend Test Agent - 长时间运行测试脚本
-# 用法: ./kuro-test-agent.sh [选项]
+# Kuro Frontend Test Agent - Long-running test script
+# Usage: ./kuro-test-agent.sh [options]
 #
-# 功能:
-# - 自动化前端功能测试
-# - 代码层面测试 (TypeScript类型检查、单元测试、构建)
-# - 浏览器E2E测试 (使用Playwright/MCP工具)
-# - 自动修复失败的测试
-# - 生成详细的测试报告
+# Features:
+# - Automated frontend functional testing
+# - Code-level testing (TypeScript type checking, unit tests, build)
+# - Browser E2E testing (using Playwright/MCP tools)
+# - Automatic fixing of failed tests
+# - Detailed test report generation
 
 # ============================================
-# 配置
+# Configuration
 # ============================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -18,24 +18,24 @@ WORK_DIR="$PROJECT_ROOT"
 FRONTEND_DIR="$WORK_DIR/frontend"
 AGENT_HARNESS_DIR="$WORK_DIR/agent-harness"
 
-# 日志和输出
+# Logs and output
 LOG_DIR="$PROJECT_ROOT/logs"
 SCREENSHOT_DIR="$LOG_DIR/screenshots"
 REPORT_DIR="$LOG_DIR/reports"
 STATE_DIR="$LOG_DIR/.state"
 mkdir -p "$LOG_DIR" "$SCREENSHOT_DIR" "$REPORT_DIR" "$STATE_DIR"
 
-# 状态文件
+# State files
 STATE_FILE="$STATE_DIR/test_state.json"
 CHECKPOINT_FILE="$STATE_DIR/checkpoint.txt"
 PID_FILE="$STATE_DIR/agent.pid"
 
-# 测试配置
-DEFAULT_TIMEOUT=300000  # 5分钟
+# Test configuration
+DEFAULT_TIMEOUT=300000  # 5 minutes
 DEFAULT_MAX_RETRIES=3
 DEFAULT_PARALLEL_TESTS=1
 
-# 颜色
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -46,7 +46,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # ============================================
-# 日志函数
+# Logging Functions
 # ============================================
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1" | tee -a "$LOG_DIR/agent.log"
@@ -71,34 +71,34 @@ log_debug() {
 }
 
 # ============================================
-# 信号处理
+# Signal Handling
 # ============================================
 cleanup() {
     echo ""
-    log_warn "收到中断信号，正在保存状态..."
+    log_warn "Received interrupt signal, saving state..."
     
-    # 保存检查点
+    # Save checkpoint
     echo "$CURRENT_ITERATION" > "$CHECKPOINT_FILE"
     
-    # 保存当前测试状态
+    # Save current test state
     if [[ -n "$CURRENT_FEATURE" ]]; then
-        save_state "$CURRENT_FEATURE" "interrupted" "测试被中断"
+        save_state "$CURRENT_FEATURE" "interrupted" "Test interrupted"
     fi
     
-    # 停止开发服务器
+    # Stop development server
     stop_dev_server
     
-    # 移除PID文件
+    # Remove PID file
     rm -f "$PID_FILE"
     
-    log_info "状态已保存。下次运行将从中断处恢复。"
+    log_info "State saved. Next run will resume from interruption point."
     exit 0
 }
 
 trap cleanup SIGINT SIGTERM
 
 # ============================================
-# 状态管理
+# State Management
 # ============================================
 init_state() {
     if [[ ! -f "$STATE_FILE" ]]; then
@@ -173,38 +173,38 @@ record_session() {
 }
 
 # ============================================
-# 开发服务器管理
+# Development Server Management
 # ============================================
 DEV_SERVER_PID=""
 
 start_dev_server() {
-    log_info "启动开发服务器..."
+    log_info "Starting development server..."
     
-    # 检查是否已经在运行
+    # Check if already running
     if curl -s http://localhost:5173 > /dev/null 2>&1; then
-        log_success "开发服务器已在运行"
+        log_success "Development server is already running"
         return 0
     fi
     
     cd "$FRONTEND_DIR"
     
-    # 检查依赖
+    # Check dependencies
     if [[ ! -d "node_modules" ]]; then
-        log_warn "node_modules 不存在，正在安装依赖..."
+        log_warn "node_modules does not exist, installing dependencies..."
         npm install --silent 2>&1 | tail -10
     fi
     
-    # 启动服务器
+    # Start server
     npm run dev > "$LOG_DIR/dev-server.log" 2>&1 &
     DEV_SERVER_PID=$!
     
-    # 等待启动
+    # Wait for startup
     local retries=0
     local max_retries=60
     
     while [[ $retries -lt $max_retries ]]; do
         if curl -s http://localhost:5173 > /dev/null 2>&1; then
-            log_success "开发服务器已启动 (PID: $DEV_SERVER_PID)"
+            log_success "Development server started (PID: $DEV_SERVER_PID)"
             return 0
         fi
         sleep 1
@@ -212,19 +212,19 @@ start_dev_server() {
         echo -n "."
     done
     
-    log_error "开发服务器启动超时"
+    log_error "Development server startup timeout"
     return 1
 }
 
 stop_dev_server() {
     if [[ -n "$DEV_SERVER_PID" ]]; then
-        log_info "停止开发服务器 (PID: $DEV_SERVER_PID)..."
+        log_info "Stopping development server (PID: $DEV_SERVER_PID)..."
         kill "$DEV_SERVER_PID" 2>/dev/null
         wait "$DEV_SERVER_PID" 2>/dev/null
         DEV_SERVER_PID=""
     fi
     
-    # 确保端口释放
+    # Ensure port is released
     local pid=$(lsof -t -i:5173 2>/dev/null)
     if [[ -n "$pid" ]]; then
         kill -9 "$pid" 2>/dev/null
@@ -232,40 +232,40 @@ stop_dev_server() {
 }
 
 # ============================================
-# 代码测试
+# Code Tests
 # ============================================
 run_code_tests() {
     local feature_id="$1"
     
-    log_info "[$feature_id] 开始代码层面测试..."
+    log_info "[$feature_id] Starting code-level tests..."
     
     cd "$FRONTEND_DIR"
     local all_passed=true
     
-    # 1. TypeScript类型检查
-    log_info "[$feature_id] 运行 TypeScript 类型检查..."
+    # 1. TypeScript type checking
+    log_info "[$feature_id] Running TypeScript type check..."
     if npx tsc --noEmit 2>&1 | tee -a "$LOG_DIR/${feature_id}_tsc.log"; then
-        log_success "[$feature_id] 类型检查通过"
+        log_success "[$feature_id] Type check passed"
     else
-        log_error "[$feature_id] 类型检查失败"
+        log_error "[$feature_id] Type check failed"
         all_passed=false
     fi
     
-    # 2. 单元测试
-    log_info "[$feature_id] 运行单元测试..."
+    # 2. Unit tests
+    log_info "[$feature_id] Running unit tests..."
     if npm run test:run 2>&1 | tee -a "$LOG_DIR/${feature_id}_test.log"; then
-        log_success "[$feature_id] 单元测试通过"
+        log_success "[$feature_id] Unit tests passed"
     else
-        log_error "[$feature_id] 单元测试失败"
+        log_error "[$feature_id] Unit tests failed"
         all_passed=false
     fi
     
-    # 3. 生产构建
-    log_info "[$feature_id] 运行生产构建..."
+    # 3. Production build
+    log_info "[$feature_id] Running production build..."
     if npm run build 2>&1 | tee -a "$LOG_DIR/${feature_id}_build.log"; then
-        log_success "[$feature_id] 构建成功"
+        log_success "[$feature_id] Build successful"
     else
-        log_error "[$feature_id] 构建失败"
+        log_error "[$feature_id] Build failed"
         all_passed=false
     fi
     
@@ -277,14 +277,14 @@ run_code_tests() {
 }
 
 # ============================================
-# 浏览器E2E测试 (使用MCP工具)
+# Browser E2E Tests (using MCP tools)
 # ============================================
 generate_browser_test_prompt() {
     local feature_id="$1"
     local feature_name="$2"
     local category="$3"
     
-    # 读取测试步骤
+    # Read test steps
     local test_steps=$(jq -r --arg id "$feature_id" '
         .features[] | select(.id == $id) | .browserTests | join("\n")
     ' "$AGENT_HARNESS_DIR/test-feature-list.json" 2>/dev/null)
@@ -292,80 +292,80 @@ generate_browser_test_prompt() {
     cat << PROMPT_EOF
 # Test Agent Prompt - $feature_id
 
-你是 Kuro 前端项目的 **Test Agent**。你的任务是对功能 "$feature_name" 执行浏览器 E2E 测试。
+You are the **Test Agent** for the Kuro frontend project. Your task is to execute browser E2E tests for feature "$feature_name".
 
-## 测试功能
+## Test Feature
 
 **ID**: $feature_id
-**名称**: $feature_name
-**类别**: $category
+**Name**: $feature_name
+**Category**: $category
 
-## 测试环境
+## Test Environment
 
-- 开发服务器: http://localhost:5173
-- 截图目录: logs/screenshots/
-- 状态文件: $STATE_FILE
+- Development server: http://localhost:5173
+- Screenshot directory: logs/screenshots/
+- State file: $STATE_FILE
 
-## 测试步骤
+## Test Steps
 
 $test_steps
 
-## 通用测试流程
+## General Test Flow
 
-1. **导航到页面**
-   - 使用 browser_navigate 访问被测页面
-   - 等待页面加载完成 (browser_wait_for)
+1. **Navigate to page**
+   - Use browser_navigate to visit the page under test
+   - Wait for page to load (browser_wait_for)
 
-2. **初始验证**
-   - 使用 browser_snapshot 获取页面结构
-   - 截取初始状态截图 (browser_take_screenshot)
+2. **Initial verification**
+   - Use browser_snapshot to get page structure
+   - Take initial state screenshot (browser_take_screenshot)
 
-3. **执行交互**
-   - 使用 browser_click 点击元素
-   - 使用 browser_type 输入文本
-   - 使用 browser_select_option 选择选项
+3. **Execute interactions**
+   - Use browser_click to click elements
+   - Use browser_type to input text
+   - Use browser_select_option to select options
 
-4. **状态验证**
-   - 使用 browser_wait_for 等待特定文本出现
-   - 使用 browser_evaluate 执行 JavaScript 验证
+4. **State verification**
+   - Use browser_wait_for to wait for specific text to appear
+   - Use browser_evaluate to execute JavaScript verification
 
-5. **截图记录**
-   - 每个关键状态都要截图
-   - 截图文件名格式: ${feature_id}_<状态>_<时间戳>.png
+5. **Screenshot recording**
+   - Take screenshots at every key state
+   - Screenshot filename format: ${feature_id}_<state>_<timestamp>.png
 
-## 截图要求
+## Screenshot Requirements
 
-必须保存以下截图:
-1. 初始状态: ${feature_id}_initial_<timestamp>.png
-2. 交互后状态: ${feature_id}_action_<timestamp>.png
-3. 最终状态: ${feature_id}_final_<timestamp>.png
+Must save the following screenshots:
+1. Initial state: ${feature_id}_initial_<timestamp>.png
+2. After interaction: ${feature_id}_action_<timestamp>.png
+3. Final state: ${feature_id}_final_<timestamp>.png
 
-## 通过标准
+## Pass Criteria
 
-- [ ] 页面正常加载，无白屏/错误
-- [ ] 所有交互功能正常工作
-- [ ] 关键元素正确渲染
-- [ ] 无 console.error 错误
-- [ ] 至少 3 张截图已保存
+- [ ] Page loads normally, no white screen/errors
+- [ ] All interactive features work properly
+- [ ] Key elements render correctly
+- [ ] No console.error errors
+- [ ] At least 3 screenshots saved
 
-## 测试完成后
+## After Test Completion
 
-1. 检查截图是否已保存到 logs/screenshots/
-2. 更新 test-feature-list.json:
+1. Check if screenshots are saved to logs/screenshots/
+2. Update test-feature-list.json:
    - passes: true/false
-   - lastTested: 当前时间戳
-   - notes: 发现的问题(如有)
+   - lastTested: current timestamp
+   - notes: issues found (if any)
 
-3. 报告测试结果:
-   - 通过: "TEST_PASSED"
-   - 失败: "TEST_FAILED: <原因>"
+3. Report test results:
+   - Pass: "TEST_PASSED"
+   - Fail: "TEST_FAILED: <reason>"
 
-## 重要规则
+## Important Rules
 
-- 截图是测试通过的必要证据
-- 每个测试步骤都要有明确的验证点
-- 发现问题立即记录并截图
-- 不要修改被测功能的代码
+- Screenshots are required evidence for test pass
+- Each test step must have clear verification points
+- Record and screenshot issues immediately when found
+- Do not modify code of the feature under test
 PROMPT_EOF
 }
 
@@ -374,21 +374,21 @@ run_browser_tests() {
     local feature_name="$2"
     local category="$3"
     
-    log_info "[$feature_id] 开始浏览器 E2E 测试..."
+    log_info "[$feature_id] Starting browser E2E tests..."
     
-    # 生成测试prompt
+    # Generate test prompt
     local prompt=$(generate_browser_test_prompt "$feature_id" "$feature_name" "$category")
     local prompt_file="$LOG_DIR/prompt_${feature_id}_$(date +%Y%m%d_%H%M%S).txt"
     echo "$prompt" > "$prompt_file"
     
-    # 运行iflow Test Agent
-    log_info "[$feature_id] 启动浏览器测试 Agent..."
+    # Run iflow Test Agent
+    log_info "[$feature_id] Starting browser test Agent..."
     
     cd "$WORK_DIR"
     
     local browser_log="$LOG_DIR/browser_${feature_id}_$(date +%Y%m%d_%H%M%S).log"
     
-    # 使用iflow执行浏览器测试
+    # Execute browser tests using iflow
     iflow -y \
           --max-tokens 100000 \
           --max-turns 150 \
@@ -397,29 +397,29 @@ run_browser_tests() {
     
     local iflow_exit=${PIPESTATUS[0]}
     
-    # 检查测试结果
+    # Check test results
     if grep -q "TEST_PASSED" "$browser_log" 2>/dev/null; then
-        log_success "[$feature_id] 浏览器测试通过"
+        log_success "[$feature_id] Browser tests passed"
         return 0
     elif grep -q "TEST_FAILED" "$browser_log" 2>/dev/null; then
         local reason=$(grep "TEST_FAILED" "$browser_log" | head -1 | sed 's/TEST_FAILED: //')
-        log_error "[$feature_id] 浏览器测试失败: $reason"
+        log_error "[$feature_id] Browser tests failed: $reason"
         return 1
     else
-        # 检查截图是否存在作为备用判断
+        # Check if screenshots exist as fallback indicator
         local screenshot_count=$(ls -1 "$SCREENSHOT_DIR/${feature_id}_"*.png 2>/dev/null | wc -l)
         if [[ $screenshot_count -ge 2 ]]; then
-            log_success "[$feature_id] 浏览器测试通过 (基于截图)"
+            log_success "[$feature_id] Browser tests passed (based on screenshots)"
             return 0
         else
-            log_warn "[$feature_id] 测试结果不明确，假设通过"
+            log_warn "[$feature_id] Test result unclear, assuming pass"
             return 0
         fi
     fi
 }
 
 # ============================================
-# 修复Agent
+# Fix Agent
 # ============================================
 generate_fix_prompt() {
     local feature_id="$1"
@@ -432,53 +432,53 @@ generate_fix_prompt() {
     cat << PROMPT_EOF
 # Fix Agent Prompt - $feature_id
 
-你是 Kuro 前端项目的 **Fix Agent**。你的任务是修复测试失败的功能。
+You are the **Fix Agent** for the Kuro frontend project. Your task is to fix features that failed testing.
 
-## 修复任务
+## Fix Task
 
-**功能 ID**: $feature_id
-**功能名称**: $feature_name
-**失败原因**: $failure_reason
+**Feature ID**: $feature_id
+**Feature Name**: $feature_name
+**Failure Reason**: $failure_reason
 
-## 错误日志
+## Error Logs
 
-### TypeScript类型检查
+### TypeScript Type Check
 \`\`\`
-$(tail -50 "$tsc_log" 2>/dev/null || echo "无日志")
-\`\`\`
-
-### 单元测试
-\`\`\`
-$(tail -50 "$test_log" 2>/dev/null || echo "无日志")
+$(tail -50 "$tsc_log" 2>/dev/null || echo "No log")
 \`\`\`
 
-### 构建日志
+### Unit Tests
 \`\`\`
-$(tail -50 "$build_log" 2>/dev/null || echo "无日志")
+$(tail -50 "$test_log" 2>/dev/null || echo "No log")
 \`\`\`
 
-## 修复流程
+### Build Log
+\`\`\`
+$(tail -50 "$build_log" 2>/dev/null || echo "No log")
+\`\`\`
 
-1. **分析错误**
-   - 阅读错误日志，理解失败原因
-   - 确定需要修复的文件
+## Fix Flow
 
-2. **查看代码**
-   - 使用 read_file 读取相关文件
-   - 理解当前实现和问题所在
+1. **Analyze errors**
+   - Read error logs to understand failure reasons
+   - Identify files that need fixing
 
-3. **实施修复**
-   - 使用 replace 或 write_file 修复代码
-   - 保持代码风格一致性
-   - 只修改必要的代码
+2. **Review code**
+   - Use read_file to read relevant files
+   - Understand current implementation and issues
 
-4. **验证修复**
-   - 运行 \`cd frontend && npx tsc --noEmit\`
-   - 运行 \`cd frontend && npm run test:run\`
-   - 运行 \`cd frontend && npm run build\`
+3. **Implement fix**
+   - Use replace or write_file to fix code
+   - Maintain code style consistency
+   - Only modify necessary code
 
-5. **更新状态**
-   - 如果修复成功，更新 test-feature-list.json:
+4. **Verify fix**
+   - Run \`cd frontend && npx tsc --noEmit\`
+   - Run \`cd frontend && npm run test:run\`
+   - Run \`cd frontend && npm run build\`
+
+5. **Update status**
+   - If fix successful, update test-feature-list.json:
      \`\`\`json
      {
        "passes": true,
@@ -487,17 +487,17 @@ $(tail -50 "$build_log" 2>/dev/null || echo "无日志")
      }
      \`\`\`
 
-## 重要规则
+## Important Rules
 
-- 只修复导致测试失败的问题
-- 不要重构不相关的代码
-- 修复后必须验证通过
-- 如果无法修复，记录详细原因
+- Only fix issues causing test failure
+- Do not refactor unrelated code
+- Must verify after fix
+- If unable to fix, record detailed reasons
 
-## 修复完成后报告
+## Report After Fix
 
-- 成功: "FIX_SUCCESS"
-- 失败: "FIX_FAILED: <原因>"
+- Success: "FIX_SUCCESS"
+- Failure: "FIX_FAILED: <reason>"
 PROMPT_EOF
 }
 
@@ -506,18 +506,18 @@ run_fix_agent() {
     local feature_name="$2"
     local failure_reason="$3"
     
-    log_info "[$feature_id] 启动修复 Agent..."
+    log_info "[$feature_id] Starting fix Agent..."
     
     local tsc_log="$LOG_DIR/${feature_id}_tsc.log"
     local test_log="$LOG_DIR/${feature_id}_test.log"
     local build_log="$LOG_DIR/${feature_id}_build.log"
     
-    # 生成修复prompt
+    # Generate fix prompt
     local prompt=$(generate_fix_prompt "$feature_id" "$feature_name" "$failure_reason" "$tsc_log" "$test_log" "$build_log")
     local prompt_file="$LOG_DIR/fix_prompt_${feature_id}.txt"
     echo "$prompt" > "$prompt_file"
     
-    # 运行iflow Fix Agent
+    # Run iflow Fix Agent
     cd "$WORK_DIR"
     
     local fix_log="$LOG_DIR/fix_${feature_id}_$(date +%Y%m%d_%H%M%S).log"
@@ -530,32 +530,32 @@ run_fix_agent() {
     
     local iflow_exit=${PIPESTATUS[0]}
     
-    # 检查结果
+    # Check results
     if grep -q "FIX_SUCCESS" "$fix_log" 2>/dev/null; then
-        log_success "[$feature_id] 修复成功"
+        log_success "[$feature_id] Fix successful"
         update_stats "fixed"
         return 0
     else
-        log_error "[$feature_id] 修复失败"
+        log_error "[$feature_id] Fix failed"
         return 1
     fi
 }
 
 # ============================================
-# 测试调度
+# Test Scheduling
 # ============================================
 get_next_feature() {
     local feature_file="$AGENT_HARNESS_DIR/test-feature-list.json"
     
     if [[ ! -f "$feature_file" ]]; then
-        log_error "测试清单文件不存在: $feature_file"
+        log_error "Test feature list file does not exist: $feature_file"
         return 1
     fi
     
-    # 优先级: 
-    # 1. 从未测试过的 (passes=false, lastTested=null)
-    # 2. 之前失败的且重试次数<3的
-    # 3. 按优先级排序
+    # Priority:
+    # 1. Never tested (passes=false, lastTested=null)
+    # 2. Previously failed and retry count < 3
+    # 3. Sorted by priority
     
     jq -r '
         .features |
@@ -573,7 +573,7 @@ get_feature_info() {
 }
 
 # ============================================
-# 测试会话
+# Test Session
 # ============================================
 run_test_session() {
     local iteration="$1"
@@ -583,16 +583,16 @@ run_test_session() {
     
     CURRENT_FEATURE="$feature_id"
     
-    # 获取功能信息
+    # Get feature info
     local feature_info=$(get_feature_info "$feature_id")
     local feature_name=$(echo "$feature_info" | jq -r '.name // "Unknown"')
     local category=$(echo "$feature_info" | jq -r '.category // "unknown"')
     local priority=$(echo "$feature_info" | jq -r '.priority // "medium"')
     
     log_info "========================================"
-    log_info "测试会话 $iteration / $total"
-    log_info "功能: $feature_id - $feature_name"
-    log_info "类别: $category | 优先级: $priority"
+    log_info "Test Session $iteration / $total"
+    log_info "Feature: $feature_id - $feature_name"
+    log_info "Category: $category | Priority: $priority"
     log_info "========================================"
     
     local session_start=$(date +%s)
@@ -601,47 +601,47 @@ run_test_session() {
     local test_passed=true
     local failure_reason=""
     
-    # 阶段1: 代码测试
+    # Phase 1: Code tests
     if ! run_code_tests "$feature_id" 2>&1 | tee "$session_log"; then
         test_passed=false
-        failure_reason="代码测试失败"
-        log_error "[$feature_id] 代码测试失败，跳过浏览器测试"
+        failure_reason="Code tests failed"
+        log_error "[$feature_id] Code tests failed, skipping browser tests"
     fi
     
-    # 阶段2: 浏览器测试
+    # Phase 2: Browser tests
     if [[ "$test_passed" == "true" && "$skip_browser" != "true" ]]; then
         if ! run_browser_tests "$feature_id" "$feature_name" "$category" 2>&1 | tee -a "$session_log"; then
             test_passed=false
-            failure_reason="浏览器测试失败"
+            failure_reason="Browser tests failed"
         fi
     fi
     
     local session_end=$(date +%s)
     local duration=$((session_end - session_start))
     
-    # 更新状态和统计
+    # Update state and statistics
     if [[ "$test_passed" == "true" ]]; then
-        log_success "[$feature_id] 测试通过 (耗时: ${duration}s)"
+        log_success "[$feature_id] Test passed (duration: ${duration}s)"
         save_state "$feature_id" "passed" ""
         update_stats "passed"
         
-        # 更新feature list
+        # Update feature list
         update_feature_list "$feature_id" "true" ""
     else
-        log_error "[$feature_id] 测试失败 (耗时: ${duration}s): $failure_reason"
+        log_error "[$feature_id] Test failed (duration: ${duration}s): $failure_reason"
         save_state "$feature_id" "failed" "$failure_reason"
         update_stats "failed"
         
-        # 尝试修复
+        # Attempt fix
         if [[ "$AUTO_FIX" == "true" ]]; then
-            log_info "[$feature_id] 尝试自动修复..."
+            log_info "[$feature_id] Attempting auto-fix..."
             if run_fix_agent "$feature_id" "$feature_name" "$failure_reason"; then
-                # 修复成功，重新测试
-                log_info "[$feature_id] 重新测试..."
+                # Fix successful, re-test
+                log_info "[$feature_id] Re-testing..."
                 if run_code_tests "$feature_id" 2>&1 | tee -a "$session_log"; then
                     test_passed=true
-                    save_state "$feature_id" "fixed" "自动修复成功"
-                    update_feature_list "$feature_id" "true" "自动修复后通过"
+                    save_state "$feature_id" "fixed" "Auto-fix successful"
+                    update_feature_list "$feature_id" "true" "Passed after auto-fix"
                 fi
             else
                 update_feature_list "$feature_id" "false" "$failure_reason"
@@ -685,15 +685,15 @@ update_feature_list() {
 }
 
 # ============================================
-# 报告生成
+# Report Generation
 # ============================================
 generate_report() {
-    log_info "生成测试报告..."
+    log_info "Generating test report..."
     
     local report_file="$REPORT_DIR/test_report_$(date +%Y%m%d_%H%M%S).html"
     local feature_file="$AGENT_HARNESS_DIR/test-feature-list.json"
     
-    # 读取统计数据
+    # Read statistics
     local stats=$(cat "$STATE_FILE" | jq '.stats')
     local total=$(echo "$stats" | jq -r '.totalTests // 0')
     local passed=$(echo "$stats" | jq -r '.passed // 0')
@@ -705,7 +705,7 @@ generate_report() {
         pass_rate=$((passed * 100 / total))
     fi
     
-    # 生成HTML报告
+    # Generate HTML report
     cat > "$report_file" << EOF
 <!DOCTYPE html>
 <html>
@@ -776,7 +776,7 @@ generate_report() {
             </tr>
 EOF
 
-    # 添加功能测试结果
+    # Add feature test results
     while IFS= read -r feature; do
         local feat_id=$(echo "$feature" | jq -r '.id')
         local feat_name=$(echo "$feature" | jq -r '.name')
@@ -821,7 +821,7 @@ EOF
             </tr>
 EOF
 
-    # 添加会话记录
+    # Add session records
     while IFS= read -r session; do
         local sess_feature=$(echo "$session" | jq -r '.featureId')
         local sess_time=$(echo "$session" | jq -r '.timestamp')
@@ -852,67 +852,67 @@ EOF
 </html>
 EOF
 
-    log_success "报告已生成: $report_file"
+    log_success "Report generated: $report_file"
     
-    # 同时生成JSON报告
+    # Also generate JSON report
     local json_report="$REPORT_DIR/test_report_$(date +%Y%m%d_%H%M%S).json"
     cp "$STATE_FILE" "$json_report"
-    log_info "JSON报告: $json_report"
+    log_info "JSON report: $json_report"
 }
 
 # ============================================
-# 帮助信息
+# Help Information
 # ============================================
 show_help() {
     cat << 'EOF'
-Kuro Frontend Test Agent - 长时间运行测试脚本
+Kuro Frontend Test Agent - Long-running test script
 
-用法:
-    ./kuro-test-agent.sh [选项]
+Usage:
+    ./kuro-test-agent.sh [options]
 
-选项:
-    -i, --iterations N      运行N次测试迭代 (默认: 无限循环直到所有功能测试完成)
-    -f, --feature ID        只测试特定功能
-    --no-browser            跳过浏览器E2E测试
-    --no-fix                禁用自动修复
-    --auto-fix              启用自动修复 (默认启用)
-    --resume                从上次中断处恢复
-    --report-only           只生成报告
-    -d, --debug             启用调试日志
-    -h, --help              显示帮助信息
+Options:
+    -i, --iterations N      Run N test iterations (default: infinite loop until all features tested)
+    -f, --feature ID        Test only specific feature
+    --no-browser            Skip browser E2E tests
+    --no-fix                Disable auto-fix
+    --auto-fix              Enable auto-fix (enabled by default)
+    --resume                Resume from last interruption
+    --report-only           Only generate report
+    -d, --debug             Enable debug logging
+    -h, --help              Show help information
 
-示例:
-    # 运行所有测试直到完成
+Examples:
+    # Run all tests until completion
     ./kuro-test-agent.sh
 
-    # 运行10次迭代
+    # Run 10 iterations
     ./kuro-test-agent.sh -i 10
 
-    # 只测试特定功能
+    # Test only specific feature
     ./kuro-test-agent.sh -f FEAT-015
 
-    # 从上次中断处恢复
+    # Resume from last interruption
     ./kuro-test-agent.sh --resume
 
-    # 只运行代码测试 (跳过浏览器)
+    # Run code tests only (skip browser)
     ./kuro-test-agent.sh --no-browser
 
-输出:
-    日志目录: logs/
-    截图目录: logs/screenshots/
-    报告目录: logs/reports/
-    状态文件: logs/.state/
+Output:
+    Log directory: logs/
+    Screenshot directory: logs/screenshots/
+    Report directory: logs/reports/
+    State file: logs/.state/
 
-信号处理:
-    Ctrl+C    安全中断，保存状态以便恢复
+Signal Handling:
+    Ctrl+C    Safe interruption, save state for recovery
 EOF
 }
 
 # ============================================
-# 主程序
+# Main Program
 # ============================================
 main() {
-    # 默认配置
+    # Default configuration
     ITERATIONS=""
     SINGLE_FEATURE=""
     SKIP_BROWSER=false
@@ -921,7 +921,7 @@ main() {
     REPORT_ONLY=false
     DEBUG=false
     
-    # 解析参数
+    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
             -i|--iterations)
@@ -961,106 +961,106 @@ main() {
                 exit 0
                 ;;
             *)
-                log_error "未知选项: $1"
+                log_error "Unknown option: $1"
                 show_help
                 exit 1
                 ;;
         esac
     done
     
-    # 只生成报告模式
+    # Report only mode
     if [[ "$REPORT_ONLY" == "true" ]]; then
         generate_report
         exit 0
     fi
     
-    # 初始化
+    # Initialize
     init_state
     
-    # 保存PID
-    echo $$ > "$PID_FILE"
+    # Save PID
+    echo $ > "$PID_FILE"
     
-    # 恢复检查点
+    # Restore checkpoint
     local start_iteration=1
     if [[ "$RESUME" == "true" && -f "$CHECKPOINT_FILE" ]]; then
         start_iteration=$(cat "$CHECKPOINT_FILE")
-        log_info "从第 $start_iteration 次迭代恢复"
+        log_info "Resuming from iteration $start_iteration"
     fi
     
-    # 显示启动信息
+    # Display startup information
     echo ""
     echo -e "${BOLD}${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}${BLUE}║${NC}        ${BOLD}Kuro Frontend Test Agent${NC}"
     echo -e "${BOLD}${BLUE}╠════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${BOLD}${BLUE}║${NC}  迭代次数: ${ITERATIONS:-无限循环}"
-    echo -e "${BOLD}${BLUE}║${NC}  浏览器测试: $([ "$SKIP_BROWSER" == "true" ] && echo "跳过" || echo "启用")"
-    echo -e "${BOLD}${BLUE}║${NC}  自动修复: $([ "$AUTO_FIX" == "true" ] && echo "启用" || echo "禁用")"
-    echo -e "${BOLD}${BLUE}║${NC}  调试模式: $([ "$DEBUG" == "true" ] && echo "启用" || echo "禁用")"
-    echo -e "${BOLD}${BLUE}║${NC}  日志目录: $LOG_DIR"
+    echo -e "${BOLD}${BLUE}║${NC}  Iterations: ${ITERATIONS:-Infinite loop}"
+    echo -e "${BOLD}${BLUE}║${NC}  Browser tests: $([ "$SKIP_BROWSER" == "true" ] && echo "Skipped" || echo "Enabled")"
+    echo -e "${BOLD}${BLUE}║${NC}  Auto-fix: $([ "$AUTO_FIX" == "true" ] && echo "Enabled" || echo "Disabled")"
+    echo -e "${BOLD}${BLUE}║${NC}  Debug mode: $([ "$DEBUG" == "true" ] && echo "Enabled" || echo "Disabled")"
+    echo -e "${BOLD}${BLUE}║${NC}  Log directory: $LOG_DIR"
     echo -e "${BOLD}${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    # 启动开发服务器
+    # Start development server
     if [[ "$SKIP_BROWSER" != "true" ]]; then
         start_dev_server || exit 1
     fi
     
-    # 单次功能测试模式
+    # Single feature test mode
     if [[ -n "$SINGLE_FEATURE" ]]; then
-        log_info "单功能测试模式: $SINGLE_FEATURE"
+        log_info "Single feature test mode: $SINGLE_FEATURE"
         run_test_session 1 1 "$SINGLE_FEATURE" "$SKIP_BROWSER"
         generate_report
         stop_dev_server
         exit 0
     fi
     
-    # 主循环
+    # Main loop
     local iteration=$start_iteration
     while true; do
         CURRENT_ITERATION=$iteration
         
-        # 获取下一个待测功能
+        # Get next feature to test
         local feature_id=$(get_next_feature)
         
         if [[ -z "$feature_id" || "$feature_id" == "null" ]]; then
-            log_success "🎉 所有功能已测试完成！"
+            log_success "All features tested!"
             break
         fi
         
-        # 检查是否达到最大迭代次数
+        # Check if max iterations reached
         if [[ -n "$ITERATIONS" && $iteration -gt $ITERATIONS ]]; then
-            log_info "达到最大迭代次数 ($ITERATIONS)"
+            log_info "Maximum iterations reached ($ITERATIONS)"
             break
         fi
         
-        # 运行测试会话
+        # Run test session
         run_test_session "$iteration" "${ITERATIONS:-∞}" "$feature_id" "$SKIP_BROWSER"
         
-        # 增加迭代计数
+        # Increment iteration count
         iteration=$((iteration + 1))
         echo "$iteration" > "$CHECKPOINT_FILE"
         
-        # 间隔
+        # Interval
         if [[ -z "$ITERATIONS" || $iteration -le $ITERATIONS ]]; then
-            log_info "等待 3 秒后开始下一次测试..."
+            log_info "Waiting 3 seconds before next test..."
             sleep 3
         fi
     done
     
-    # 清理
+    # Cleanup
     stop_dev_server
     rm -f "$CHECKPOINT_FILE" "$PID_FILE"
     
-    # 生成最终报告
+    # Generate final report
     generate_report
     
-    # 显示完成信息
+    # Display completion message
     echo ""
     echo -e "${BOLD}${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${GREEN}║${NC}        ${BOLD}测试完成！${NC}"
+    echo -e "${BOLD}${GREEN}║${NC}        ${BOLD}Testing Complete!${NC}"
     echo -e "${BOLD}${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
-# 运行主程序
+# Run main program
 main "$@"

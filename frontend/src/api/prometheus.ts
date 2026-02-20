@@ -1,9 +1,9 @@
 /**
- * Prometheus HTTP API 客户端
- * 文档: https://prometheus.io/docs/prometheus/latest/querying/api/
+ * Prometheus HTTP API Client
+ * Documentation: https://prometheus.io/docs/prometheus/latest/querying/api/
  * 
- * TODO: 需要配置 VITE_PROMETHEUS_URL 环境变量
- * 后端端点: Prometheus Service (NodePort 30091)
+ * TODO: Requires VITE_PROMETHEUS_URL environment variable configuration
+ * Backend endpoint: Prometheus Service (NodePort 30091)
  */
 
 import {
@@ -67,14 +67,14 @@ export class PrometheusError extends Error {
 // ============================================================================
 
 /**
- * Prometheus HTTP API 客户端
+ * Prometheus HTTP API Client
  * 
- * 使用方式:
+ * Usage:
  * ```typescript
- * // 即时查询
+ * // Instant query
  * const result = await prometheusClient.instantQuery('up');
  * 
- * // 范围查询
+ * // Range query
  * const rangeResult = await prometheusClient.rangeQuery({
  *   query: 'rate(http_requests_total[5m])',
  *   start: Date.now() / 1000 - 3600,
@@ -85,12 +85,12 @@ export class PrometheusError extends Error {
  */
 export const prometheusClient = {
   /**
-   * 即时查询
+   * Instant query
    * GET /api/v1/query?query=<query>
    * 
-   * @param query - PromQL 查询表达式
-   * @param options - 查询选项
-   * @returns 查询结果
+   * @param query - PromQL query expression
+   * @param options - Query options
+   * @returns Query result
    */
   async instantQuery(
     query: string, 
@@ -124,12 +124,12 @@ export const prometheusClient = {
   },
 
   /**
-   * 范围查询
+   * Range query
    * GET /api/v1/query_range?query=<query>&start=<start>&end=<end>&step=<step>
    * 
-   * @param query - PromQL 查询表达式
-   * @param options - 范围查询选项
-   * @returns 查询结果
+   * @param query - PromQL query expression
+   * @param options - Range query options
+   * @returns Query result
    */
   async rangeQuery(
     query: string,
@@ -168,11 +168,11 @@ export const prometheusClient = {
   },
 
   /**
-   * 获取标签值列表
+   * Get label values list
    * GET /api/v1/label/<label>/values
    * 
-   * @param label - 标签名称
-   * @returns 标签值数组
+   * @param label - Label name
+   * @returns Label values array
    */
   async getLabelValues(label: string): Promise<string[]> {
     if (USE_MOCK) {
@@ -196,10 +196,10 @@ export const prometheusClient = {
   },
 
   /**
-   * 获取所有 metric 名称
+   * Get all metric names
    * GET /api/v1/label/__name__/values
    * 
-   * @returns metric 名称数组
+   * @returns Metric names array
    */
   async getMetricNames(): Promise<string[]> {
     if (USE_MOCK) {
@@ -211,9 +211,9 @@ export const prometheusClient = {
   },
 
   /**
-   * 获取 Kuro 相关的 Pod 列表
+   * Get Kuro-related Pod list
    * 
-   * @returns Pod 名称数组
+   * @returns Pod names array
    */
   async getKuroPods(): Promise<string[]> {
     return this.getLabelValues('pod');
@@ -225,16 +225,16 @@ export const prometheusClient = {
 // ============================================================================
 
 /**
- * Kuro 预定义 PromQL 查询
+ * Kuro predefined PromQL queries
  */
 export const kuroQueries = {
   /**
-   * 带宽查询
+   * Bandwidth queries
    */
   bandwidth: {
     /**
-     * 各 Pod 下载带宽 (bytes/sec)
-     * @param pod - Pod 名称，可选
+     * Per-Pod download bandwidth (bytes/sec)
+     * @param pod - Pod name, optional
      */
     downloadRate: (pod?: string) => 
       pod 
@@ -242,8 +242,8 @@ export const kuroQueries = {
         : `sum(rate(kuro_pod_traffic_bytes_total{direction="download",type="sim"}[5m])) by (pod)`,
     
     /**
-     * 各 Pod 上传带宽 (bytes/sec)
-     * @param pod - Pod 名称，可选
+     * Per-Pod upload bandwidth (bytes/sec)
+     * @param pod - Pod name, optional
      */
     uploadRate: (pod?: string) => 
       pod 
@@ -251,18 +251,18 @@ export const kuroQueries = {
         : `sum(rate(kuro_pod_traffic_bytes_total{direction="upload",type="sim"}[5m])) by (pod)`,
     
     /**
-     * 总带宽 (bytes/sec)
+     * Total bandwidth (bytes/sec)
      */
     totalRate: () => 
       `sum(rate(kuro_pod_traffic_bytes_total{type="sim"}[5m]))`,
   },
 
   /**
-   * 延迟查询
+   * Latency queries
    */
   latency: {
     /**
-     * P50 延迟
+     * P50 latency
      */
     p50: (pod?: string) => 
       pod
@@ -270,7 +270,7 @@ export const kuroQueries = {
         : `histogram_quantile(0.50, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (pod, le))`,
     
     /**
-     * P95 延迟
+     * P95 latency
      */
     p95: (pod?: string) => 
       pod
@@ -278,7 +278,7 @@ export const kuroQueries = {
         : `histogram_quantile(0.95, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (pod, le))`,
     
     /**
-     * P99 延迟
+     * P99 latency
      */
     p99: (pod?: string) => 
       pod
@@ -286,7 +286,7 @@ export const kuroQueries = {
         : `histogram_quantile(0.99, sum(rate(kuro_pod_latency_seconds_bucket[5m])) by (pod, le))`,
     
     /**
-     * 平均延迟
+     * Average latency
      */
     avg: (pod?: string) => 
       pod
@@ -295,11 +295,11 @@ export const kuroQueries = {
   },
 
   /**
-   * 丢包查询
+   * Packet loss queries
    */
   packetLoss: {
     /**
-     * 各 Pod 丢包率 (百分比)
+     * Per-Pod packet loss rate (percentage)
      */
     rate: (pod?: string) => 
       pod
@@ -307,24 +307,24 @@ export const kuroQueries = {
         : `sum(rate(kuro_pod_drop_packets_total[5m])) by (pod) / sum(rate(kuro_pod_traffic_packets_total[5m])) by (pod) * 100`,
     
     /**
-     * 总丢包数
+     * Total packet drops
      */
     total: () => 
       `sum(rate(kuro_pod_drop_packets_total[5m]))`,
   },
 
   /**
-   * 流量统计
+   * Traffic statistics
    */
   traffic: {
     /**
-     * 总字节数
+     * Total bytes
      */
     bytesTotal: (type: 'sim' | 'sys' = 'sim') => 
       `sum(kuro_pod_traffic_bytes_total{type="${type}"})`,
     
     /**
-     * 总包数
+     * Total packets
      */
     packetsTotal: (type: 'sim' | 'sys' = 'sim') => 
       `sum(kuro_pod_traffic_packets_total{type="${type}"})`,
@@ -336,21 +336,21 @@ export const kuroQueries = {
 // ============================================================================
 
 /**
- * 将 bytes/sec 转换为 Mbps
+ * Convert bytes/sec to Mbps
  */
 export function bytesToMbps(bytesPerSec: number): number {
   return (bytesPerSec * 8) / 1_000_000;
 }
 
 /**
- * 将秒转换为毫秒
+ * Convert seconds to milliseconds
  */
 export function secondsToMs(seconds: number): number {
   return seconds * 1000;
 }
 
 /**
- * 格式化带宽值
+ * Format bandwidth value
  */
 export function formatBandwidth(bytesPerSec: number): string {
   const mbps = bytesToMbps(bytesPerSec);
@@ -361,7 +361,7 @@ export function formatBandwidth(bytesPerSec: number): string {
 }
 
 /**
- * 格式化延迟值
+ * Format latency value
  */
 export function formatLatency(seconds: number): string {
   if (seconds < 0.001) {
@@ -374,7 +374,7 @@ export function formatLatency(seconds: number): string {
 }
 
 /**
- * 计算时间范围
+ * Calculate time range
  */
 export function getTimeRange(duration: string): { start: number; end: number } {
   const now = Math.floor(Date.now() / 1000);

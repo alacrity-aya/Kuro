@@ -1,10 +1,10 @@
 /**
  * Pod Selector Component
  * 
- * 允许用户选择要监控的 Pod，支持多选。
- * 从 Prometheus 获取 pod 标签值列表。
+ * Allows users to select pods to monitor, supports multi-select.
+ * Gets pod label value list from Prometheus.
  * 
- * TODO: 需要后端 API - Prometheus API: /api/v1/label/pod/values
+ * TODO: Requires backend API - Prometheus API: /api/v1/label/pod/values
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';

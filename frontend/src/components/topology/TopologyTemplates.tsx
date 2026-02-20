@@ -1,7 +1,7 @@
 /**
- * TopologyTemplates - 拓扑模板选择器
+ * TopologyTemplates - Topology Template Selector
  * 
- * 提供预定义的拓扑模板，支持快速创建常见拓扑结构
+ * Provides predefined topology templates, supports quick creation of common topology structures
  */
 import { memo, useState } from 'react';
 import type { NodeRole, TrafficPolicy } from '../../types/api';
@@ -50,7 +50,7 @@ const TEMPLATES: TopologyTemplate[] = [
   {
     id: 'drone-swarm',
     name: 'Drone Swarm',
-    description: '无人机群网络拓扑 - 1个地面站控制多个无人机',
+    description: 'Drone swarm network topology - 1 ground station controlling multiple drones',
     category: 'drone',
     icon: '🚁',
     nodes: [
@@ -74,7 +74,7 @@ const TEMPLATES: TopologyTemplate[] = [
   {
     id: 'iot-gateway',
     name: 'IoT Gateway',
-    description: '物联网网关拓扑 - 多个传感器通过网关连接服务器',
+    description: 'IoT gateway topology - multiple sensors connecting to server through gateway',
     category: 'iot',
     icon: '📡',
     nodes: [
@@ -102,7 +102,7 @@ const TEMPLATES: TopologyTemplate[] = [
   {
     id: 'microservice',
     name: 'Microservices',
-    description: '微服务架构拓扑 - API网关、服务集群、数据库',
+    description: 'Microservices architecture topology - API gateway, service cluster, database',
     category: 'microservice',
     icon: '🔗',
     nodes: [
@@ -128,7 +128,7 @@ const TEMPLATES: TopologyTemplate[] = [
   {
     id: 'star-topology',
     name: 'Star Topology',
-    description: '星型拓扑 - 中心节点连接多个边缘节点',
+    description: 'Star topology - central node connecting multiple edge nodes',
     category: 'custom',
     icon: '⭐',
     nodes: [
@@ -152,7 +152,7 @@ const TEMPLATES: TopologyTemplate[] = [
   {
     id: 'mesh-topology',
     name: 'Mesh Network',
-    description: '网状拓扑 - 所有节点互联',
+    description: 'Mesh topology - all nodes interconnected',
     category: 'custom',
     icon: '🌐',
     nodes: [
@@ -182,7 +182,7 @@ const TEMPLATES: TopologyTemplate[] = [
   {
     id: 'tree-topology',
     name: 'Tree Topology',
-    description: '树型拓扑 - 分层网络结构',
+    description: 'Tree topology - hierarchical network structure',
     category: 'custom',
     icon: '🌲',
     nodes: [

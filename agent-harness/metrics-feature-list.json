@@ -1,14 +1,14 @@
 {
   "version": "3.0",
   "lastUpdated": "2026-02-19",
-  "description": "Metrics 页面开发计划 - 基于后端 Prometheus/Grafana 集成方案",
+  "description": "Metrics Page Development Plan - Based on Backend Prometheus/Grafana Integration Solution",
   "testConfig": {
     "baseUrl": "http://localhost:5173",
     "testTimeout": 30000,
     "screenshotDir": "logs/screenshots"
   },
   "backendIntegration": {
-    "description": "后端已实现 Prometheus metrics 导出，前端需要对接",
+    "description": "Backend has implemented Prometheus metrics export, frontend needs to integrate",
     "prometheusEndpoint": "http://localhost:30091",
     "grafanaEndpoint": "http://localhost:30092",
     "agentMetricsEndpoint": "http://<agent-ip>:8080/metrics",
@@ -17,31 +17,31 @@
         "name": "kuro_pod_traffic_bytes_total",
         "type": "counter",
         "labels": ["pod", "direction", "type"],
-        "description": "总传输字节数"
+        "description": "Total transmitted bytes"
       },
       {
         "name": "kuro_pod_traffic_packets_total",
         "type": "counter",
         "labels": ["pod", "direction", "type"],
-        "description": "总传输包数"
+        "description": "Total transmitted packets"
       },
       {
         "name": "kuro_pod_drop_bytes_total",
         "type": "counter",
         "labels": ["pod", "direction", "type"],
-        "description": "总丢弃字节数"
+        "description": "Total dropped bytes"
       },
       {
         "name": "kuro_pod_drop_packets_total",
         "type": "counter",
         "labels": ["pod", "direction", "type"],
-        "description": "总丢弃包数"
+        "description": "Total dropped packets"
       },
       {
         "name": "kuro_pod_latency_seconds",
         "type": "histogram",
         "labels": ["pod"],
-        "description": "延迟直方图"
+        "description": "Latency histogram"
       }
     ]
   },
@@ -50,21 +50,21 @@
       "id": "METRICS-001",
       "category": "integration",
       "priority": "high",
-      "name": "Grafana iframe 集成",
-      "description": "在前端页面中嵌入 Grafana 仪表板 iframe，直接展示后端已配置的 Grafana 面板",
+      "name": "Grafana iframe Integration",
+      "description": "Embed Grafana dashboard iframe in frontend page, directly display Grafana panels configured in backend",
       "codeTests": [
-        "验证 GrafanaEmbed 组件渲染",
-        "验证 iframe URL 配置"
+        "Verify GrafanaEmbed component rendering",
+        "Verify iframe URL configuration"
       ],
       "browserTests": [
-        "导航到 /metrics 页面",
-        "验证 Grafana iframe 加载",
-        "验证全屏切换功能",
-        "截图记录"
+        "Navigate to /metrics page",
+        "Verify Grafana iframe loads",
+        "Verify fullscreen toggle functionality",
+        "Screenshot record"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "使用 Grafana 的 iframe 嵌入模式，URL: http://localhost:30092/d/kuro-dashboard",
+      "notes": "Use Grafana's iframe embed mode, URL: http://localhost:30092/d/kuro-dashboard",
       "retryCount": 0,
       "backendRequired": true,
       "backendEndpoint": "Grafana Service (NodePort 30092)",
@@ -82,14 +82,14 @@
       "id": "METRICS-002",
       "category": "component",
       "priority": "high",
-      "name": "Prometheus 查询服务",
-      "description": "创建 Prometheus HTTP API 客户端，用于直接查询 Prometheus 数据",
+      "name": "Prometheus Query Service",
+      "description": "Create Prometheus HTTP API client for directly querying Prometheus data",
       "codeTests": [
-        "验证 prometheusClient 配置",
-        "验证查询函数"
+        "Verify prometheusClient configuration",
+        "Verify query functions"
       ],
       "browserTests": [
-        "验证 API 调用正确"
+        "Verify API calls are correct"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
@@ -117,20 +117,20 @@
       "id": "METRICS-003",
       "category": "component",
       "priority": "high",
-      "name": "带宽流量图表",
-      "description": "显示所有 Pod 的带宽使用趋势，从 Prometheus 查询 kuro_pod_traffic_bytes_total",
+      "name": "Bandwidth Traffic Chart",
+      "description": "Display bandwidth usage trends for all Pods, query kuro_pod_traffic_bytes_total from Prometheus",
       "codeTests": [
-        "验证 BandwidthChart 组件",
-        "验证数据格式化"
+        "Verify BandwidthChart component",
+        "Verify data formatting"
       ],
       "browserTests": [
-        "验证图表渲染",
-        "验证时间范围选择",
-        "截图记录"
+        "Verify chart rendering",
+        "Verify time range selection",
+        "Screenshot record"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "使用 ECharts 渲染，查询: rate(kuro_pod_traffic_bytes_total[5m])",
+      "notes": "Use ECharts for rendering, query: rate(kuro_pod_traffic_bytes_total[5m])",
       "retryCount": 0,
       "backendRequired": true,
       "backendEndpoint": "Prometheus API",
@@ -145,20 +145,20 @@
       "id": "METRICS-004",
       "category": "component",
       "priority": "high",
-      "name": "延迟分布图表",
-      "description": "显示 Pod 延迟分布直方图，从 Prometheus 查询 kuro_pod_latency_seconds",
+      "name": "Latency Distribution Chart",
+      "description": "Display Pod latency distribution histogram, query kuro_pod_latency_seconds from Prometheus",
       "codeTests": [
-        "验证 LatencyChart 组件",
-        "验证百分位计算"
+        "Verify LatencyChart component",
+        "Verify percentile calculation"
       ],
       "browserTests": [
-        "验证直方图渲染",
-        "验证 P95/P99 显示",
-        "截图记录"
+        "Verify histogram rendering",
+        "Verify P95/P99 display",
+        "Screenshot record"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "查询: histogram_quantile(0.95, rate(kuro_pod_latency_seconds_bucket[5m]))",
+      "notes": "Query: histogram_quantile(0.95, rate(kuro_pod_latency_seconds_bucket[5m]))",
       "retryCount": 0,
       "backendRequired": true,
       "backendEndpoint": "Prometheus API",
@@ -177,20 +177,20 @@
       "id": "METRICS-005",
       "category": "component",
       "priority": "high",
-      "name": "丢包率监控面板",
-      "description": "显示各 Pod 的丢包率，从 Prometheus 查询 kuro_pod_drop_packets_total",
+      "name": "Packet Loss Monitoring Panel",
+      "description": "Display packet loss rate for each Pod, query kuro_pod_drop_packets_total from Prometheus",
       "codeTests": [
-        "验证 PacketLossPanel 组件",
-        "验证丢包率计算"
+        "Verify PacketLossPanel component",
+        "Verify packet loss rate calculation"
       ],
       "browserTests": [
-        "验证面板渲染",
-        "验证告警颜色",
-        "截图记录"
+        "Verify panel rendering",
+        "Verify alert colors",
+        "Screenshot record"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "丢包率 = drop_packets / traffic_packets * 100",
+      "notes": "Packet loss rate = drop_packets / traffic_packets * 100",
       "retryCount": 0,
       "backendRequired": true,
       "backendEndpoint": "Prometheus API",
@@ -208,20 +208,20 @@
       "id": "METRICS-006",
       "category": "component",
       "priority": "medium",
-      "name": "Pod 选择器",
-      "description": "允许用户选择要监控的 Pod，支持多选",
+      "name": "Pod Selector",
+      "description": "Allow users to select Pods to monitor, supports multi-select",
       "codeTests": [
-        "验证 PodSelector 组件",
-        "验证选择状态管理"
+        "Verify PodSelector component",
+        "Verify selection state management"
       ],
       "browserTests": [
-        "验证下拉列表",
-        "验证多选功能",
-        "截图记录"
+        "Verify dropdown list",
+        "Verify multi-select functionality",
+        "Screenshot record"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "从 Prometheus 获取 pod 标签值列表",
+      "notes": "Get pod label values list from Prometheus",
       "retryCount": 0,
       "backendRequired": true,
       "backendEndpoint": "Prometheus API: /api/v1/label/pod/values",
@@ -235,20 +235,20 @@
       "id": "METRICS-007",
       "category": "component",
       "priority": "medium",
-      "name": "时间范围选择器",
-      "description": "选择查询的时间范围（5m, 15m, 1h, 6h, 24h）",
+      "name": "Time Range Selector",
+      "description": "Select query time range (5m, 15m, 1h, 6h, 24h)",
       "codeTests": [
-        "验证 TimeRangeSelector 组件",
-        "验证预设选项"
+        "Verify TimeRangeSelector component",
+        "Verify preset options"
       ],
       "browserTests": [
-        "验证按钮组",
-        "验证选择后图表更新",
-        "截图记录"
+        "Verify button group",
+        "Verify chart updates after selection",
+        "Screenshot record"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "用于 Prometheus range query",
+      "notes": "For Prometheus range query",
       "retryCount": 0,
       "backendRequired": false,
       "mockRequired": false,
@@ -261,19 +261,19 @@
       "id": "METRICS-008",
       "category": "component",
       "priority": "medium",
-      "name": "自动刷新控制",
-      "description": "控制仪表板自动刷新间隔",
+      "name": "Auto Refresh Control",
+      "description": "Control dashboard auto refresh interval",
       "codeTests": [
-        "验证 useAutoRefresh hook",
-        "验证定时器逻辑"
+        "Verify useAutoRefresh hook",
+        "Verify timer logic"
       ],
       "browserTests": [
-        "验证刷新间隔选择",
-        "验证暂停/恢复"
+        "Verify refresh interval selection",
+        "Verify pause/resume"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "默认 5 秒，支持 5s/10s/30s/1m",
+      "notes": "Default 5 seconds, supports 5s/10s/30s/1m",
       "retryCount": 0,
       "backendRequired": false,
       "mockRequired": false,
@@ -286,21 +286,21 @@
       "id": "METRICS-009",
       "category": "page",
       "priority": "high",
-      "name": "Metrics 页面布局",
-      "description": "整合所有组件的 Metrics 页面主布局",
+      "name": "Metrics Page Layout",
+      "description": "Main layout of Metrics page integrating all components",
       "codeTests": [
-        "验证 MetricsPage 组件",
-        "验证布局结构"
+        "Verify MetricsPage component",
+        "Verify layout structure"
       ],
       "browserTests": [
-        "导航到 /metrics",
-        "验证所有组件渲染",
-        "验证响应式布局",
-        "截图记录"
+        "Navigate to /metrics",
+        "Verify all components render",
+        "Verify responsive layout",
+        "Screenshot record"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "包含 Grafana iframe + 自定义图表",
+      "notes": "Includes Grafana iframe + custom charts",
       "retryCount": 0,
       "backendRequired": false,
       "mockRequired": true,
@@ -316,18 +316,18 @@
       "id": "METRICS-010",
       "category": "api",
       "priority": "high",
-      "name": "Mock Prometheus 数据",
-      "description": "创建 Prometheus API mock 响应数据，用于开发和测试",
+      "name": "Mock Prometheus Data",
+      "description": "Create Prometheus API mock response data for development and testing",
       "codeTests": [
-        "验证 mock 函数",
-        "验证数据格式符合 Prometheus API 规范"
+        "Verify mock functions",
+        "Verify data format conforms to Prometheus API specification"
       ],
       "browserTests": [
-        "验证组件能消费 mock 数据"
+        "Verify components can consume mock data"
       ],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "模拟 Prometheus HTTP API 响应格式",
+      "notes": "Simulate Prometheus HTTP API response format",
       "retryCount": 0,
       "backendRequired": false,
       "mockRequired": true,
@@ -356,23 +356,23 @@
       "id": "METRICS-011",
       "category": "config",
       "priority": "low",
-      "name": "Grafana Dashboard 配置",
-      "description": "文档说明如何配置 Grafana Dashboard",
+      "name": "Grafana Dashboard Configuration",
+      "description": "Documentation explaining how to configure Grafana Dashboard",
       "codeTests": [],
       "browserTests": [],
       "passes": true,
       "lastTested": "2026-02-19",
-      "notes": "参考 deploy/quick-monitor.yaml 中的 Grafana 部署配置",
+      "notes": "Refer to Grafana deployment configuration in deploy/quick-monitor.yaml",
       "retryCount": 0,
       "backendRequired": true,
       "mockRequired": false,
       "implementation": {
         "file": "docs/grafana-setup.md",
         "content": [
-          "部署 Grafana: kubectl apply -f deploy/quick-monitor.yaml",
-          "访问 Grafana: http://localhost:30092 (admin/admin)",
-          "添加 Prometheus 数据源: http://prometheus:9090",
-          "导入 Dashboard: 创建 Kuro Dashboard"
+          "Deploy Grafana: kubectl apply -f deploy/quick-monitor.yaml",
+          "Access Grafana: http://localhost:30092 (admin/admin)",
+          "Add Prometheus data source: http://prometheus:9090",
+          "Import Dashboard: Create Kuro Dashboard"
         ]
       }
     }
@@ -380,27 +380,27 @@
   "developmentOrder": [
     {
       "phase": 1,
-      "name": "基础设施",
+      "name": "Infrastructure",
       "features": ["METRICS-010", "METRICS-002", "METRICS-007", "METRICS-008"],
-      "description": "创建 Mock 数据、Prometheus 客户端、基础组件"
+      "description": "Create Mock data, Prometheus client, basic components"
     },
     {
       "phase": 2,
-      "name": "核心图表",
+      "name": "Core Charts",
       "features": ["METRICS-003", "METRICS-004", "METRICS-005"],
-      "description": "实现带宽、延迟、丢包图表"
+      "description": "Implement bandwidth, latency, packet loss charts"
     },
     {
       "phase": 3,
-      "name": "页面集成",
+      "name": "Page Integration",
       "features": ["METRICS-006", "METRICS-009"],
-      "description": "整合所有组件到 Metrics 页面"
+      "description": "Integrate all components into Metrics page"
     },
     {
       "phase": 4,
-      "name": "Grafana 集成",
+      "name": "Grafana Integration",
       "features": ["METRICS-001", "METRICS-011"],
-      "description": "嵌入 Grafana iframe（需要后端支持）"
+      "description": "Embed Grafana iframe (requires backend support)"
     }
   ],
   "backendEndpoints": {
