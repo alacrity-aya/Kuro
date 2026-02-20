@@ -19,6 +19,9 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -42,6 +45,11 @@ type ControllerManager struct {
 
 	k8sClient  client.Client
 	grpcServer *grpc.Server
+
+	// Resync mechanism: batch + debounce to avoid API storm on Controller restart
+	resyncQueue    chan string   // Node names pending resync
+	resyncPending  sync.Map      // Dedup: nodeName -> bool (in queue or not)
+	resyncDebounce time.Duration // Debounce interval
 }
 
 func NewControllerManager(grpcPort, httpPort int, metricsAddr string) *ControllerManager {
@@ -50,10 +58,12 @@ func NewControllerManager(grpcPort, httpPort int, metricsAddr string) *Controlle
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 
 	return &ControllerManager{
-		grpcPort:    grpcPort,
-		httpPort:    httpPort,
-		metricsAddr: metricsAddr,
-		scheme:      scheme,
+		grpcPort:       grpcPort,
+		httpPort:       httpPort,
+		metricsAddr:    metricsAddr,
+		scheme:         scheme,
+		resyncQueue:    make(chan string, 1000), // Buffer for 1000 nodes
+		resyncDebounce: 2 * time.Second,         // Wait 2s to collect reconnecting nodes
 	}
 }
 
@@ -116,7 +126,7 @@ func (c *ControllerManager) Run(ctx context.Context) error {
 		}
 	}
 
-	errCh := make(chan error, 3)
+	errCh := make(chan error, 4)
 
 	// 1. Start gRPC Server (Goroutine)
 	go func() {
@@ -141,6 +151,12 @@ func (c *ControllerManager) Run(ctx context.Context) error {
 		if err := c.k8sManager.Start(ctx); err != nil {
 			errCh <- fmt.Errorf("K8s manager failed: %w", err)
 		}
+	}()
+
+	// 4. Start Resync Worker (batch + debounce to avoid API storm)
+	go func() {
+		log.Printf("[Controller] Starting Resync Worker")
+		c.startResyncWorker(ctx)
 	}()
 
 	// Wait for error or context cancellation
@@ -182,44 +198,154 @@ func (c *ControllerManager) RegisterAgent(nodeName string, sender domain.AgentSe
 	c.activeAgents.Store(nodeName, sender)
 	log.Printf("[Controller] Agent Registered: %s", nodeName)
 
-	// NEW: Actively trigger Reconcile to re-dispatch rules after Agent reconnects
-	// We need to fetch all relevant TrafficControl rules and trigger a Reconcile.
-	// Since manually creating ReconcileRequests in ControllerManager is complex,
-	// a simple approach is to update the TrafficControl Annotations or invoke dispatch logic in memory.
-
-	// Simplest implementation (without architectural changes):
-	// Traverse all TrafficControls; if Source or Destination is on this Node, re-run Reconcile.
-	go c.triggerResyncForNode(nodeName)
+	// Enqueue for batch resync (avoids API storm on Controller restart)
+	c.enqueueResync(nodeName)
 }
 
-// FIXME:
-// issue in triggerResyncForNode: When an Agent connects, you traverse ALL TrafficControl objects and patch them.
-// Scenario: Suppose you have 50 TrafficControl rules and a 100-node cluster.
-// If the Controller restarts, 100 nodes reconnect simultaneously.
-// Consequence: Instantly triggers 50 * 100 = 5000 K8s API Patch requests.
-// This triggers K8s Throttling, potentially overloads the API Server, and the Reconcile queue explodes.
-func (c *ControllerManager) triggerResyncForNode(nodeName string) {
-	ctx := context.Background()
-	var tcList v1alpha1.TrafficControlList
-	if err := c.k8sClient.List(ctx, &tcList); err != nil {
-		log.Printf("Failed to list TrafficControls for resync: %v", err)
+// enqueueResync adds a node to the resync queue with deduplication
+func (c *ControllerManager) enqueueResync(nodeName string) {
+	// Dedup: skip if already pending
+	if _, exists := c.resyncPending.LoadOrStore(nodeName, true); exists {
 		return
 	}
 
-	for _, tc := range tcList.Items {
-		// Simple trigger mechanism: Add an annotation to force a Generation change.
-		// Alternatively, a more elegant way is using the EventChannel mechanism to notify the Reconciler.
-		// For simplicity, and to avoid frequent API Server writes,
-		// Recommendation: Reuse the traffic_controller logic directly (though this requires refactoring).
-
-		// "Quick and dirty" method: Add a timestamp Annotation to the CRD to force Update -> Reconcile
-		patch := client.MergeFrom(tc.DeepCopy())
-		if tc.Annotations == nil {
-			tc.Annotations = make(map[string]string)
-		}
-		tc.Annotations["kuro.io/resync-trigger"] = time.Now().String()
-		c.k8sClient.Patch(ctx, &tc, patch)
+	select {
+	case c.resyncQueue <- nodeName:
+	default:
+		log.Printf("[Controller] Warning: resync queue full, dropping %s", nodeName)
+		c.resyncPending.Delete(nodeName)
 	}
+}
+
+// startResyncWorker runs the background worker that processes resync requests in batches
+func (c *ControllerManager) startResyncWorker(ctx context.Context) {
+	batch := make([]string, 0, 100)
+	timer := time.NewTimer(c.resyncDebounce)
+	defer timer.Stop()
+
+	for {
+		select {
+		case nodeName := <-c.resyncQueue:
+			batch = append(batch, nodeName)
+			// Process immediately if batch is large enough
+			if len(batch) >= 100 {
+				c.processResyncBatch(ctx, batch)
+				batch = batch[:0]
+				timer.Reset(c.resyncDebounce)
+			}
+
+		case <-timer.C:
+			if len(batch) > 0 {
+				c.processResyncBatch(ctx, batch)
+				batch = batch[:0]
+			}
+			timer.Reset(c.resyncDebounce)
+
+		case <-ctx.Done():
+			// Process remaining batch before exit
+			if len(batch) > 0 {
+				c.processResyncBatch(ctx, batch)
+			}
+			return
+		}
+	}
+}
+
+// processResyncBatch processes a batch of nodes: fetches TrafficControls once and dispatches to all nodes
+func (c *ControllerManager) processResyncBatch(ctx context.Context, nodes []string) {
+	if len(nodes) == 0 {
+		return
+	}
+
+	log.Printf("[Controller] Processing resync batch for %d nodes", len(nodes))
+
+	// 1. Fetch all TrafficControls (only once for the entire batch)
+	var tcList v1alpha1.TrafficControlList
+	if err := c.k8sClient.List(ctx, &tcList); err != nil {
+		log.Printf("[Controller] Failed to list TrafficControls for resync: %v", err)
+		return
+	}
+
+	// 2. Fetch all Pods to build IP -> NodeName mapping
+	var podList corev1.PodList
+	if err := c.k8sClient.List(ctx, &podList, client.InNamespace("kuro-experiment")); err != nil {
+		log.Printf("[Controller] Failed to list Pods for resync: %v", err)
+		return
+	}
+
+	// 3. Build node -> pods mapping
+	nodePods := make(map[string][]corev1.Pod)
+	for _, pod := range podList.Items {
+		if pod.Status.PodIP != "" && pod.Spec.NodeName != "" {
+			nodePods[pod.Spec.NodeName] = append(nodePods[pod.Spec.NodeName], pod)
+		}
+	}
+
+	// 4. For each TrafficControl, dispatch to relevant nodes
+	for _, tc := range tcList.Items {
+		if tc.DeletionTimestamp != nil {
+			continue
+		}
+
+		// Parse policy once
+		policyTemplate, err := k8s.ParseLinkPolicy(
+			tc.Spec.Policy.Bandwidth,
+			tc.Spec.Policy.Latency,
+			tc.Spec.Policy.Jitter,
+			tc.Spec.Policy.PacketLoss,
+		)
+		if err != nil {
+			continue
+		}
+
+		// Find relevant nodes for this TrafficControl
+		srcSelector, _ := metav1.LabelSelectorAsSelector(&tc.Spec.Source)
+		dstSelector, _ := metav1.LabelSelectorAsSelector(&tc.Spec.Destination)
+
+		for _, nodeName := range nodes {
+			pods, ok := nodePods[nodeName]
+			if !ok {
+				continue
+			}
+
+			// Dispatch policies for pods on this node
+			for _, srcPod := range pods {
+				if srcPod.Status.PodIP == "" {
+					continue
+				}
+				if !srcSelector.Matches(labels.Set(srcPod.Labels)) {
+					continue
+				}
+
+				linkPolicy := policyTemplate
+				linkPolicy.SrcIP = srcPod.Status.PodIP
+
+				// Find destination pods
+				for _, dstPod := range podList.Items {
+					if dstPod.Status.PodIP == "" {
+						continue
+					}
+					if !dstSelector.Matches(labels.Set(dstPod.Labels)) {
+						continue
+					}
+
+					linkPolicy.DstIP = dstPod.Status.PodIP
+
+					// Send to Agent
+					if _, err := c.SendCommand(nodeName, tc.Name, linkPolicy); err != nil {
+						log.Printf("[Controller] Failed to dispatch policy to %s: %v", nodeName, err)
+					}
+				}
+			}
+		}
+	}
+
+	// 5. Clear pending flags
+	for _, nodeName := range nodes {
+		c.resyncPending.Delete(nodeName)
+	}
+
+	log.Printf("[Controller] Resync batch completed for %d nodes", len(nodes))
 }
 
 func (c *ControllerManager) UnregisterAgent(nodeName string) {
