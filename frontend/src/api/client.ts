@@ -1,5 +1,5 @@
-// Mock API Client for Kuro
-// All API calls return mock data, simulating async network requests
+// Kuro API Client
+// Supports both mock and real API backends based on VITE_USE_MOCK_API
 
 import type {
   KuroApiClient,
@@ -22,7 +22,11 @@ import {
   generateLinkMetricsHistory,
 } from './mock';
 
-// Simulate network delay
+// Environment configuration
+const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API !== 'false'; // Default to mock
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Simulate network delay (for mock)
 const delay = (ms: number = 100) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ============================================================================
@@ -313,10 +317,129 @@ function randomUuid(): string {
 }
 
 // ============================================================================
+// Real API Client Implementation
+// ============================================================================
+
+class RealKuroApiClient implements KuroApiClient {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown
+  ): Promise<ApiResponse<T>> {
+    const url = `${API_BASE_URL}${path}`;
+    const options: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    try {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      return data as ApiResponse<T>;
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error',
+      };
+    }
+  }
+
+  // =========================================================================
+  // Topology Operations
+  // =========================================================================
+
+  async listTopologies(namespace: string = 'default'): Promise<ApiResponse<ListResult<NetworkTopology>>> {
+    return this.request<ListResult<NetworkTopology>>('GET', `/namespaces/${namespace}/networktopologies`);
+  }
+
+  async getTopology(name: string, namespace: string = 'default'): Promise<ApiResponse<NetworkTopology>> {
+    return this.request<NetworkTopology>('GET', `/namespaces/${namespace}/networktopologies/${name}`);
+  }
+
+  async createTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>> {
+    const body = {
+      name: topology.metadata.name,
+      labels: topology.metadata.labels,
+      spec: topology.spec,
+    };
+    return this.request<NetworkTopology>('POST', `/namespaces/${topology.metadata.namespace}/networktopologies`, body);
+  }
+
+  async deleteTopology(name: string, namespace: string = 'default'): Promise<ApiResponse<void>> {
+    return this.request<void>('DELETE', `/namespaces/${namespace}/networktopologies/${name}`);
+  }
+
+  // =========================================================================
+  // TrafficControl Operations
+  // =========================================================================
+
+  async listTrafficControls(namespace: string = 'default'): Promise<ApiResponse<ListResult<TrafficControl>>> {
+    return this.request<ListResult<TrafficControl>>('GET', `/namespaces/${namespace}/trafficcontrols`);
+  }
+
+  async getTrafficControl(name: string, namespace: string = 'default'): Promise<ApiResponse<TrafficControl>> {
+    return this.request<TrafficControl>('GET', `/namespaces/${namespace}/trafficcontrols/${name}`);
+  }
+
+  async createTrafficControl(tc: TrafficControl): Promise<ApiResponse<TrafficControl>> {
+    const body = {
+      name: tc.metadata.name,
+      labels: tc.metadata.labels,
+      spec: tc.spec,
+    };
+    return this.request<TrafficControl>('POST', `/namespaces/${tc.metadata.namespace}/trafficcontrols`, body);
+  }
+
+  async updateTrafficControl(tc: TrafficControl): Promise<ApiResponse<TrafficControl>> {
+    const body = { spec: tc.spec };
+    return this.request<TrafficControl>('PUT', `/namespaces/${tc.metadata.namespace}/trafficcontrols/${tc.metadata.name}`, body);
+  }
+
+  async deleteTrafficControl(name: string, namespace: string = 'default'): Promise<ApiResponse<void>> {
+    return this.request<void>('DELETE', `/namespaces/${namespace}/trafficcontrols/${name}`);
+  }
+
+  // =========================================================================
+  // Topology Visualization
+  // =========================================================================
+
+  async getTopologyNodes(topologyName: string, namespace: string = 'default'): Promise<ApiResponse<TopologyNode[]>> {
+    return this.request<TopologyNode[]>('GET', `/namespaces/${namespace}/topologies/${topologyName}/nodes`);
+  }
+
+  async getTopologyLinks(topologyName: string, namespace: string = 'default'): Promise<ApiResponse<TopologyLink[]>> {
+    return this.request<TopologyLink[]>('GET', `/namespaces/${namespace}/topologies/${topologyName}/links`);
+  }
+
+  // =========================================================================
+  // Metrics
+  // =========================================================================
+
+  async getNodeMetrics(nodeId: string): Promise<ApiResponse<NodeMetrics>> {
+    // TODO: Implement real metrics endpoint when available
+    return { success: false, error: 'Metrics API not implemented' };
+  }
+
+  async getLinkMetrics(linkId: string): Promise<ApiResponse<LinkMetricsHistory>> {
+    // TODO: Implement real metrics endpoint when available
+    return { success: false, error: 'Metrics API not implemented' };
+  }
+}
+
+// ============================================================================
 // Export Singleton Instance
 // ============================================================================
 
-export const apiClient: KuroApiClient = new MockKuroApiClient();
+// Use mock or real API based on environment variable
+export const apiClient: KuroApiClient = USE_MOCK_API 
+  ? new MockKuroApiClient() 
+  : new RealKuroApiClient();
 
-// Also export the class for testing
-export { MockKuroApiClient };
+// Also export classes for testing
+export { MockKuroApiClient, RealKuroApiClient };

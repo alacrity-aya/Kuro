@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useCallback, useRef, useMemo, useState } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
@@ -245,6 +245,7 @@ function LinkDetailPanel() {
 
 function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: TopologyDetailProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const hasLoadedRef = useRef(false);
   
   // Get state from store - using batch selectors for better performance
   const { 
@@ -280,19 +281,26 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   // Get computed stats (use original nodes for total stats)
   const stats = useTopologyStats();
   
-  // TSN State - use useMemo for derived state to avoid re-renders
+  // TSN State - memoize with stable keys to prevent re-generation
   const tsnState = useMemo<TsnState>(() => {
     if (links.length > 0 && nodes.length > 0) {
+      // Use sorted IDs to ensure deterministic results
+      const sortedLinks = [...links].sort((a, b) => a.id.localeCompare(b.id));
+      const sortedNodes = [...nodes].sort((a, b) => a.id.localeCompare(b.id));
       return {
-        schedule: generateMockTsnSchedule(links),
-        syncStatuses: generateMockTimeSyncStatuses(nodes),
+        schedule: generateMockTsnSchedule(sortedLinks),
+        syncStatuses: generateMockTimeSyncStatuses(sortedNodes),
       };
     }
     return { schedule: null, syncStatuses: [] };
-  }, [links, nodes]);
+  }, [links.length, nodes.length, links.map(l => l.id).join(','), nodes.map(n => n.id).join(',')]);
 
-  // Load topology data
+  // Load topology data only once
   useEffect(() => {
+    // Prevent multiple loads
+    if (hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
+
     async function loadTopologyData() {
       await Promise.all([
         actions.fetchTopology(topologyName, namespace),
@@ -303,7 +311,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
     }
 
     loadTopologyData();
-  }, [topologyName, namespace, actions]);
+  }, [topologyName, namespace]); // Only depend on topologyName and namespace
 
   // Handle node click
   const handleNodeClick = useCallback((node: typeof nodes[0]) => {
