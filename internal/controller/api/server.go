@@ -165,7 +165,8 @@ func (s *HTTPServer) getNetworkTopology(w http.ResponseWriter, r *http.Request) 
 		if errors.IsNotFound(err) {
 			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
 		} else {
-			s.respondError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[API] Failed to get NetworkTopology %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get NetworkTopology")
 		}
 		return
 	}
@@ -183,6 +184,26 @@ func (s *HTTPServer) createNetworkTopology(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Input validation
+	if req.Name == "" {
+		s.respondError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	for i, ng := range req.Spec.NodeGroups {
+		if ng.Name == "" {
+			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("nodeGroups[%d].name is required", i))
+			return
+		}
+		if ng.Image == "" {
+			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("nodeGroups[%d].image is required", i))
+			return
+		}
+		if ng.Replicas < 0 {
+			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("nodeGroups[%d].replicas must be >= 0", i))
+			return
+		}
+	}
+
 	// Build CRD object
 	topo := &v1alpha1.NetworkTopology{
 		ObjectMeta: metav1.ObjectMeta{
@@ -196,8 +217,8 @@ func (s *HTTPServer) createNetworkTopology(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.manager.GetK8sClient().Create(r.Context(), topo); err != nil {
-		log.Printf("[API] Failed to create NetworkTopology: %v", err)
-		s.respondError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("[API] Failed to create NetworkTopology %s: %v", req.Name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to create NetworkTopology")
 		return
 	}
 
@@ -220,7 +241,8 @@ func (s *HTTPServer) deleteNetworkTopology(w http.ResponseWriter, r *http.Reques
 		if errors.IsNotFound(err) {
 			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
 		} else {
-			s.respondError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[API] Failed to delete NetworkTopology %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to delete NetworkTopology")
 		}
 		return
 	}
