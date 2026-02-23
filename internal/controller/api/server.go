@@ -266,27 +266,168 @@ func convertNodeGroups(groups []NodeGroupRequest) []v1alpha1.NodeGroup {
 }
 
 // =============================================================
-// TrafficControl Handlers (stubs - to be implemented)
+// TrafficControl Handlers
 // =============================================================
 
+// GET /api/v1/namespaces/{namespace}/trafficcontrols
 func (s *HTTPServer) listTrafficControls(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+
+	list := &v1alpha1.TrafficControlList{}
+	opts := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+
+	if labelSelector := getQueryParam(r, "labelSelector", ""); labelSelector != "" {
+		selector, err := labels.Parse(labelSelector)
+		if err != nil {
+			s.respondError(w, http.StatusBadRequest, "invalid label selector: "+err.Error())
+			return
+		}
+		opts = append(opts, client.MatchingLabelsSelector{Selector: selector})
+	}
+
+	if err := s.manager.GetK8sClient().List(r.Context(), list, opts...); err != nil {
+		log.Printf("[API] Failed to list TrafficControls: %v", err)
+		s.respondError(w, http.StatusInternalServerError, "failed to list TrafficControls")
+		return
+	}
+
+	s.respondSuccess(w, domain.ListResult{
+		Items:      list.Items,
+		TotalCount: len(list.Items),
+	})
 }
 
+// GET /api/v1/namespaces/{namespace}/trafficcontrols/{name}
 func (s *HTTPServer) getTrafficControl(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	tc := &v1alpha1.TrafficControl{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, tc); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "TrafficControl not found")
+		} else {
+			log.Printf("[API] Failed to get TrafficControl %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get TrafficControl")
+		}
+		return
+	}
+
+	s.respondSuccess(w, tc)
 }
 
+// POST /api/v1/namespaces/{namespace}/trafficcontrols
 func (s *HTTPServer) createTrafficControl(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+
+	var req TrafficControlCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Input validation
+	if req.Name == "" {
+		s.respondError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	tc := &v1alpha1.TrafficControl{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.Name,
+			Namespace: namespace,
+			Labels:    req.Labels,
+		},
+		Spec: v1alpha1.TrafficControlSpec{
+			Source:      req.Spec.Source,
+			Destination: req.Spec.Destination,
+			Policy: v1alpha1.LinkPolicySpec{
+				Bandwidth:  req.Spec.Policy.Bandwidth,
+				Latency:    req.Spec.Policy.Latency,
+				Jitter:     req.Spec.Policy.Jitter,
+				PacketLoss: req.Spec.Policy.PacketLoss,
+			},
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Create(r.Context(), tc); err != nil {
+		log.Printf("[API] Failed to create TrafficControl %s: %v", req.Name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to create TrafficControl")
+		return
+	}
+
+	s.respondCreated(w, tc)
 }
 
+// PUT /api/v1/namespaces/{namespace}/trafficcontrols/{name}
 func (s *HTTPServer) updateTrafficControl(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	var req TrafficControlUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Get existing object
+	tc := &v1alpha1.TrafficControl{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, tc); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "TrafficControl not found")
+		} else {
+			log.Printf("[API] Failed to get TrafficControl %s/%s for update: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get TrafficControl")
+		}
+		return
+	}
+
+	// Update Spec
+	tc.Spec.Source = req.Spec.Source
+	tc.Spec.Destination = req.Spec.Destination
+	tc.Spec.Policy = v1alpha1.LinkPolicySpec{
+		Bandwidth:  req.Spec.Policy.Bandwidth,
+		Latency:    req.Spec.Policy.Latency,
+		Jitter:     req.Spec.Policy.Jitter,
+		PacketLoss: req.Spec.Policy.PacketLoss,
+	}
+
+	if err := s.manager.GetK8sClient().Update(r.Context(), tc); err != nil {
+		log.Printf("[API] Failed to update TrafficControl %s/%s: %v", namespace, name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to update TrafficControl")
+		return
+	}
+
+	s.respondSuccess(w, tc)
 }
 
+// DELETE /api/v1/namespaces/{namespace}/trafficcontrols/{name}
 func (s *HTTPServer) deleteTrafficControl(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	tc := &v1alpha1.TrafficControl{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Delete(r.Context(), tc); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "TrafficControl not found")
+		} else {
+			log.Printf("[API] Failed to delete TrafficControl %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to delete TrafficControl")
+		}
+		return
+	}
+
+	s.respondSuccess(w, nil)
 }
 
 // =============================================================
