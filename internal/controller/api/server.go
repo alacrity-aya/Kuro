@@ -6,10 +6,11 @@ import (
 	"log"
 	"net/http"
 
-	"kuro/internal/domain"
-
+	"github.com/gorilla/mux"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"kuro/internal/domain"
 )
 
 type AgentManager interface {
@@ -31,18 +32,83 @@ func NewHTTPServer(manager AgentManager, port int) *HTTPServer {
 	}
 }
 
-func (s *HTTPServer) Run() error {
-	mux := http.NewServeMux()
+// respondJSON sends a JSON response with the given status code
+func (s *HTTPServer) respondJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
 
-	mux.HandleFunc("/api/v1/topology", s.handleGetTopology)
-	mux.HandleFunc("/api/v1/agents", s.handleListAgents)
-	mux.HandleFunc("/api/v1/policy/link", s.handleApplyLinkPolicy)
-	mux.HandleFunc("/api/v1/policy/pod", s.handleApplyPodPolicy)
-	mux.HandleFunc("/api/v1/policy/node", s.handleApplyNodePolicy)
+// respondSuccess sends a successful response
+func (s *HTTPServer) respondSuccess(w http.ResponseWriter, data any) {
+	s.respondJSON(w, http.StatusOK, domain.ApiResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
+// respondError sends an error response
+func (s *HTTPServer) respondError(w http.ResponseWriter, status int, message string) {
+	s.respondJSON(w, status, domain.ApiResponse{
+		Success: false,
+		Error:   message,
+	})
+}
+
+// respondCreated sends a 201 response with data
+func (s *HTTPServer) respondCreated(w http.ResponseWriter, data any) {
+	s.respondJSON(w, http.StatusCreated, domain.ApiResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
+// getPathParam extracts a path parameter from the request
+func getPathParam(r *http.Request, key string) string {
+	return mux.Vars(r)[key]
+}
+
+// getQueryParam extracts a query parameter with a default value
+func getQueryParam(r *http.Request, key, defaultValue string) string {
+	if v := r.URL.Query().Get(key); v != "" {
+		return v
+	}
+	return defaultValue
+}
+
+func (s *HTTPServer) Run() error {
+	r := mux.NewRouter()
+
+	// API v1 routes
+	api := r.PathPrefix("/api/v1").Subrouter()
+
+	// NetworkTopology CRUD
+	api.HandleFunc("/namespaces/{namespace}/networktopologies", s.listNetworkTopologies).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies", s.createNetworkTopology).Methods("POST")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.getNetworkTopology).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.deleteNetworkTopology).Methods("DELETE")
+
+	// TrafficControl CRUD
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols", s.listTrafficControls).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols", s.createTrafficControl).Methods("POST")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols/{name}", s.getTrafficControl).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols/{name}", s.updateTrafficControl).Methods("PUT")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols/{name}", s.deleteTrafficControl).Methods("DELETE")
+
+	// Topology Visualization
+	api.HandleFunc("/namespaces/{namespace}/topologies/{name}/nodes", s.getTopologyNodes).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/topologies/{name}/links", s.getTopologyLinks).Methods("GET")
+
+	// Legacy endpoints (for backward compatibility)
+	api.HandleFunc("/topology", s.handleGetTopology).Methods("GET")
+	api.HandleFunc("/agents", s.handleListAgents).Methods("GET")
+	api.HandleFunc("/policy/link", s.handleApplyLinkPolicy).Methods("POST")
+	api.HandleFunc("/policy/pod", s.handleApplyPodPolicy).Methods("POST")
+	api.HandleFunc("/policy/node", s.handleApplyNodePolicy).Methods("POST")
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.port),
-		Handler: mux,
+		Handler: r,
 	}
 
 	log.Printf("[API] HTTP Server listening on :%d", s.port)
@@ -50,16 +116,67 @@ func (s *HTTPServer) Run() error {
 }
 
 // =============================================================
-// Handlers
+// NetworkTopology Handlers (stubs - to be implemented)
+// =============================================================
+
+func (s *HTTPServer) listNetworkTopologies(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) getNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) createNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) deleteNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+// =============================================================
+// TrafficControl Handlers (stubs - to be implemented)
+// =============================================================
+
+func (s *HTTPServer) listTrafficControls(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) getTrafficControl(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) createTrafficControl(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) updateTrafficControl(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) deleteTrafficControl(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+// =============================================================
+// Topology Visualization Handlers (stubs - to be implemented)
+// =============================================================
+
+func (s *HTTPServer) getTopologyNodes(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+func (s *HTTPServer) getTopologyLinks(w http.ResponseWriter, r *http.Request) {
+	s.respondError(w, http.StatusNotImplemented, "not implemented")
+}
+
+// =============================================================
+// Legacy Handlers
 // =============================================================
 
 // 1. Get topology structure
 func (s *HTTPServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	k8sClient := s.manager.GetK8sClient()
 	if k8sClient == nil {
 		http.Error(w, "K8s client not initialized", http.StatusServiceUnavailable)
@@ -98,27 +215,18 @@ func (s *HTTPServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 		response.Nodes = append(response.Nodes, node)
 	}
 
-	s.jsonResponse(w, response)
+	s.respondSuccess(w, response)
 }
 
 func (s *HTTPServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	agents := s.manager.ListAgents()
-	s.jsonResponse(w, map[string]any{
+	s.respondSuccess(w, map[string]any{
 		"count": len(agents),
 		"nodes": agents,
 	})
 }
 
 func (s *HTTPServer) handleApplyLinkPolicy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		NodeName          string `json:"node_name"`
 		SrcIP             string `json:"src_ip"`
@@ -154,15 +262,10 @@ func (s *HTTPServer) handleApplyLinkPolicy(w http.ResponseWriter, r *http.Reques
 	}
 
 	log.Printf("[API] Applied LinkPolicy on %s", req.NodeName)
-	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
+	s.respondSuccess(w, map[string]string{"status": "ok", "command_id": cmdID})
 }
 
 func (s *HTTPServer) handleApplyPodPolicy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	type Rate struct {
 		Upload   uint64 `json:"upload"`
 		Download uint64 `json:"download"`
@@ -203,15 +306,10 @@ func (s *HTTPServer) handleApplyPodPolicy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
+	s.respondSuccess(w, map[string]string{"status": "ok", "command_id": cmdID})
 }
 
 func (s *HTTPServer) handleApplyNodePolicy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		NodeName          string `json:"node_name"`
 		IngressLimitBps   uint64 `json:"ingress_limit_bps"`
@@ -234,12 +332,5 @@ func (s *HTTPServer) handleApplyNodePolicy(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
-}
-
-func (s *HTTPServer) jsonResponse(w http.ResponseWriter, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("[API] Failed to encode response: %v", err)
-	}
+	s.respondSuccess(w, map[string]string{"status": "ok", "command_id": cmdID})
 }
