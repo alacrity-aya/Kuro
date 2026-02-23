@@ -54,8 +54,8 @@ type TrafficControlSpecRequest struct {
 
 // LinkPolicyRequest represents link policy in the request
 type LinkPolicyRequest struct {
-	Bandwidth  string `json:"bandwidth"`
-	Latency    string `json:"latency"`
-	Jitter     string `json:"jitter"`
-	PacketLoss string `json:"packetLoss"`
+	Bandwidth  string `json:"bandwidth,omitempty"`
+	Latency    string `json:"latency,omitempty"`
+	Jitter     string `json:"jitter,omitempty"`
+	PacketLoss string `json:"packetLoss,omitempty"`
 }
