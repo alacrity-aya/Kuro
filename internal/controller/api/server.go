@@ -334,6 +334,14 @@ func (s *HTTPServer) createTrafficControl(w http.ResponseWriter, r *http.Request
 		s.respondError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if len(req.Spec.Source.MatchLabels) == 0 && len(req.Spec.Source.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.source selector is required")
+		return
+	}
+	if len(req.Spec.Destination.MatchLabels) == 0 && len(req.Spec.Destination.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.destination selector is required")
+		return
+	}
 
 	tc := &v1alpha1.TrafficControl{
 		ObjectMeta: metav1.ObjectMeta{
@@ -370,6 +378,16 @@ func (s *HTTPServer) updateTrafficControl(w http.ResponseWriter, r *http.Request
 	var req TrafficControlUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Input validation
+	if len(req.Spec.Source.MatchLabels) == 0 && len(req.Spec.Source.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.source selector is required")
+		return
+	}
+	if len(req.Spec.Destination.MatchLabels) == 0 && len(req.Spec.Destination.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.destination selector is required")
 		return
 	}
 
