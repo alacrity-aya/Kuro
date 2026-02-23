@@ -58,9 +58,22 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
     }
   };
 
-  const handleDeleteTopology = (name: string, namespace: string) => {
-    console.log('Delete topology:', name, namespace);
-    // TODO: Implement delete confirmation modal
+  const handleDeleteTopology = async (name: string, namespace: string) => {
+    if (!window.confirm(`Are you sure you want to delete topology "${name}"?`)) {
+      return;
+    }
+    
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.deleteTopology(name, namespace);
+      if (response.success) {
+        fetchTopologies();
+      } else {
+        console.error('Failed to delete topology:', response.error);
+      }
+    } catch (err) {
+      console.error('Failed to delete topology:', err);
+    }
   };
 
   const handleViewTopology = (name: string, namespace: string) => {
