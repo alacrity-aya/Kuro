@@ -12,6 +12,7 @@ import type { Node, Edge } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
 import type { NetworkTopology, NodeGroup } from '../types/api';
+import { apiClient } from '../api/client';
 import './TopologyCreate.css';
 
 // Default YAML template
@@ -187,6 +188,8 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
   const [error, setError] = useState<string | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Parse YAML and update preview
   const updatePreview = useCallback((content: string) => {
@@ -238,13 +241,30 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
   };
 
   // Handle create button
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (topology && !error) {
       const name = topology.metadata.name;
       const namespace = topology.metadata.namespace || 'default';
-      console.log('Creating topology:', topology);
-      // In real implementation, this would call the API
-      onCreated?.(name, namespace);
+      
+      setCreating(true);
+      setCreateError(null);
+      
+      try {
+        const response = await apiClient.createTopology(topology);
+        
+        if (response.success) {
+          console.log('Topology created successfully:', response.data);
+          onCreated?.(name, namespace);
+        } else {
+          setCreateError(response.error || 'Failed to create topology');
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        setCreateError(errorMessage);
+        console.error('Failed to create topology:', err);
+      } finally {
+        setCreating(false);
+      }
     }
   };
 
@@ -257,15 +277,15 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
       <div className="create-header">
         <h2>Create Topology</h2>
         <div className="create-actions">
-          <button className="btn-secondary" onClick={onCancel}>
+          <button className="btn-secondary" onClick={onCancel} disabled={creating}>
             Cancel
           </button>
           <button 
             className="btn-primary" 
             onClick={handleCreate}
-            disabled={!!error || !topology}
+            disabled={!!error || !topology || creating}
           >
-            Create Topology
+            {creating ? 'Creating...' : 'Create Topology'}
           </button>
         </div>
       </div>
@@ -274,6 +294,13 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
         <div className="error-banner">
           <span className="error-icon">⚠</span>
           <span className="error-message">{error}</span>
+        </div>
+      )}
+
+      {createError && (
+        <div className="error-banner">
+          <span className="error-icon">❌</span>
+          <span className="error-message">{createError}</span>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useMemo, useState } from 'react';
+import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';

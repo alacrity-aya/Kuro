@@ -421,12 +421,12 @@ class RealKuroApiClient implements KuroApiClient {
   // Metrics
   // =========================================================================
 
-  async getNodeMetrics(nodeId: string): Promise<ApiResponse<NodeMetrics>> {
+  async getNodeMetrics(_nodeId: string): Promise<ApiResponse<NodeMetrics>> {
     // TODO: Implement real metrics endpoint when available
     return { success: false, error: 'Metrics API not implemented' };
   }
 
-  async getLinkMetrics(linkId: string): Promise<ApiResponse<LinkMetricsHistory>> {
+  async getLinkMetrics(_linkId: string): Promise<ApiResponse<LinkMetricsHistory>> {
     // TODO: Implement real metrics endpoint when available
     return { success: false, error: 'Metrics API not implemented' };
   }
