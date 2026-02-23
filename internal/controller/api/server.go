@@ -144,7 +144,7 @@ func (s *HTTPServer) listNetworkTopologies(w http.ResponseWriter, r *http.Reques
 
 	if err := s.manager.GetK8sClient().List(r.Context(), list, opts...); err != nil {
 		log.Printf("[API] Failed to list NetworkTopologies: %v", err)
-		s.respondError(w, http.StatusInternalServerError, err.Error())
+		s.respondError(w, http.StatusInternalServerError, "failed to list NetworkTopologies")
 		return
 	}
 
