@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	corev1 "k8s.io/api/core/v1"
@@ -449,15 +450,156 @@ func (s *HTTPServer) deleteTrafficControl(w http.ResponseWriter, r *http.Request
 }
 
 // =============================================================
-// Topology Visualization Handlers (stubs - to be implemented)
+// Topology Visualization Handlers
 // =============================================================
 
+// GET /api/v1/namespaces/{namespace}/topologies/{name}/nodes
 func (s *HTTPServer) getTopologyNodes(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+	topoName := getPathParam(r, "name")
+
+	// 1. Get NetworkTopology CRD
+	topo := &v1alpha1.NetworkTopology{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: topoName}, topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			log.Printf("[API] Failed to get NetworkTopology %s/%s: %v", namespace, topoName, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get NetworkTopology")
+		}
+		return
+	}
+
+	// 2. Query Pods for each NodeGroup
+	nodes := []domain.TopologyNodeViz{}
+
+	for _, group := range topo.Spec.NodeGroups {
+		podList := &corev1.PodList{}
+		opts := []client.ListOption{
+			client.InNamespace(namespace),
+			client.MatchingLabels{
+				"kuro.io/topology":   topoName,
+				"kuro.io/node-group": group.Name,
+			},
+		}
+
+		if err := s.manager.GetK8sClient().List(r.Context(), podList, opts...); err != nil {
+			log.Printf("[API] Failed to list pods for group %s: %v", group.Name, err)
+			continue
+		}
+
+		// Determine role from group labels
+		role := determineRole(group.Labels)
+
+		for _, pod := range podList.Items {
+			node := domain.TopologyNodeViz{
+				ID:      string(pod.UID),
+				Name:    pod.Name,
+				Role:    role,
+				IP:      pod.Status.PodIP,
+				Labels:  pod.Labels,
+				Status:  strings.ToLower(string(pod.Status.Phase)),
+				GroupID: group.Name,
+			}
+			nodes = append(nodes, node)
+		}
+	}
+
+	s.respondSuccess(w, nodes)
 }
 
+// determineRole extracts role from labels
+func determineRole(lbls map[string]string) string {
+	if role, ok := lbls["role"]; ok {
+		return role
+	}
+	if app, ok := lbls["app"]; ok {
+		return app
+	}
+	return "custom"
+}
+
+// GET /api/v1/namespaces/{namespace}/topologies/{name}/links
 func (s *HTTPServer) getTopologyLinks(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+	topoName := getPathParam(r, "name")
+
+	// 1. Get all TrafficControls in namespace
+	tcList := &v1alpha1.TrafficControlList{}
+	if err := s.manager.GetK8sClient().List(r.Context(), tcList,
+		client.InNamespace(namespace)); err != nil {
+		log.Printf("[API] Failed to list TrafficControls: %v", err)
+		s.respondError(w, http.StatusInternalServerError, "failed to list TrafficControls")
+		return
+	}
+
+	// 2. Get all Pods in the topology
+	podList := &corev1.PodList{}
+	if err := s.manager.GetK8sClient().List(r.Context(), podList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{"kuro.io/topology": topoName}); err != nil {
+		log.Printf("[API] Failed to list pods for topology %s: %v", topoName, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to list pods")
+		return
+	}
+
+	// 3. Build Pod IP -> Pod mapping
+	podMap := make(map[string]corev1.Pod)
+	for _, pod := range podList.Items {
+		if pod.Status.PodIP != "" {
+			podMap[pod.Status.PodIP] = pod
+		}
+	}
+
+	// 4. Build links from TrafficControls
+	links := []domain.TopologyLink{}
+	linkID := 0
+
+	for _, tc := range tcList.Items {
+		srcSelector, err := metav1.LabelSelectorAsSelector(&tc.Spec.Source)
+		if err != nil {
+			continue
+		}
+		dstSelector, err := metav1.LabelSelectorAsSelector(&tc.Spec.Destination)
+		if err != nil {
+			continue
+		}
+
+		// Find all matching source and destination pairs
+		for srcIP, srcPod := range podMap {
+			if !srcSelector.Matches(labels.Set(srcPod.Labels)) {
+				continue
+			}
+
+			for dstIP, dstPod := range podMap {
+				if srcIP == dstIP {
+					continue
+				}
+				if !dstSelector.Matches(labels.Set(dstPod.Labels)) {
+					continue
+				}
+
+				link := domain.TopologyLink{
+					ID:       fmt.Sprintf("link-%d", linkID),
+					SourceID: string(srcPod.UID),
+					TargetID: string(dstPod.UID),
+					Policy: &domain.LinkPolicyViz{
+						Bandwidth:  tc.Spec.Policy.Bandwidth,
+						Latency:    tc.Spec.Policy.Latency,
+						Jitter:     tc.Spec.Policy.Jitter,
+						PacketLoss: tc.Spec.Policy.PacketLoss,
+					},
+					Status: "active",
+				}
+
+				links = append(links, link)
+				linkID++
+			}
+		}
+	}
+
+	s.respondSuccess(w, links)
 }
 
 // =============================================================
