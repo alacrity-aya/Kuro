@@ -93,8 +93,16 @@ func TestHandleGetTopology(t *testing.T) {
 	// 7. Verification
 	assert.Equal(t, http.StatusOK, rr.Code)
 
+	// Response is now wrapped in ApiResponse{success, data}
+	var apiResp domain.ApiResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &apiResp)
+	assert.NoError(t, err)
+	assert.True(t, apiResp.Success)
+
+	// Extract topology response from data
+	dataBytes, _ := json.Marshal(apiResp.Data)
 	var resp domain.TopologyResponse
-	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	err = json.Unmarshal(dataBytes, &resp)
 	assert.NoError(t, err)
 
 	// Should only return 1 node (drone-x1)
@@ -138,9 +146,16 @@ func TestHandleApplyLinkPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	mockMgr.AssertExpectations(t) // Ensure SendCommand was called correctly
 
-	// Verify returned JSON
+	// Response is now wrapped in ApiResponse{success, data}
+	var apiResp domain.ApiResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &apiResp)
+	assert.NoError(t, err)
+	assert.True(t, apiResp.Success)
+
+	// Verify returned data
+	dataBytes, _ := json.Marshal(apiResp.Data)
 	var resp map[string]string
-	json.Unmarshal(rr.Body.Bytes(), &resp)
+	json.Unmarshal(dataBytes, &resp)
 	assert.Equal(t, "ok", resp["status"])
 	assert.Equal(t, "cmd-uuid-123", resp["command_id"])
 }
@@ -158,8 +173,15 @@ func TestHandleListAgents(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 
+	// Response is now wrapped in ApiResponse{success, data}
+	var apiResp domain.ApiResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &apiResp)
+	assert.NoError(t, err)
+	assert.True(t, apiResp.Success)
+
+	dataBytes, _ := json.Marshal(apiResp.Data)
 	var resp map[string]any
-	json.Unmarshal(rr.Body.Bytes(), &resp)
+	json.Unmarshal(dataBytes, &resp)
 
 	// JSON number parsing defaults to float64
 	assert.Equal(t, 2.0, resp["count"])
