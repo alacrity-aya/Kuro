@@ -1,17 +1,16 @@
-//go:build bpf
-
 package test
 
 import (
 	"encoding/json"
 	"fmt"
-	"kuro/internal/agent/bpf"
 	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"testing"
 	"time"
+
+	"kuro/internal/agent/bpf"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
@@ -32,6 +31,7 @@ const SystemPort = "9100"
 func TestNetworkEmulation(t *testing.T) {
 	SetupTopology(t, NetEmTestConfig)
 	mgr := InitBPFManager(t)
+	mgr.StartBPFLogger()
 
 	nsHandle, _ := netns.GetFromName(NetEmTestConfig.NsName)
 	defer nsHandle.Close()
@@ -85,9 +85,12 @@ func TestNetworkEmulation(t *testing.T) {
 	// =========================================================================
 	// Test 2: Packet Loss Simulation (Using Iperf3 UDP)
 	// =========================================================================
-	t.Run("Sim_Packet_Loss", func(t *testing.T) {
-		lossPpm := uint32(200000) // 20% Packet Loss
+	t.Run("Sim_Packet_Loss_UDP", func(t *testing.T) {
+		lossPpm := uint32(200000)
 		expectedLossPercent := 20.0
+
+		stopServer := startIperfServer(t, NetEmTestConfig.IperfPort)
+		defer stopServer()
 
 		t.Logf(">>> Applying Loss Policy: %d ppm (%.0f%%)", lossPpm, expectedLossPercent)
 		policy := &bpf.NetworkPolicyConfig{
@@ -99,15 +102,47 @@ func TestNetworkEmulation(t *testing.T) {
 			t.Fatalf("SetPolicy failed: %v", err)
 		}
 
-		stats := RunPing(t, NetEmTestConfig.NsName, NetEmTestConfig.HostIP, 200)
-		t.Logf(">>> Ping Loss Result: %.1f%%", stats.LossPct)
+		t.Logf(">>> Running Iperf3 UDP to measure loss...")
+		stats := RunIperfUDPWithRetry(t, NetEmTestConfig.NsName, NetEmTestConfig.HostIP, NetEmTestConfig.IperfPort, "10M", 10)
 
-		if math.Abs(stats.LossPct-expectedLossPercent) > 7.0 {
-			t.Errorf("Loss Test Failed! Expected ~%.1f%%, Got %.1f%%", expectedLossPercent, stats.LossPct)
+		t.Logf(">>> Iperf UDP Loss Result: %.2f%% (Packets: %d, Lost: %d)",
+			stats.LostPercent, stats.Packets, stats.Lost)
+
+		tolerance := 5.0
+		if math.Abs(stats.LostPercent-expectedLossPercent) > tolerance {
+			t.Errorf("Loss Test Failed! Expected ~%.1f%%, Got %.2f%% (Tolerance: %.1f%%)",
+				expectedLossPercent, stats.LostPercent, tolerance)
 		} else {
-			t.Logf("[PASS] Loss Verified. Got %.1f%% loss", stats.LossPct)
+			t.Logf("[PASS] Loss Verified. Got %.2f%% loss", stats.LostPercent)
 		}
 	})
+
+	// // =========================================================================
+	// // Test 2: Packet Loss Simulation (Using Ping)
+	// // =========================================================================
+	// t.Run("Sim_Packet_Loss_Ping", func(t *testing.T) {
+	// 	lossPpm := uint32(200000) // 20% Packet Loss
+	// 	expectedLossPercent := 20.0
+	//
+	// 	t.Logf(">>> Applying Loss Policy: %d ppm (%.0f%%)", lossPpm, expectedLossPercent)
+	// 	policy := &bpf.NetworkPolicyConfig{
+	// 		BandwidthLimit:    0,
+	// 		CorruptionRatePpm: lossPpm,
+	// 	}
+	//
+	// 	if err := mgr.SetPolicy(NetEmTestConfig.PodIP, NetEmTestConfig.HostIP, policy); err != nil {
+	// 		t.Fatalf("SetPolicy failed: %v", err)
+	// 	}
+	//
+	// 	stats := RunPing(t, NetEmTestConfig.NsName, NetEmTestConfig.HostIP, 500)
+	// 	t.Logf(">>> Ping Loss Result: %.1f%%", stats.LossPct)
+	//
+	// 	if math.Abs(stats.LossPct-expectedLossPercent) > 8.0 {
+	// 		t.Errorf("Loss Test Failed! Expected ~%.1f%%, Got %.1f%%", expectedLossPercent, stats.LossPct)
+	// 	} else {
+	// 		t.Logf("[PASS] Loss Verified. Got %.1f%% loss", stats.LossPct)
+	// 	}
+	// })
 
 	// =========================================================================
 	// Test 3: System Port Bypass (Using Iperf3 UDP Bandwidth)
@@ -154,19 +189,45 @@ type UDPStats struct {
 	Lost        int
 }
 
+// RunIperfUDPWithRetry runs iperf3 UDP test with retry mechanism.
+// This is necessary because TCP control connection may be dropped due to packet loss policy.
+func RunIperfUDPWithRetry(t *testing.T, clientNs string, targetIP string, port string, bandwidth string, maxRetries int) UDPStats {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		stats := RunIperfUDP(t, clientNs, targetIP, port, bandwidth)
+
+		// If we got valid data (packets > 0), return immediately
+		if stats.Packets > 0 {
+			if attempt > 1 {
+				t.Logf(">>> Iperf succeeded on attempt %d", attempt)
+			}
+			return stats
+		}
+
+		// No packets received, likely TCP handshake failed
+		if attempt < maxRetries {
+			t.Logf(">>> Iperf attempt %d failed (no packets), retrying...", attempt)
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	// Return last result (will be empty/zero if all attempts failed)
+	return UDPStats{}
+}
+
 // RunIperfUDP runs iperf3 in UDP mode to measure Loss and Jitter
 func RunIperfUDP(t *testing.T, clientNs string, targetIP string, port string, bandwidth string) UDPStats {
 	var args []string
 	if clientNs != "" {
 		args = append(args, "ip", "netns", "exec", clientNs)
 	}
-	// -u: UDP, -b: Bandwidth, -l: Length (small packet to simulate generic traffic), -J: JSON
-	args = append(args, "iperf3", "-c", targetIP, "-p", port, "-u", "-b", bandwidth, "-t", "2", "-J")
+	// -u: UDP, -b: Bandwidth, -t: duration, -J: JSON
+	// --connect-timeout: shorter timeout for connection (default is very long)
+	args = append(args, "iperf3", "-c", targetIP, "-p", port, "-u", "-b", bandwidth, "-t", "1", "-J", "--connect-timeout", "3")
 
 	cmd := exec.Command(args[0], args[1:]...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Iperf UDP failed: %v\nOutput: %s", err, string(out))
+		t.Logf("[Warning] Iperf returned error (likely due to packet loss): %v", err)
 	}
 
 	var res struct {

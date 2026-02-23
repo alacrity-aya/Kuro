@@ -36,6 +36,8 @@ type BpfManager struct {
 	// programs map key is HostIfIndex.
 	programs map[int]*BpfProgram
 
+	bpfLogger *Logger
+
 	eth0EgressLink  link.Link
 	eth0IngressLink link.Link
 }
@@ -64,7 +66,7 @@ type BpfProgram struct {
 }
 
 // NewBpfManager loads the BPF programs and initializes global configurations.
-func NewBpfManager() (*BpfManager, error) {
+func NewBpfManager(enableLog bool) (*BpfManager, error) {
 	log.Println("[BPF] Starting NewBpfManager...")
 
 	objs := &TcObjects{}
@@ -100,6 +102,17 @@ func NewBpfManager() (*BpfManager, error) {
 	}
 
 	log.Println("[BPF] BpfManager initialized successfully.")
+
+	if enableLog {
+		log.Printf("[BPF] Setting up BPF Logger...")
+		bpfLogger, err := NewLogger(mgr.objects.LogRingbuf, nil)
+		if err != nil {
+			return nil, fmt.Errorf("setting up BPF logger: %w", err)
+		}
+
+		mgr.bpfLogger = bpfLogger
+	}
+
 	return mgr, nil
 }
 
@@ -769,6 +782,22 @@ func (m *BpfManager) Close() error {
 		m.eth0IngressLink.Close()
 	}
 
+	if m.bpfLogger != nil {
+		log.Println("[BPF] Closing BPF Logger...")
+		m.bpfLogger.Stop()
+	}
+
 	log.Println("[BPF] Closing BPF Objects...")
 	return m.objects.Close()
+}
+
+// StartBPFLogger starts the BPF logger if it is initialized. Logs will be printed to stdout.
+func (m *BpfManager) StartBPFLogger() {
+	if m.bpfLogger == nil {
+		log.Println("[BPF] BPF Logger is not initialized. Cannot start logger.")
+		return
+	}
+
+	log.Println("[BPF] Starting BPF Logger...")
+	m.bpfLogger.Start()
 }

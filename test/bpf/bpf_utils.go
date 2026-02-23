@@ -1,14 +1,15 @@
-//go:build bpf
-
 package test
 
 import (
 	"encoding/json"
 	"fmt"
-	"kuro/internal/agent/bpf"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
+
+	"kuro/internal/agent/bpf"
 )
 
 // Common constants
@@ -42,7 +43,15 @@ type TopologyConfig struct {
 // SetupTopology executes the shell script and registers cleanup
 func SetupTopology(t *testing.T, cfg TopologyConfig) {
 	t.Logf("[Setup] Initializing topology for Namespace: %s", cfg.NsName)
-	cmd := exec.Command("./test/bpf/setup_topology.sh",
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("[Setup] Failed to get current file path")
+	}
+	TopoScriptPath := filepath.Join(filepath.Dir(file), "setup_topology.sh")
+	CleanUpScriptPath := filepath.Join(filepath.Dir(file), "cleanup_topology.sh")
+
+	cmd := exec.Command(TopoScriptPath,
 		cfg.NsName, cfg.HostVeth, cfg.PodVeth,
 		cfg.PodIP+"/24", cfg.HostIP+"/24", cfg.IperfPort)
 
@@ -59,7 +68,7 @@ func SetupTopology(t *testing.T, cfg TopologyConfig) {
 		}
 		t.Logf("[Cleanup] Removing topology for %s...", cfg.NsName)
 		// Try to run the cleanup script first for graceful shutdown
-		cleanupCmd := exec.Command("./test/bpf/cleanup_topology.sh", cfg.NsName, cfg.HostVeth)
+		cleanupCmd := exec.Command(CleanUpScriptPath, cfg.NsName, cfg.HostVeth)
 		if out, err := cleanupCmd.CombinedOutput(); err != nil {
 			t.Logf("[Cleanup] Warning: Cleanup script error: %s", string(out))
 			// Fallback force delete
@@ -72,7 +81,7 @@ func SetupTopology(t *testing.T, cfg TopologyConfig) {
 // InitBPFManager creates a manager and ensures it's closed
 func InitBPFManager(t *testing.T) *bpf.BpfManager {
 	t.Log("[BPF] Initializing BPF Manager...")
-	mgr, err := bpf.NewBpfManager()
+	mgr, err := bpf.NewBpfManager(true)
 	if err != nil {
 		t.Fatalf("[BPF] Failed to create manager: %v", err)
 	}

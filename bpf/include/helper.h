@@ -13,13 +13,13 @@
 
 #define DEFAULT_EDT_HORIZON_NS (500ULL * 1000000ULL) // 500ms
 
-#define ENABLE_PRINT 0
-
-#if ENABLE_PRINT
-    #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
-#else
-    #define kuro_debug(fmt, ...)
-#endif
+// #define ENABLE_PRINT 1
+//
+// #if ENABLE_PRINT
+//     #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
+// #else
+//     #define kuro_debug(fmt, ...)
+// #endif
 
 static __always_inline void get_global_config(__u64* horizon) {
     __u32 key = 0;

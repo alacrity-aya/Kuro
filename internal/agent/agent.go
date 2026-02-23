@@ -15,7 +15,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-const hostInterface = "eth0"
+const (
+	hostInterface = "eth0"
+	enableBPFLog  = true
+)
 
 type Agent struct {
 	localWatcher *watch.LocalWatcher // Local Pod Watcher (for Netns management)
@@ -33,7 +36,7 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 		return nil, err
 	}
 
-	manager, err := bpf.NewBpfManager()
+	manager, err := bpf.NewBpfManager(enableBPFLog)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +100,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err := a.bpfManager.AttachNICEgress(hostInterface); err != nil {
 		log.Printf("[Agent] Warning: Failed to attach initial egress hook: %v", err)
 	}
+
+	a.bpfManager.StartBPFLogger()
 
 	// 4. Start Local Watcher
 	go func() {

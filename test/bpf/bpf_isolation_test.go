@@ -1,11 +1,10 @@
-//go:build bpf
-
 package test
 
 import (
-	"kuro/internal/agent/bpf"
 	"testing"
 	"time"
+
+	"kuro/internal/agent/bpf"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"

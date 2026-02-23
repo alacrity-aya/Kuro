@@ -1,12 +1,11 @@
-//go:build bpf
-
 package test
 
 import (
-	"kuro/internal/agent/bpf"
 	"os/exec"
 	"testing"
 	"time"
+
+	"kuro/internal/agent/bpf"
 )
 
 // Specific constants for Eth0 test
