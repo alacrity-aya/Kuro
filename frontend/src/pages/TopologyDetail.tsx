@@ -282,18 +282,19 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   const stats = useTopologyStats();
   
   // TSN State - memoize with stable keys to prevent re-generation
+  // Only regenerate when the actual IDs change, not on every render
+  const linksIdKey = useMemo(() => links.map(l => l.id).sort().join(','), [links]);
+  const nodesIdKey = useMemo(() => nodes.map(n => n.id).sort().join(','), [nodes]);
+  
   const tsnState = useMemo<TsnState>(() => {
     if (links.length > 0 && nodes.length > 0) {
-      // Use sorted IDs to ensure deterministic results
-      const sortedLinks = [...links].sort((a, b) => a.id.localeCompare(b.id));
-      const sortedNodes = [...nodes].sort((a, b) => a.id.localeCompare(b.id));
       return {
-        schedule: generateMockTsnSchedule(sortedLinks),
-        syncStatuses: generateMockTimeSyncStatuses(sortedNodes),
+        schedule: generateMockTsnSchedule(links),
+        syncStatuses: generateMockTimeSyncStatuses(nodes),
       };
     }
     return { schedule: null, syncStatuses: [] };
-  }, [links.length, nodes.length, links.map(l => l.id).join(','), nodes.map(n => n.id).join(',')]);
+  }, [links.length, nodes.length, linksIdKey, nodesIdKey]);
 
   // Load topology data only once
   useEffect(() => {

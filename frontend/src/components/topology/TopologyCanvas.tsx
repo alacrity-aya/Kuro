@@ -47,7 +47,7 @@ interface CustomEdgeData {
 }
 
 // ============================================================================
-// Constants
+// Constants - defined outside component to prevent React Flow warnings
 // ============================================================================
 
 const NODE_TYPES = {
