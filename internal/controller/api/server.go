@@ -8,8 +8,12 @@ import (
 
 	"github.com/gorilla/mux"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1alpha1 "kuro/api/crd/v1alpha1"
 	"kuro/internal/domain"
 )
 
@@ -116,23 +120,127 @@ func (s *HTTPServer) Run() error {
 }
 
 // =============================================================
-// NetworkTopology Handlers (stubs - to be implemented)
+// NetworkTopology Handlers
 // =============================================================
 
+// GET /api/v1/namespaces/{namespace}/networktopologies
 func (s *HTTPServer) listNetworkTopologies(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+
+	list := &v1alpha1.NetworkTopologyList{}
+	opts := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+
+	// Support label filtering
+	if labelSelector := getQueryParam(r, "labelSelector", ""); labelSelector != "" {
+		selector, err := labels.Parse(labelSelector)
+		if err != nil {
+			s.respondError(w, http.StatusBadRequest, "invalid label selector: "+err.Error())
+			return
+		}
+		opts = append(opts, client.MatchingLabelsSelector{Selector: selector})
+	}
+
+	if err := s.manager.GetK8sClient().List(r.Context(), list, opts...); err != nil {
+		log.Printf("[API] Failed to list NetworkTopologies: %v", err)
+		s.respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.respondSuccess(w, domain.ListResult{
+		Items:      list.Items,
+		TotalCount: len(list.Items),
+	})
 }
 
+// GET /api/v1/namespaces/{namespace}/networktopologies/{name}
 func (s *HTTPServer) getNetworkTopology(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	topo := &v1alpha1.NetworkTopology{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			s.respondError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	s.respondSuccess(w, topo)
 }
 
+// POST /api/v1/namespaces/{namespace}/networktopologies
 func (s *HTTPServer) createNetworkTopology(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+
+	var req NetworkTopologyCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Build CRD object
+	topo := &v1alpha1.NetworkTopology{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.Name,
+			Namespace: namespace,
+			Labels:    req.Labels,
+		},
+		Spec: v1alpha1.NetworkTopologySpec{
+			NodeGroups: convertNodeGroups(req.Spec.NodeGroups),
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Create(r.Context(), topo); err != nil {
+		log.Printf("[API] Failed to create NetworkTopology: %v", err)
+		s.respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.respondCreated(w, topo)
 }
 
+// DELETE /api/v1/namespaces/{namespace}/networktopologies/{name}
 func (s *HTTPServer) deleteNetworkTopology(w http.ResponseWriter, r *http.Request) {
-	s.respondError(w, http.StatusNotImplemented, "not implemented")
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	topo := &v1alpha1.NetworkTopology{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Delete(r.Context(), topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			s.respondError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	s.respondSuccess(w, nil)
+}
+
+// convertNodeGroups converts request node groups to CRD node groups
+func convertNodeGroups(groups []NodeGroupRequest) []v1alpha1.NodeGroup {
+	result := make([]v1alpha1.NodeGroup, len(groups))
+	for i, g := range groups {
+		result[i] = v1alpha1.NodeGroup{
+			Name:     g.Name,
+			Replicas: g.Replicas,
+			Image:    g.Image,
+			Command:  g.Command,
+			Labels:   g.Labels,
+		}
+	}
+	return result
 }
 
 // =============================================================
