@@ -30,7 +30,8 @@ interface TopologyState {
   selectedLink: TopologyLink | null;
   
   // UI State
-  sidebarCollapsed: boolean;
+  sidebarCollapsed: boolean;  // Main layout sidebar
+  detailSidebarCollapsed: boolean;  // Traffic Controls sidebar in TopologyDetail
   loading: boolean;
   error: string | null;
   
@@ -56,7 +57,8 @@ interface TopologyState {
   
   // Actions - UI
   toggleSidebar: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;  // Main layout sidebar
+  setDetailSidebarCollapsed: (collapsed: boolean) => void;  // Traffic Controls sidebar
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   
@@ -95,6 +97,7 @@ const initialState = {
   
   // UI State
   sidebarCollapsed: false,
+  detailSidebarCollapsed: false,  // Traffic Controls sidebar in TopologyDetail
   loading: false,
   error: null,
   
@@ -222,6 +225,10 @@ export const useTopologyStore = create<TopologyState>()(
         set({ sidebarCollapsed: collapsed });
       },
       
+      setDetailSidebarCollapsed: (collapsed) => {
+        set({ detailSidebarCollapsed: collapsed });
+      },
+      
       setLoading: (loading) => {
         set({ loading });
       },
@@ -297,6 +304,7 @@ export const useTopologyStore = create<TopologyState>()(
       // This reduces storage size and prevents stale data issues
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
+        detailSidebarCollapsed: state.detailSidebarCollapsed,
         tsnConfig: state.tsnConfig,
       }),
       // Migrate from older versions if needed
@@ -449,6 +457,7 @@ export function useTopologyUI() {
   return useTopologyStore(
     useShallow((state: TopologyState) => ({
       sidebarCollapsed: state.sidebarCollapsed,
+      detailSidebarCollapsed: state.detailSidebarCollapsed,
       localViewNodeId: state.localViewNodeId,
       tsnConfig: state.tsnConfig,
     }))
@@ -470,6 +479,7 @@ export function useTopologyActions() {
       selectLink: state.selectLink,
       clearSelection: state.clearSelection,
       setSidebarCollapsed: state.setSidebarCollapsed,
+      setDetailSidebarCollapsed: state.setDetailSidebarCollapsed,
       updateLinkPolicy: state.updateLinkPolicy,
       exitLocalView: state.exitLocalView,
       setTsnEnabled: state.setTsnEnabled,

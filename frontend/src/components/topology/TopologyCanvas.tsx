@@ -31,6 +31,7 @@ export interface TopologyCanvasProps {
   onNodeClick?: (node: TopologyNode) => void;
   onNodeDoubleClick?: (node: TopologyNode) => void;
   onEdgeClick?: (link: TopologyLink) => void;
+  onPaneClick?: () => void;
   onSelectionChange?: (nodeIds: string[], edgeIds: string[]) => void;
   fitView?: boolean;
   showMiniMap?: boolean;
@@ -164,6 +165,7 @@ function TopologyCanvas({
   onNodeClick,
   onNodeDoubleClick,
   onEdgeClick,
+  onPaneClick,
   onSelectionChange,
   fitView = true,
   showMiniMap = true,
@@ -275,6 +277,7 @@ function TopologyCanvas({
         onNodeClick={handleNodeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
         onEdgeClick={handleEdgeClick}
+        onPaneClick={onPaneClick}
         onSelectionChange={handleSelectionChange}
         nodeTypes={NODE_TYPES}
         fitView={fitView}

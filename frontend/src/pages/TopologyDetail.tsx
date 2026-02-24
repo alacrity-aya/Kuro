@@ -14,6 +14,7 @@ import {
   useNodeActions,
   useLinkActions,
 } from '../stores';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import type { TrafficPolicy, TopologyLink, TSNSchedule, TimeSyncStatus } from '../types/api';
 import { generateMockTsnSchedule, generateMockTimeSyncStatuses } from '../api/mock';
 import './TopologyDetail.css';
@@ -245,7 +246,6 @@ function LinkDetailPanel() {
 
 function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: TopologyDetailProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const hasLoadedRef = useRef(false);
   
   // Get state from store - using batch selectors for better performance
   const { 
@@ -263,7 +263,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   } = useTopologySelection();
   
   const { 
-    sidebarCollapsed, 
+    detailSidebarCollapsed, 
     tsnConfig 
   } = useTopologyUI();
   
@@ -296,23 +296,22 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
     return { schedule: null, syncStatuses: [] };
   }, [links.length, nodes.length, linksIdKey, nodesIdKey]);
 
-  // Load topology data only once
-  useEffect(() => {
-    // Prevent multiple loads
-    if (hasLoadedRef.current) return;
-    hasLoadedRef.current = true;
+  // Refresh function for auto-refresh
+  const refreshData = useCallback(async () => {
+    await Promise.all([
+      actions.fetchTopology(topologyName, namespace),
+      actions.fetchTopologyNodes(topologyName, namespace),
+      actions.fetchTopologyLinks(topologyName, namespace),
+      actions.fetchTrafficControls(namespace),
+    ]);
+  }, [actions, topologyName, namespace]);
 
-    async function loadTopologyData() {
-      await Promise.all([
-        actions.fetchTopology(topologyName, namespace),
-        actions.fetchTopologyNodes(topologyName, namespace),
-        actions.fetchTopologyLinks(topologyName, namespace),
-        actions.fetchTrafficControls(namespace),
-      ]);
-    }
-
-    loadTopologyData();
-  }, [topologyName, namespace]); // Only depend on topologyName and namespace
+  // Auto-refresh every 5 seconds
+  const { isRefreshing } = useAutoRefresh({
+    onRefresh: refreshData,
+    initialInterval: 5000,
+    initialEnabled: true,
+  });
 
   // Handle node click
   const handleNodeClick = useCallback((node: typeof nodes[0]) => {
@@ -324,12 +323,12 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
     actions.selectLink(link);
   }, [actions]);
 
-  // Handle selection change (select/deselect)
+  // Handle selection change - only for edge selection via canvas interaction
+  // Note: We don't clear selection here to avoid flickering when clicking nodes
+  // Selection is cleared via close button or clicking on canvas background
   const handleSelectionChange = useCallback((nodeIds: string[], edgeIds: string[]) => {
-    if (nodeIds.length === 0 && edgeIds.length === 0) {
-      actions.clearSelection();
-    } else if (edgeIds.length > 0) {
-      // When an edge is selected, find the corresponding link and select it
+    // Only handle edge selection (node selection is handled by handleNodeClick)
+    if (edgeIds.length > 0) {
       const edgeId = edgeIds[0];
       const link = links.find(l => l.id === edgeId);
       if (link) {
@@ -349,7 +348,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
     console.log(`Policy reset for link ${linkId}`);
   }, []);
 
-  if (loading) {
+  if (loading && nodes.length === 0) {
     return (
       <div className="topology-detail">
         <div className="topology-detail__loading">
@@ -360,7 +359,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
     );
   }
 
-  if (error) {
+  if (error && !topology) {
     return (
       <div className="topology-detail">
         <div className="topology-detail__error">
@@ -398,6 +397,11 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
           <TsnToggle config={tsnConfig} onToggle={actions.setTsnEnabled} />
         </div>
         <div className="topology-detail__header-right">
+          {isRefreshing && (
+            <span className="topology-detail__refreshing" title="Refreshing...">
+              🔄
+            </span>
+          )}
           <div className="topology-detail__stats">
             <div className="stat-item">
               <span className="stat-item__value">{stats.totalNodes}</span>
@@ -422,17 +426,17 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
       {/* Main Content */}
       <div className="topology-detail__body">
         {/* Sidebar - Traffic Controls & TSN */}
-        <aside className={`topology-detail__sidebar ${sidebarCollapsed ? 'topology-detail__sidebar--collapsed' : ''}`}>
+        <aside className={`topology-detail__sidebar ${detailSidebarCollapsed ? 'topology-detail__sidebar--collapsed' : ''}`}>
           <div className="sidebar-header">
             <h3>{tsnConfig.enabled ? 'TSN & Traffic Controls' : 'Traffic Controls'}</h3>
             <button 
               className="sidebar-toggle"
-              onClick={() => actions.setSidebarCollapsed(!sidebarCollapsed)}
+              onClick={() => actions.setDetailSidebarCollapsed(!detailSidebarCollapsed)}
             >
-              {sidebarCollapsed ? '»' : '«'}
+              {detailSidebarCollapsed ? '»' : '«'}
             </button>
           </div>
-          {!sidebarCollapsed && (
+          {!detailSidebarCollapsed && (
             <div className="sidebar-content">
               {/* TSN Time Sync Status (only in TSN mode) */}
               {tsnConfig.enabled && (
@@ -494,6 +498,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
             selectedLinkId={selectedLink?.id}
             onNodeClick={handleNodeClick}
             onEdgeClick={handleEdgeClick}
+            onPaneClick={actions.clearSelection}
             onSelectionChange={handleSelectionChange}
             fitView
             showMiniMap

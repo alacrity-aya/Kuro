@@ -14,6 +14,7 @@
 }
 
 .sidebar__header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -61,7 +62,9 @@
 .sidebar--collapsed .sidebar__toggle {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
 }
 
 .sidebar__nav {
