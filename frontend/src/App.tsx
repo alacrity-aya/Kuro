@@ -11,6 +11,7 @@ import './App.css';
 const menuItems: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'topologies', label: 'Topologies', icon: 'topology' },
+  { id: 'traffic-controls', label: 'Traffic Controls', icon: 'node' },
   { id: 'metrics', label: 'Metrics', icon: 'metrics' },
 ];
 
@@ -18,6 +19,7 @@ const menuItems: MenuItem[] = [
 function getActiveMenuItem(pathname: string): string {
   if (pathname === '/' || pathname === '/dashboard') return 'dashboard';
   if (pathname.startsWith('/topologies')) return 'topologies';
+  if (pathname.startsWith('/traffic-controls')) return 'traffic-controls';
   if (pathname.startsWith('/metrics')) return 'metrics';
   return 'dashboard';
 }
@@ -40,6 +42,9 @@ function AppContent() {
         break;
       case 'topologies':
         navigate('/topologies');
+        break;
+      case 'traffic-controls':
+        navigate('/traffic-controls');
         break;
       case 'metrics':
         navigate('/metrics');
