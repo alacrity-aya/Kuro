@@ -194,10 +194,38 @@ deploy_agent_external() {
     kubectl rollout status daemonset/kuro-agent -n kuro-system --timeout=60s
 }
 
+setup_port_forward() {
+    echo -e "${GREEN}>>> [Phase 3] Setting Up Port Forwarding${NC}"
+    
+    # Kill existing port-forward processes for kuro-controller
+    pkill -f "port-forward.*kuro-controller" 2>/dev/null || true
+    sleep 1
+    
+    # Port forward controller HTTP API (8080)
+    echo -e "${YELLOW}Port forwarding kuro-controller HTTP API (8080)...${NC}"
+    kubectl port-forward svc/kuro-controller -n kuro-system 8080:8080 > /dev/null 2>&1 &
+    echo "  PID: $!"
+    
+    # Port forward controller gRPC (9090) - optional, for debugging
+    # kubectl port-forward svc/kuro-controller -n kuro-system 9090:9090 > /dev/null 2>&1 &
+    
+    sleep 2
+    
+    # Verify port forward is working
+    if curl -s --max-time 2 http://localhost:8080/health > /dev/null 2>&1; then
+        echo -e "${GREEN}Port forward verified: API is reachable at http://localhost:8080${NC}"
+    else
+        echo -e "${YELLOW}Port forward started. API may take a moment to be ready.${NC}"
+        echo -e "${YELLOW}Test with: curl http://localhost:8080/api/v1/namespaces/default/networktopologies${NC}"
+    fi
+}
+
 # ================= Execution =================
 
 parse_args "$@"
 setup_infrastructure
 deploy_agent_external
+setup_port_forward
 
 echo -e "\n${GREEN}>>> All Systems Go! Cluster is running in [${FLANNEL_BACKEND}] mode.${NC}"
+echo -e "${GREEN}>>> Frontend can now connect to backend at http://localhost:8080${NC}"
