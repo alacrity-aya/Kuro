@@ -91,6 +91,7 @@ func (s *HTTPServer) Run() error {
 	api.HandleFunc("/namespaces/{namespace}/networktopologies", s.listNetworkTopologies).Methods("GET")
 	api.HandleFunc("/namespaces/{namespace}/networktopologies", s.createNetworkTopology).Methods("POST")
 	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.getNetworkTopology).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.updateNetworkTopology).Methods("PUT")
 	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.deleteNetworkTopology).Methods("DELETE")
 
 	// TrafficControl CRUD
@@ -249,6 +250,45 @@ func (s *HTTPServer) deleteNetworkTopology(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.respondSuccess(w, nil)
+}
+
+// PUT /api/v1/namespaces/{namespace}/networktopologies/{name}
+func (s *HTTPServer) updateNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	var req NetworkTopologyCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Get existing topology
+	topo := &v1alpha1.NetworkTopology{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			log.Printf("[API] Failed to get NetworkTopology %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get NetworkTopology")
+		}
+		return
+	}
+
+	// Update spec
+	topo.Spec.NodeGroups = convertNodeGroups(req.Spec.NodeGroups)
+	if req.Labels != nil {
+		topo.Labels = req.Labels
+	}
+
+	if err := s.manager.GetK8sClient().Update(r.Context(), topo); err != nil {
+		log.Printf("[API] Failed to update NetworkTopology %s/%s: %v", namespace, name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to update NetworkTopology")
+		return
+	}
+
+	s.respondSuccess(w, topo)
 }
 
 // convertNodeGroups converts request node groups to CRD node groups

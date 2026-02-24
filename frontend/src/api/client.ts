@@ -107,6 +107,36 @@ class MockKuroApiClient implements KuroApiClient {
     return { success: true, data: newTopology };
   }
 
+  async updateTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>> {
+    await delay(200);
+    
+    const index = this.topologies.findIndex(
+      (t) => t.metadata.name === topology.metadata.name && 
+             t.metadata.namespace === topology.metadata.namespace
+    );
+    
+    if (index === -1) {
+      return {
+        success: false,
+        error: `Topology '${topology.metadata.name}' not found`,
+      };
+    }
+    
+    // Update the topology while preserving metadata
+    const updatedTopology: NetworkTopology = {
+      ...topology,
+      metadata: {
+        ...this.topologies[index].metadata,
+        labels: topology.metadata.labels,
+      },
+      status: this.topologies[index].status,
+    };
+    
+    this.topologies[index] = updatedTopology;
+    
+    return { success: true, data: updatedTopology };
+  }
+
   async deleteTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {
     await delay(150);
     
@@ -369,6 +399,15 @@ class RealKuroApiClient implements KuroApiClient {
       spec: topology.spec,
     };
     return this.request<NetworkTopology>('POST', `/namespaces/${topology.metadata.namespace}/networktopologies`, body);
+  }
+
+  async updateTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>> {
+    const body = {
+      name: topology.metadata.name,
+      labels: topology.metadata.labels,
+      spec: topology.spec,
+    };
+    return this.request<NetworkTopology>('PUT', `/namespaces/${topology.metadata.namespace}/networktopologies/${topology.metadata.name}`, body);
   }
 
   async deleteTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {

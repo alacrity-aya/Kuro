@@ -83,6 +83,10 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
     }
   };
 
+  const handleEditTopology = (name: string, namespace: string) => {
+    navigate(`/topologies/${namespace}/${name}/edit`);
+  };
+
   // Export topology as YAML file
   const handleExportTopology = (topology: typeof topologies[0]) => {
     downloadTopologyYaml(topology);
@@ -328,6 +332,15 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
                   }
                 >
                   View
+                </button>
+                <button
+                  className="btn btn--secondary"
+                  onClick={() =>
+                    handleEditTopology(topology.metadata.name, topology.metadata.namespace)
+                  }
+                  title="Edit topology"
+                >
+                  Edit
                 </button>
                 <button
                   className="btn btn--secondary"

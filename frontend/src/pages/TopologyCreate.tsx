@@ -25,12 +25,18 @@ spec:
   nodeGroups:
     - name: leader
       replicas: 1
-      image: nicolaka/netshoot
+      image: busybox:latest
+      command:
+        - sleep
+        - "3600"
       labels:
         role: leader
     - name: follower
-      replicas: 3
-      image: nicolaka/netshoot
+      replicas: 2
+      image: busybox:latest
+      command:
+        - sleep
+        - "3600"
       labels:
         role: follower
 `;
@@ -180,10 +186,21 @@ function parseYAML(yamlContent: string): { topology: NetworkTopology | null; err
 interface TopologyCreateProps {
   onCreated?: (name: string, namespace: string) => void;
   onCancel?: () => void;
+  isEdit?: boolean;
+  initialTopology?: NetworkTopology;
 }
 
-export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
-  const [yamlContent, setYamlContent] = useState(DEFAULT_YAML);
+export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTopology }: TopologyCreateProps) {
+  const [yamlContent, setYamlContent] = useState(() => {
+    if (initialTopology) {
+      return yaml.dump(initialTopology, {
+        indent: 2,
+        lineWidth: -1,
+        noRefs: true,
+      });
+    }
+    return DEFAULT_YAML;
+  });
   const [topology, setTopology] = useState<NetworkTopology | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -250,18 +267,23 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
       setCreateError(null);
       
       try {
-        const response = await apiClient.createTopology(topology);
+        let response;
+        if (isEdit) {
+          response = await apiClient.updateTopology(topology);
+        } else {
+          response = await apiClient.createTopology(topology);
+        }
         
         if (response.success) {
-          console.log('Topology created successfully:', response.data);
+          console.log(isEdit ? 'Topology updated successfully:' : 'Topology created successfully:', response.data);
           onCreated?.(name, namespace);
         } else {
-          setCreateError(response.error || 'Failed to create topology');
+          setCreateError(response.error || `Failed to ${isEdit ? 'update' : 'create'} topology`);
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         setCreateError(errorMessage);
-        console.error('Failed to create topology:', err);
+        console.error(`Failed to ${isEdit ? 'update' : 'create'} topology:`, err);
       } finally {
         setCreating(false);
       }
@@ -275,7 +297,7 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
   return (
     <div className="topology-create">
       <div className="create-header">
-        <h2>Create Topology</h2>
+        <h2>{isEdit ? 'Edit Topology' : 'Create Topology'}</h2>
         <div className="create-actions">
           <button className="btn-secondary" onClick={onCancel} disabled={creating}>
             Cancel
@@ -285,7 +307,7 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
             onClick={handleCreate}
             disabled={!!error || !topology || creating}
           >
-            {creating ? 'Creating...' : 'Create Topology'}
+            {creating ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update Topology' : 'Create Topology')}
           </button>
         </div>
       </div>

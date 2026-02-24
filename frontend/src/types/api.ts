@@ -203,6 +203,7 @@ export interface KuroApiClient {
   listTopologies(namespace?: string): Promise<ApiResponse<ListResult<NetworkTopology>>>;
   getTopology(name: string, namespace?: string): Promise<ApiResponse<NetworkTopology>>;
   createTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>>;
+  updateTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>>;
   deleteTopology(name: string, namespace?: string): Promise<ApiResponse<void>>;
   
   // TrafficControl operations

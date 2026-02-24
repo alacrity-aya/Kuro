@@ -119,8 +119,10 @@ func (r *TopologyReconciler) constructConfigMap(topo *kurov1alpha1.NetworkTopolo
 func (r *TopologyReconciler) constructDeployment(topo *kurov1alpha1.NetworkTopology, group *kurov1alpha1.NodeGroup, cmName string) (*appsv1.Deployment, error) {
 	labels := make(map[string]string)
 	maps.Copy(labels, group.Labels)
-	// Inject critical labels for Agent identification
+	// Inject critical labels for Agent identification and API queries
 	labels["kuro.io/sim-node"] = "true"
+	labels["kuro.io/topology"] = topo.Name
+	labels["kuro.io/node-group"] = group.Name
 	labels["app"] = group.Name
 
 	replicas := group.Replicas
