@@ -4,3 +4,4 @@ export { default as TopologyDetail } from './TopologyDetail';
 export { default as TopologyCreate } from './TopologyCreate';
 export { default as MetricsPage } from './MetricsPage';
 export { default as TrafficControlList } from './TrafficControlList';
+export { default as TrafficControlCreate } from './TrafficControlCreate';

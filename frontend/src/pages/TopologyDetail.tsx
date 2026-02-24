@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useCallback, useRef, useMemo } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
@@ -326,7 +326,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   // Handle selection change - only for edge selection via canvas interaction
   // Note: We don't clear selection here to avoid flickering when clicking nodes
   // Selection is cleared via close button or clicking on canvas background
-  const handleSelectionChange = useCallback((nodeIds: string[], edgeIds: string[]) => {
+  const handleSelectionChange = useCallback((_nodeIds: string[], edgeIds: string[]) => {
     // Only handle edge selection (node selection is handled by handleNodeClick)
     if (edgeIds.length > 0) {
       const edgeId = edgeIds[0];

@@ -42,7 +42,7 @@ export const mockTopologies: NetworkTopology[] = [
     kind: 'NetworkTopology',
     metadata: {
       name: 'drone-swarm-demo',
-      namespace: 'default',
+      namespace: 'kuro-experiment',
       uid: 'topo-001',
       creationTimestamp: '2026-02-18T10:00:00Z',
       labels: { environment: 'demo' },
@@ -64,7 +64,7 @@ export const mockTopologies: NetworkTopology[] = [
     kind: 'NetworkTopology',
     metadata: {
       name: 'iot-network',
-      namespace: 'default',
+      namespace: 'kuro-experiment',
       uid: 'topo-002',
       creationTimestamp: '2026-02-17T14:30:00Z',
       labels: { environment: 'testing' },
@@ -94,7 +94,7 @@ export const mockTrafficControls: TrafficControl[] = [
     kind: 'TrafficControl',
     metadata: {
       name: 'drone-to-ground',
-      namespace: 'default',
+      namespace: 'kuro-experiment',
       uid: 'tc-001',
       creationTimestamp: '2026-02-18T10:05:00Z',
     },
@@ -118,7 +118,7 @@ export const mockTrafficControls: TrafficControl[] = [
     kind: 'TrafficControl',
     metadata: {
       name: 'sensor-to-gateway',
-      namespace: 'default',
+      namespace: 'kuro-experiment',
       uid: 'tc-002',
       creationTimestamp: '2026-02-17T14:35:00Z',
     },
