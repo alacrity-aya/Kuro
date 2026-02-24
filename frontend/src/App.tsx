@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
-import { Dashboard, TopologyList, TopologyDetail, TopologyCreate, MetricsPage } from './pages';
+import { Dashboard, TopologyList, TopologyDetail, TopologyCreate, MetricsPage, TrafficControlList } from './pages';
 import { useTopologyStore } from './stores';
 import { apiClient } from './api/client';
 import type { MenuItem, NetworkTopology } from './types/api';
@@ -105,6 +105,7 @@ function AppContent() {
             } 
           />
           <Route path="/metrics" element={<MetricsPage />} />
+          <Route path="/traffic-controls" element={<TrafficControlList />} />
           <Route path="*" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
         </Routes>
       </div>
