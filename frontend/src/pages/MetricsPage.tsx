@@ -116,6 +116,9 @@ function generateHistogramBins(bucketResult: InstantVector[]): LatencyHistogramB
 // ============================================================================
 
 export default function MetricsPage() {
+  // Get Grafana URL from environment
+  const grafanaUrl = import.meta.env.VITE_GRAFANA_URL;
+
   // Time range state
   const [timeRange, setTimeRange] = useState('15m');
   
@@ -311,7 +314,20 @@ export default function MetricsPage() {
     <div className="metrics-page">
       {/* Header with controls */}
       <div className="metrics-page__header">
-        <h1 className="metrics-page__title">Network Metrics</h1>
+        <div className="metrics-page__header-left">
+          <h1 className="metrics-page__title">Network Metrics</h1>
+          {grafanaUrl && (
+            <a
+              href={grafanaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="metrics-page__grafana-link"
+            >
+              <span className="metrics-page__grafana-icon">📊</span>
+              Open Grafana
+            </a>
+          )}
+        </div>
         
         <div className="metrics-page__controls">
           {/* View Mode Toggle */}

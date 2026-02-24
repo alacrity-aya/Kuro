@@ -20,11 +20,40 @@
   border-bottom: 1px solid #1f1f2e;
 }
 
+.metrics-page__header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .metrics-page__title {
   margin: 0;
   font-size: 24px;
   font-weight: 600;
   color: #fff;
+}
+
+.metrics-page__grafana-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: #f97316;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.metrics-page__grafana-link:hover {
+  background: #ea580c;
+  transform: translateY(-1px);
+}
+
+.metrics-page__grafana-icon {
+  font-size: 14px;
 }
 
 .metrics-page__controls {
