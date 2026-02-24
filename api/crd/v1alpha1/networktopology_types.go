@@ -31,7 +31,9 @@ type NetworkTopologySpec struct {
 
 // NetworkTopologyStatus defines the observed state of NetworkTopology
 type NetworkTopologyStatus struct {
-	ReadyNodes int32 `json:"readyNodes"`
+	Phase      string `json:"phase,omitempty"`
+	NodeCount  int    `json:"nodeCount,omitempty"`
+	ReadyNodes int    `json:"readyNodes,omitempty"`
 }
 
 // +kubebuilder:object:root=true
