@@ -41,7 +41,7 @@ class MockKuroApiClient implements KuroApiClient {
   // Topology Operations
   // =========================================================================
 
-  async listTopologies(namespace: string = 'default'): Promise<ApiResponse<ListResult<NetworkTopology>>> {
+  async listTopologies(namespace: string = 'kuro-experiment'): Promise<ApiResponse<ListResult<NetworkTopology>>> {
     await delay(150);
     
     const items = this.topologies.filter((t) => t.metadata.namespace === namespace);
@@ -55,7 +55,7 @@ class MockKuroApiClient implements KuroApiClient {
     };
   }
 
-  async getTopology(name: string, namespace: string = 'default'): Promise<ApiResponse<NetworkTopology>> {
+  async getTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<NetworkTopology>> {
     await delay(100);
     
     const topology = this.topologies.find(
@@ -107,7 +107,7 @@ class MockKuroApiClient implements KuroApiClient {
     return { success: true, data: newTopology };
   }
 
-  async deleteTopology(name: string, namespace: string = 'default'): Promise<ApiResponse<void>> {
+  async deleteTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {
     await delay(150);
     
     const index = this.topologies.findIndex(
@@ -130,7 +130,7 @@ class MockKuroApiClient implements KuroApiClient {
   // TrafficControl Operations
   // =========================================================================
 
-  async listTrafficControls(namespace: string = 'default'): Promise<ApiResponse<ListResult<TrafficControl>>> {
+  async listTrafficControls(namespace: string = 'kuro-experiment'): Promise<ApiResponse<ListResult<TrafficControl>>> {
     await delay(150);
     
     const items = this.trafficControls.filter((t) => t.metadata.namespace === namespace);
@@ -144,7 +144,7 @@ class MockKuroApiClient implements KuroApiClient {
     };
   }
 
-  async getTrafficControl(name: string, namespace: string = 'default'): Promise<ApiResponse<TrafficControl>> {
+  async getTrafficControl(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TrafficControl>> {
     await delay(100);
     
     const tc = this.trafficControls.find(
@@ -221,7 +221,7 @@ class MockKuroApiClient implements KuroApiClient {
     return { success: true, data: this.trafficControls[index] };
   }
 
-  async deleteTrafficControl(name: string, namespace: string = 'default'): Promise<ApiResponse<void>> {
+  async deleteTrafficControl(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {
     await delay(150);
     
     const index = this.trafficControls.findIndex(
@@ -244,7 +244,7 @@ class MockKuroApiClient implements KuroApiClient {
   // Topology Visualization
   // =========================================================================
 
-  async getTopologyNodes(topologyName: string, namespace: string = 'default'): Promise<ApiResponse<TopologyNode[]>> {
+  async getTopologyNodes(topologyName: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TopologyNode[]>> {
     await delay(200);
     
     const topology = this.topologies.find(
@@ -263,7 +263,7 @@ class MockKuroApiClient implements KuroApiClient {
     return { success: true, data: nodes };
   }
 
-  async getTopologyLinks(topologyName: string, namespace: string = 'default'): Promise<ApiResponse<TopologyLink[]>> {
+  async getTopologyLinks(topologyName: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TopologyLink[]>> {
     await delay(200);
     
     const topology = this.topologies.find(
@@ -354,11 +354,11 @@ class RealKuroApiClient implements KuroApiClient {
   // Topology Operations
   // =========================================================================
 
-  async listTopologies(namespace: string = 'default'): Promise<ApiResponse<ListResult<NetworkTopology>>> {
+  async listTopologies(namespace: string = 'kuro-experiment'): Promise<ApiResponse<ListResult<NetworkTopology>>> {
     return this.request<ListResult<NetworkTopology>>('GET', `/namespaces/${namespace}/networktopologies`);
   }
 
-  async getTopology(name: string, namespace: string = 'default'): Promise<ApiResponse<NetworkTopology>> {
+  async getTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<NetworkTopology>> {
     return this.request<NetworkTopology>('GET', `/namespaces/${namespace}/networktopologies/${name}`);
   }
 
@@ -371,7 +371,7 @@ class RealKuroApiClient implements KuroApiClient {
     return this.request<NetworkTopology>('POST', `/namespaces/${topology.metadata.namespace}/networktopologies`, body);
   }
 
-  async deleteTopology(name: string, namespace: string = 'default'): Promise<ApiResponse<void>> {
+  async deleteTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {
     return this.request<void>('DELETE', `/namespaces/${namespace}/networktopologies/${name}`);
   }
 
@@ -379,11 +379,11 @@ class RealKuroApiClient implements KuroApiClient {
   // TrafficControl Operations
   // =========================================================================
 
-  async listTrafficControls(namespace: string = 'default'): Promise<ApiResponse<ListResult<TrafficControl>>> {
+  async listTrafficControls(namespace: string = 'kuro-experiment'): Promise<ApiResponse<ListResult<TrafficControl>>> {
     return this.request<ListResult<TrafficControl>>('GET', `/namespaces/${namespace}/trafficcontrols`);
   }
 
-  async getTrafficControl(name: string, namespace: string = 'default'): Promise<ApiResponse<TrafficControl>> {
+  async getTrafficControl(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TrafficControl>> {
     return this.request<TrafficControl>('GET', `/namespaces/${namespace}/trafficcontrols/${name}`);
   }
 
@@ -401,7 +401,7 @@ class RealKuroApiClient implements KuroApiClient {
     return this.request<TrafficControl>('PUT', `/namespaces/${tc.metadata.namespace}/trafficcontrols/${tc.metadata.name}`, body);
   }
 
-  async deleteTrafficControl(name: string, namespace: string = 'default'): Promise<ApiResponse<void>> {
+  async deleteTrafficControl(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {
     return this.request<void>('DELETE', `/namespaces/${namespace}/trafficcontrols/${name}`);
   }
 
@@ -409,11 +409,11 @@ class RealKuroApiClient implements KuroApiClient {
   // Topology Visualization
   // =========================================================================
 
-  async getTopologyNodes(topologyName: string, namespace: string = 'default'): Promise<ApiResponse<TopologyNode[]>> {
+  async getTopologyNodes(topologyName: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TopologyNode[]>> {
     return this.request<TopologyNode[]>('GET', `/namespaces/${namespace}/topologies/${topologyName}/nodes`);
   }
 
-  async getTopologyLinks(topologyName: string, namespace: string = 'default'): Promise<ApiResponse<TopologyLink[]>> {
+  async getTopologyLinks(topologyName: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TopologyLink[]>> {
     return this.request<TopologyLink[]>('GET', `/namespaces/${namespace}/topologies/${topologyName}/links`);
   }
 

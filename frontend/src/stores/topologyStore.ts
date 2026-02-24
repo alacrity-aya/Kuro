@@ -123,7 +123,7 @@ export const useTopologyStore = create<TopologyState>()(
       // Data Actions
       // ========================================================================
       
-      fetchTopologies: async (namespace = 'default') => {
+      fetchTopologies: async (namespace = 'kuro-experiment') => {
         set({ loading: true, error: null });
         try {
           const response = await apiClient.listTopologies(namespace);
@@ -140,7 +140,7 @@ export const useTopologyStore = create<TopologyState>()(
         }
       },
       
-      fetchTopology: async (name, namespace = 'default') => {
+      fetchTopology: async (name, namespace = 'kuro-experiment') => {
         set({ loading: true, error: null });
         try {
           const response = await apiClient.getTopology(name, namespace);
@@ -157,7 +157,7 @@ export const useTopologyStore = create<TopologyState>()(
         }
       },
       
-      fetchTopologyNodes: async (name, namespace = 'default') => {
+      fetchTopologyNodes: async (name, namespace = 'kuro-experiment') => {
         try {
           const response = await apiClient.getTopologyNodes(name, namespace);
           if (response.success && response.data) {
@@ -168,7 +168,7 @@ export const useTopologyStore = create<TopologyState>()(
         }
       },
       
-      fetchTopologyLinks: async (name, namespace = 'default') => {
+      fetchTopologyLinks: async (name, namespace = 'kuro-experiment') => {
         try {
           const response = await apiClient.getTopologyLinks(name, namespace);
           if (response.success && response.data) {
@@ -179,7 +179,7 @@ export const useTopologyStore = create<TopologyState>()(
         }
       },
       
-      fetchTrafficControls: async (namespace = 'default') => {
+      fetchTrafficControls: async (namespace = 'kuro-experiment') => {
         try {
           const response = await apiClient.listTrafficControls(namespace);
           if (response.success && response.data) {
@@ -323,7 +323,7 @@ export const useTopologyStore = create<TopologyState>()(
 /**
  * Hook for loading full topology data (topology + nodes + links + traffic controls)
  */
-export function useLoadTopology(name: string, namespace = 'default') {
+export function useLoadTopology(name: string, namespace = 'kuro-experiment') {
   const { 
     fetchTopology, 
     fetchTopologyNodes, 

@@ -20,7 +20,7 @@ const DEFAULT_YAML = `apiVersion: simulation.kuro.io/v1alpha1
 kind: NetworkTopology
 metadata:
   name: my-topology
-  namespace: default
+  namespace: kuro-experiment
 spec:
   nodeGroups:
     - name: leader
@@ -244,7 +244,7 @@ export function TopologyCreate({ onCreated, onCancel }: TopologyCreateProps) {
   const handleCreate = async () => {
     if (topology && !error) {
       const name = topology.metadata.name;
-      const namespace = topology.metadata.namespace || 'default';
+      const namespace = topology.metadata.namespace || 'kuro-experiment';
       
       setCreating(true);
       setCreateError(null);
