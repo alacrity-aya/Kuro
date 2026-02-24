@@ -1,0 +1,205 @@
+/* VisualEditor Component Styles */
+
+.visual-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #111827;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.visual-editor-canvas {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* Node Styles */
+.visual-editor-node {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 140px;
+}
+
+.visual-editor-node.selected {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+.visual-editor-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visual-editor-node-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.visual-editor-node-name {
+  font-weight: 600;
+  color: #f3f4f6;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-editor-node-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.visual-editor-node-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.visual-editor-node-replicas {
+  font-size: 11px;
+  color: #9ca3af;
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.visual-editor-node-role {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.visual-editor-node-role-label {
+  color: #6b7280;
+}
+
+.visual-editor-node-role-value {
+  color: #a5b4fc;
+  background-color: rgba(99, 102, 241, 0.2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* Footer */
+.visual-editor-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #374151;
+  background-color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.visual-editor-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.visual-editor-add-btn:hover {
+  background-color: #2563eb;
+}
+
+.visual-editor-add-btn:active {
+  transform: scale(0.98);
+}
+
+.visual-editor-add-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+.visual-editor-add-icon {
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.visual-editor-add-text {
+  white-space: nowrap;
+}
+
+.visual-editor-hint {
+  font-size: 12px;
+  color: #6b7280;
+  flex: 1;
+  text-align: right;
+}
+
+/* React Flow Overrides */
+.visual-editor .react-flow__node {
+  cursor: pointer;
+}
+
+.visual-editor .react-flow__node.selected {
+  box-shadow: 0 0 0 2px #3b82f6, 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.visual-editor .react-flow__controls {
+  bottom: 10px;
+  left: 10px;
+}
+
+.visual-editor .react-flow__controls-button {
+  background-color: #1f2937;
+  border-color: #374151;
+  color: #9ca3af;
+}
+
+.visual-editor .react-flow__controls-button:hover {
+  background-color: #374151;
+  color: #f3f4f6;
+}
+
+.visual-editor .react-flow__background {
+  background-color: #111827;
+}
+
+/* Empty State */
+.visual-editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6b7280;
+  gap: 12px;
+}
+
+.visual-editor-empty-icon {
+  font-size: 48px;
+  opacity: 0.5;
+}
+
+.visual-editor-empty-text {
+  font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .visual-editor-footer {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .visual-editor-hint {
+    text-align: center;
+  }
+}

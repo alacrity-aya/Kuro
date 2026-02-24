@@ -10,3 +10,5 @@ export { default as YamlPreviewDialog } from './YamlPreviewDialog';
 export type { YamlPreviewDialogProps } from './YamlPreviewDialog';
 export { default as ConfigPanel } from './ConfigPanel';
 export type { ConfigPanelProps } from './ConfigPanel';
+export { default as VisualEditor } from './VisualEditor';
+export type { VisualEditorProps } from './VisualEditor';
