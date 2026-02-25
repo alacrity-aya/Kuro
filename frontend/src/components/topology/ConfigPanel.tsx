@@ -251,6 +251,19 @@ function EditSection({ group, onUpdateGroup }: EditSectionProps) {
             placeholder="drone"
           />
         </div>
+        <div className="config-field">
+          <label htmlFor="group-command">Command</label>
+          <input
+            id="group-command"
+            type="text"
+            value={group.command?.join(' ') || ''}
+            onChange={(e) => onUpdateGroup({
+              command: e.target.value ? e.target.value.split(/\s+/).filter(Boolean) : undefined,
+            })}
+            placeholder="sleep infinite"
+          />
+          <span className="config-field-hint">Container startup command (space-separated)</span>
+        </div>
       </div>
     </section>
   );

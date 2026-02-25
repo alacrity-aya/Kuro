@@ -29,15 +29,24 @@ export interface ObjectMeta {
 // NetworkTopology CRD Types
 // ============================================================================
 
+// UserProgram defines the code logic injected by the user
+export interface UserProgram {
+  source?: string;     // Source is the specific content of the code
+  mountPath?: string;  // MountPath is the absolute path where the code is mounted
+  filename?: string;   // Filename is the name of the mounted file, e.g., "algo.py"
+}
+
 export interface NodeGroup {
   name: string;
   replicas: number;
   image: string;
+  command?: string[];           // Container startup command, e.g., ["sleep", "infinite"]
   labels?: Record<string, string>;
   resources?: {
     cpu?: string;
     memory?: string;
   };
+  userProgram?: UserProgram;    // TODO: Support user code injection in UI
 }
 
 export interface NetworkTopologySpec {

@@ -38,18 +38,23 @@ function generateTopologyName(): string {
   return `topology-${suffix}`;
 }
 
+// Default command for containers to prevent immediate exit
+const DEFAULT_COMMAND: string[] = ['sleep', 'infinite'];
+
 // Default node groups
 const DEFAULT_NODE_GROUPS: NodeGroup[] = [
   {
     name: 'leader',
     replicas: 1,
     image: DEFAULT_IMAGE,
+    command: DEFAULT_COMMAND,
     labels: { role: 'leader' },
   },
   {
     name: 'follower',
     replicas: 2,
     image: DEFAULT_IMAGE,
+    command: DEFAULT_COMMAND,
     labels: { role: 'follower' },
   },
 ];
@@ -216,6 +221,7 @@ export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTop
       name: `group-${newGroupNumber}`,
       replicas: 1,
       image: DEFAULT_IMAGE,
+      command: DEFAULT_COMMAND,
       labels: { role: `role-${newGroupNumber}` },
     };
     setNodeGroups([...nodeGroups, newGroup]);

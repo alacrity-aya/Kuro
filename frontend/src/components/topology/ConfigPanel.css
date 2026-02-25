@@ -75,6 +75,13 @@
   color: var(--text-muted, #64748b);
 }
 
+.config-field-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+  margin-top: 4px;
+}
+
 /* Add Button */
 .config-add-btn {
   padding: 4px 10px;

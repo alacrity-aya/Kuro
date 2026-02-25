@@ -196,8 +196,6 @@ int handle_edt_upload(struct __sk_buff* skb) {
     __u64 now = bpf_ktime_get_ns();
     __u32 ifindex = skb->ifindex;
 
-    // kuro_debug("handle_edt_upload: ifindex=%u, pkt_len=%u", ifindex, skb->len);
-
     // 1. Basic Checks
     if (unlikely(ifindex >= MAX_IFINDEX_CAP))
         return TC_ACT_OK;
@@ -292,12 +290,19 @@ int handle_edt_upload(struct __sk_buff* skb) {
 
     // 6. Post-processing: Physical Simulation & Offsets
     if (ret == TC_ACT_OK) {
+        // If no rate limiting was applied (target_cost=0), throttle_flow didn't set tstamp.
+        // Initialize to now so that latency offsets work correctly.
+        if (target_cost == 0) {
+            skb->tstamp = now;
+        }
+
         // Apply offset for system traffic
         skb->tstamp += offset_ns;
 
         // Apply physical delay for simulation traffic (Sim only)
         if (is_sim_traffic && policy) {
-            skb->tstamp += policy->base_latency_ns;
+            __u64 latency_ns = policy->base_latency_ns;
+            skb->tstamp += latency_ns;
 
             if (policy->jitter_ns > 0) {
                 // Simple jitter simulation: + Random(0, Jitter)
