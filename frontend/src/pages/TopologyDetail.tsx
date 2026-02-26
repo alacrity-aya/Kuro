@@ -1,6 +1,6 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useMemo } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
-import { TopologyCanvas } from '../components/topology';
+import { TopologyCanvas, TrafficControlFilter } from '../components/topology';
 import { TrafficControlPanel } from '../components';
 import {
   useTopologyStore,
@@ -12,8 +12,10 @@ import {
   useTopologyActions,
   useNodeActions,
   useLinkActions,
+  useTrafficControlFilter,
 } from '../stores';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { getTrafficControlColor } from '../utils/colorPalette';
 import type { TrafficPolicy, TopologyLink } from '../types/api';
 import './TopologyDetail.css';
 
@@ -272,6 +274,42 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   // Get computed stats (use original nodes for total stats)
   const stats = useTopologyStats();
 
+  // TC Filter state
+  const {
+    trafficControls: tcList,
+    selectedTrafficControlIds,
+    toggleTrafficControlSelection,
+    clearTrafficControlSelection,
+  } = useTrafficControlFilter();
+
+  // Compute which links are highlighted and their colors
+  const trafficControlColors = useMemo(() => {
+    const colorMap = new Map<string, string>();
+    if (selectedTrafficControlIds.length === 0) return colorMap;
+
+    tcList.forEach((tc, index) => {
+      if (!selectedTrafficControlIds.includes(tc.metadata.uid)) return;
+
+      const color = getTrafficControlColor(index);
+      // Find links matching this TC's source/destination labels
+      const sourceRole = tc.spec.source.matchLabels['role'];
+      const destRole = tc.spec.destination.matchLabels['role'];
+
+      links.forEach(link => {
+        const sourceNode = nodes.find(n => n.id === link.sourceId);
+        const targetNode = nodes.find(n => n.id === link.targetId);
+        if (sourceNode?.labels?.role === sourceRole && targetNode?.labels?.role === destRole) {
+          colorMap.set(link.id, color);
+        }
+      });
+    });
+    return colorMap;
+  }, [tcList, selectedTrafficControlIds, links, nodes]);
+
+  const highlightedLinkIds = useMemo(() => {
+    return new Set(trafficControlColors.keys());
+  }, [trafficControlColors]);
+
   // Refresh function for auto-refresh
   const refreshData = useCallback(async () => {
     await Promise.all([
@@ -410,28 +448,15 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
           </div>
           {!detailSidebarCollapsed && (
             <div className="sidebar-content">
-              {/* Traffic Controls */}
+              {/* Traffic Controls Filter */}
               <div className="sidebar-section">
-                <h4 className="sidebar-section-title">Traffic Controls</h4>
-                {trafficControls.length === 0 ? (
-                  <div className="sidebar-empty">
-                    <span>No traffic controls</span>
-                  </div>
-                ) : (
-                  <div className="tc-list">
-                    {trafficControls.map((tc) => (
-                      <div key={tc.metadata.uid} className="tc-item">
-                        <div className="tc-item__name">{tc.metadata.name}</div>
-                        <div className="tc-item__policy">
-                          {tc.spec.policy.bandwidth} | {tc.spec.policy.latency}
-                        </div>
-                        <span className={`tc-item__phase tc-item__phase--${(tc.status?.phase ?? 'Unknown').toLowerCase()}`}>
-                          {tc.status?.phase ?? 'Unknown'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <h4 className="sidebar-section-title">Filter by Traffic Control</h4>
+                <TrafficControlFilter
+                  trafficControls={trafficControls}
+                  selectedIds={selectedTrafficControlIds}
+                  onToggle={toggleTrafficControlSelection}
+                  onClear={clearTrafficControlSelection}
+                />
               </div>
             </div>
           )}
@@ -461,6 +486,8 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
             fitView
             showMiniMap
             topologyId={`${namespace}-${topologyName}`}
+            trafficControlColors={trafficControlColors}
+            highlightedLinkIds={highlightedLinkIds}
           />
           <ZoomControls />
         </div>
