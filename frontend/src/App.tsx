@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
-import { Dashboard, TopologyList, TopologyDetail, TopologyCreate, TrafficControlList, TrafficControlCreate } from './pages';
+import { Dashboard, TopologyList, TopologyDetail, TopologyCreate, TrafficControlList, TrafficControlCreate, TrafficControlEdit } from './pages';
 import { useTopologyStore } from './stores';
 import { apiClient } from './api/client';
 import type { MenuItem, NetworkTopology } from './types/api';
@@ -111,6 +111,15 @@ function AppContent() {
             element={
               <TrafficControlCreate 
                 onCreated={() => navigate('/traffic-controls')}
+                onCancel={() => navigate('/traffic-controls')} 
+              />
+            } 
+          />
+          <Route 
+            path="/traffic-controls/:namespace/:name/edit" 
+            element={
+              <TrafficControlEdit 
+                onSaved={() => navigate('/traffic-controls')}
                 onCancel={() => navigate('/traffic-controls')} 
               />
             } 

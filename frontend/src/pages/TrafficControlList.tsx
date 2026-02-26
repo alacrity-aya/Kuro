@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { exportTrafficControlToYaml, downloadYaml, parseTrafficControlYaml, validateTrafficControlYaml } from '../utils/trafficControlYaml';
 import type { TrafficControl, Phase } from '../types/api';
 import './TrafficControlList.css';
 
@@ -19,6 +20,12 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
   // Filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPhase, setFilterPhase] = useState<string>('all');
+  
+  // Import modal state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importYaml, setImportYaml] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     fetchTrafficControls();
@@ -84,6 +91,72 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
     navigate(`/traffic-controls/kuro-experiment/${name}`);
   };
 
+  const handleEditTrafficControl = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate(`/traffic-controls/kuro-experiment/${name}/edit`);
+  };
+
+  const handleExportTrafficControl = (tc: TrafficControl, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const yaml = exportTrafficControlToYaml(tc);
+    downloadYaml(yaml, `${tc.metadata.name}.yaml`);
+  };
+
+  const handleImportClick = () => {
+    setShowImportModal(true);
+    setImportYaml('');
+    setImportError(null);
+  };
+
+  const handleImportSubmit = async () => {
+    setImportError(null);
+    
+    // Validate YAML
+    const validation = validateTrafficControlYaml(importYaml);
+    if (!validation.valid) {
+      setImportError(validation.errors.join(', '));
+      return;
+    }
+    
+    // Parse YAML to TrafficControl
+    const parsed = parseTrafficControlYaml(importYaml);
+    if (!parsed.metadata?.name) {
+      setImportError('Invalid YAML: missing name');
+      return;
+    }
+    
+    setImporting(true);
+    
+    // Create TrafficControl from parsed data
+    const tc: TrafficControl = {
+      apiVersion: 'simulation.kuro.io/v1alpha1',
+      kind: 'TrafficControl',
+      metadata: {
+        name: parsed.metadata.name,
+        namespace: parsed.metadata.namespace || 'kuro-experiment',
+        uid: '',
+        creationTimestamp: '',
+      },
+      spec: {
+        source: parsed.spec?.source || { matchLabels: {} },
+        destination: parsed.spec?.destination || { matchLabels: {} },
+        policy: parsed.spec?.policy || { bandwidth: '10Mbps', latency: '10ms', jitter: '5ms', packetLoss: '0%' },
+      },
+    };
+    
+    const response = await apiClient.createTrafficControl(tc);
+    
+    if (response.success) {
+      setShowImportModal(false);
+      setImportYaml('');
+      fetchTrafficControls();
+    } else {
+      setImportError(response.error || 'Failed to import TrafficControl');
+    }
+    
+    setImporting(false);
+  };
+
   // Format policy summary
   const formatPolicySummary = (policy: TrafficControl['spec']['policy']) => {
     const parts = [];
@@ -134,6 +207,10 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
           </p>
         </div>
         <div className="tc-list__header-actions">
+          <button className="btn btn--secondary" onClick={handleImportClick}>
+            <span className="btn__icon">📤</span>
+            Import YAML
+          </button>
           <button className="btn btn--primary" onClick={handleCreateTrafficControl}>
             <span className="btn__icon">➕</span>
             Create Traffic Control
@@ -269,6 +346,18 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
                   View
                 </button>
                 <button
+                  className="btn btn--secondary"
+                  onClick={(e) => handleEditTrafficControl(tc.metadata.name, e)}
+                >
+                  Edit
+                </button>
+                <button
+                  className="btn btn--secondary"
+                  onClick={(e) => handleExportTrafficControl(tc, e)}
+                >
+                  Export
+                </button>
+                <button
                   className="btn btn--danger"
                   onClick={() => handleDeleteTrafficControl(tc.metadata.name)}
                 >
@@ -277,6 +366,67 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="tc-import-modal__overlay" onClick={() => setShowImportModal(false)}>
+          <div className="tc-import-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="tc-import-modal__header">
+              <h3>Import TrafficControl YAML</h3>
+              <button 
+                className="tc-import-modal__close" 
+                onClick={() => setShowImportModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="tc-import-modal__body">
+              <textarea
+                className="tc-import-modal__textarea"
+                placeholder={`apiVersion: simulation.kuro.io/v1alpha1
+kind: TrafficControl
+metadata:
+  name: my-traffic-control
+  namespace: kuro-experiment
+spec:
+  source:
+    matchLabels:
+      role: drones
+  destination:
+    matchLabels:
+      role: ground-stations
+  policy:
+    bandwidth: 10Mbps
+    latency: 50ms
+    jitter: 10ms
+    packetLoss: 0.5%`}
+                value={importYaml}
+                onChange={(e) => setImportYaml(e.target.value)}
+              />
+              {importError && (
+                <div className="tc-import-modal__error">
+                  {importError}
+                </div>
+              )}
+            </div>
+            <div className="tc-import-modal__footer">
+              <button 
+                className="btn btn--secondary" 
+                onClick={() => setShowImportModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn--primary" 
+                onClick={handleImportSubmit}
+                disabled={importing || !importYaml.trim()}
+              >
+                {importing ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
