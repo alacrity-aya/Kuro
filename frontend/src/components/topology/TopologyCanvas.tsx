@@ -39,6 +39,10 @@ export interface TopologyCanvasProps {
   className?: string;
   /** Unique key for storing node positions in localStorage */
   topologyId?: string;
+  /** Mapping from link ID to TrafficControl color for colored edges */
+  trafficControlColors?: Map<string, string>;
+  /** Set of link IDs that should be highlighted (non-highlighted links will be dimmed) */
+  highlightedLinkIds?: Set<string>;
 }
 
 interface CustomNodeData {
@@ -152,31 +156,46 @@ function transformTopologyNodesToFlowNodes(
 
 function transformTopologyLinksToFlowEdges(
   links: TopologyLink[],
-  selectedLinkId?: string
+  selectedLinkId?: string,
+  trafficControlColors?: Map<string, string>,
+  highlightedLinkIds?: Set<string>
 ): Edge<CustomEdgeData>[] {
-  return links.map((link) => ({
-    id: link.id,
-    source: link.sourceId,
-    target: link.targetId,
-    type: 'smoothstep',
-    animated: link.status === 'active',
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: link.id === selectedLinkId ? '#3b82f6' : '#94a3b8',
-    },
-    style: {
-      stroke: link.id === selectedLinkId ? '#3b82f6' : '#94a3b8',
-      strokeWidth: link.id === selectedLinkId ? 2 : 1.5,
-    },
-    label: link.policy ? `${link.policy.bandwidth}` : undefined,
-    labelStyle: { fill: '#64748b', fontWeight: 500, fontSize: 10 },
-    labelBgStyle: { fill: '#ffffff', fillOpacity: 0.9 },
-    labelBgPadding: [4, 2] as [number, number],
-    labelBgBorderRadius: 4,
-    data: {
-      link,
-    } satisfies CustomEdgeData,
-  }));
+  const hasHighlight = highlightedLinkIds && highlightedLinkIds.size > 0;
+
+  return links.map((link) => {
+    const isSelected = link.id === selectedLinkId;
+    const isHighlighted = highlightedLinkIds?.has(link.id) ?? false;
+    const shouldDim = hasHighlight && !isHighlighted;
+
+    // Get color from TC mapping or default
+    const tcColor = trafficControlColors?.get(link.id);
+    const strokeColor = isSelected ? '#3b82f6' : (tcColor || '#94a3b8');
+
+    return {
+      id: link.id,
+      source: link.sourceId,
+      target: link.targetId,
+      type: 'smoothstep',
+      animated: link.status === 'active',
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: strokeColor,
+      },
+      style: {
+        stroke: strokeColor,
+        strokeWidth: isSelected ? 2.5 : (isHighlighted ? 2 : 1.5),
+        opacity: shouldDim ? 0.15 : 1,
+      },
+      label: link.policy ? `${link.policy.bandwidth}` : undefined,
+      labelStyle: { fill: '#64748b', fontWeight: 500, fontSize: 10 },
+      labelBgStyle: { fill: '#ffffff', fillOpacity: 0.9 },
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+      data: {
+        link,
+      } satisfies CustomEdgeData,
+    };
+  });
 }
 
 // ============================================================================
@@ -197,6 +216,8 @@ function TopologyCanvas({
   showMiniMap = true,
   className,
   topologyId,
+  trafficControlColors,
+  highlightedLinkIds,
 }: TopologyCanvasProps) {
   // Ref to track saved positions for persistence
   const nodePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
@@ -208,8 +229,8 @@ function TopologyCanvas({
   );
 
   const initialEdges = useMemo(
-    () => transformTopologyLinksToFlowEdges(topologyLinks, selectedLinkId),
-    [topologyLinks, selectedLinkId]
+    () => transformTopologyLinksToFlowEdges(topologyLinks, selectedLinkId, trafficControlColors, highlightedLinkIds),
+    [topologyLinks, selectedLinkId, trafficControlColors, highlightedLinkIds]
   );
 
   // Layout nodes on mount or when data changes
