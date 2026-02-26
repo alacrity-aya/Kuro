@@ -1,18 +1,21 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import Editor from '@monaco-editor/react';
 import yaml from 'js-yaml';
+import ReactFlow, {
+  type Node,
+  Position,
+  useNodesState,
+  Background,
+  BackgroundVariant,
+} from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { NetworkTopology, NodeGroup } from '../types/api';
 import { apiClient } from '../api/client';
-import VisualEditor from '../components/topology/VisualEditor';
-import ConfigPanel from '../components/topology/ConfigPanel';
 import './TopologyCreate.css';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-type EditorMode = 'visual' | 'yaml';
 
 interface TopologyCreateProps {
   onCreated?: (name: string, namespace: string) => void;
@@ -26,52 +29,47 @@ interface TopologyCreateProps {
 // ============================================================================
 
 const DEFAULT_NAMESPACE = 'kuro-experiment';
-const DEFAULT_IMAGE = 'busybox:latest';
 
-// Generate unique topology name
-function generateTopologyName(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let suffix = '';
-  for (let i = 0; i < 6; i++) {
-    suffix += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `topology-${suffix}`;
-}
-
-// Default command for containers to prevent immediate exit
-const DEFAULT_COMMAND: string[] = ['sleep', 'infinite'];
-
-// Default node groups
-const DEFAULT_NODE_GROUPS: NodeGroup[] = [
-  {
-    name: 'leader',
-    replicas: 1,
-    image: DEFAULT_IMAGE,
-    command: DEFAULT_COMMAND,
-    labels: { role: 'leader' },
-  },
-  {
-    name: 'follower',
-    replicas: 2,
-    image: DEFAULT_IMAGE,
-    command: DEFAULT_COMMAND,
-    labels: { role: 'follower' },
-  },
+const GROUP_COLORS = [
+  '#3b82f6', // blue
+  '#10b981', // green
+  '#f59e0b', // amber
+  '#8b5cf6', // purple
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#ef4444', // red
+  '#84cc16', // lime
 ];
+
+// Default YAML template
+const DEFAULT_YAML = `apiVersion: simulation.kuro.io/v1alpha1
+kind: NetworkTopology
+metadata:
+  name: topology-demo
+  namespace: kuro-experiment
+spec:
+  nodeGroups:
+    - name: leader
+      replicas: 1
+      image: busybox:latest
+      command:
+        - sleep
+        - infinite
+      labels:
+        role: leader
+    - name: follower
+      replicas: 3
+      image: busybox:latest
+      command:
+        - sleep
+        - infinite
+      labels:
+        role: follower
+`;
 
 // ============================================================================
 // YAML Utilities
 // ============================================================================
-
-function topologyToYaml(topology: NetworkTopology): string {
-  return yaml.dump(topology, {
-    indent: 2,
-    lineWidth: -1,
-    noRefs: true,
-    quotingType: '"',
-    forceQuotes: false,
-  });
-}
 
 function yamlToTopology(yamlContent: string): { topology: NetworkTopology | null; error: string | null } {
   try {
@@ -117,24 +115,83 @@ function yamlToTopology(yamlContent: string): { topology: NetworkTopology | null
   }
 }
 
-function buildTopologyFromState(
-  name: string,
-  namespace: string,
-  nodeGroups: NodeGroup[]
-): NetworkTopology {
-  return {
-    apiVersion: 'simulation.kuro.io/v1alpha1',
-    kind: 'NetworkTopology',
-    metadata: {
-      name,
-      namespace,
-      uid: '',
-      creationTimestamp: new Date().toISOString(),
-    },
-    spec: {
-      nodeGroups,
-    },
-  };
+// ============================================================================
+// Topology Preview Component
+// ============================================================================
+
+interface TopologyPreviewProps {
+  nodeGroups: NodeGroup[];
+}
+
+function TopologyPreview({ nodeGroups }: TopologyPreviewProps) {
+  // Generate nodes from node groups
+  const initialNodes = useMemo(() => {
+    const nodes: Node[] = [];
+    const centerX = 300;
+    const centerY = 200;
+    const radius = Math.min(150, 50 + nodeGroups.length * 30);
+
+    nodeGroups.forEach((group, groupIndex) => {
+      const color = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
+      const angle = (2 * Math.PI * groupIndex) / nodeGroups.length - Math.PI / 2;
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+
+      nodes.push({
+        id: group.name,
+        type: 'default',
+        position: { x, y },
+        data: {
+          label: (
+            <div style={{ padding: '8px 12px', minWidth: '80px' }}>
+              <div style={{ fontWeight: 600, color: '#e2e8f0' }}>{group.name}</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                {group.replicas} {group.replicas === 1 ? 'replica' : 'replicas'}
+              </div>
+            </div>
+          ),
+        },
+        style: {
+          background: '#1a1a2e',
+          border: `2px solid ${color}`,
+          borderRadius: '8px',
+          fontSize: '12px',
+        },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      });
+    });
+
+    return nodes;
+  }, [nodeGroups]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+
+  // Update nodes when nodeGroups change
+  useEffect(() => {
+    setNodes(initialNodes);
+  }, [initialNodes, setNodes]);
+
+  return (
+    <div className="topology-preview">
+      <ReactFlow
+        nodes={nodes}
+        onNodesChange={onNodesChange}
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
+        minZoom={0.5}
+        maxZoom={1.5}
+        nodesDraggable={true}
+        nodesConnectable={false}
+        elementsSelectable={true}
+        panOnDrag={true}
+        zoomOnScroll={true}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2d2d44" />
+      </ReactFlow>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -142,118 +199,44 @@ function buildTopologyFromState(
 // ============================================================================
 
 export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTopology }: TopologyCreateProps) {
-  // Editor mode state
-  const [mode, setMode] = useState<EditorMode>('visual');
-
-  // Shared topology state
-  const [name, setName] = useState(() => {
-    if (initialTopology?.metadata?.name) return initialTopology.metadata.name;
-    return generateTopologyName();
-  });
-  const [namespace, setNamespace] = useState(() => {
-    if (initialTopology?.metadata?.namespace) return initialTopology.metadata.namespace;
-    return DEFAULT_NAMESPACE;
-  });
-  const [nodeGroups, setNodeGroups] = useState<NodeGroup[]>(() => {
-    if (initialTopology?.spec?.nodeGroups) return initialTopology.spec.nodeGroups;
-    return DEFAULT_NODE_GROUPS;
-  });
-
-  // YAML mode state
+  // YAML content state
   const [yamlContent, setYamlContent] = useState(() => {
     if (initialTopology) {
-      return topologyToYaml(initialTopology);
+      return yaml.dump(initialTopology, { indent: 2, lineWidth: -1, noRefs: true });
     }
-    return topologyToYaml(buildTopologyFromState(name, namespace, nodeGroups));
+    return DEFAULT_YAML;
   });
 
-  // Selection state for visual editor
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  // Parsed topology state
+  const [topology, setTopology] = useState<NetworkTopology | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
 
   // UI state
-  const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Build topology object from current state
-  const currentTopology = useMemo(() => {
-    return buildTopologyFromState(name, namespace, nodeGroups);
-  }, [name, namespace, nodeGroups]);
-
-  // Sync YAML content when switching to YAML mode
-  useEffect(() => {
-    if (mode === 'yaml') {
-      setYamlContent(topologyToYaml(currentTopology));
-    }
-  }, [mode, currentTopology]);
-
-  // Handle mode toggle
-  const handleModeChange = useCallback((newMode: EditorMode) => {
-    if (newMode === 'yaml') {
-      // Update YAML from current visual state
-      setYamlContent(topologyToYaml(currentTopology));
-    }
-    setMode(newMode);
-    setError(null);
-  }, [currentTopology]);
-
-  // Handle YAML editor change
+  // Parse YAML on change
   const handleYamlChange = useCallback((value: string | undefined) => {
     const content = value || '';
     setYamlContent(content);
 
-    // Parse and update visual state
-    const { topology, error: parseError } = yamlToTopology(content);
-    if (parseError) {
-      setError(parseError);
-    } else if (topology) {
-      setError(null);
-      setName(topology.metadata.name);
-      setNamespace(topology.metadata.namespace || DEFAULT_NAMESPACE);
-      setNodeGroups(topology.spec.nodeGroups);
+    const { topology: parsed, error } = yamlToTopology(content);
+    if (error) {
+      setParseError(error);
+      setTopology(null);
+    } else {
+      setParseError(null);
+      setTopology(parsed);
     }
-  }, []);
-
-  // Handle visual editor changes
-  const handleAddGroup = useCallback(() => {
-    const newGroupNumber = nodeGroups.length + 1;
-    const newGroup: NodeGroup = {
-      name: `group-${newGroupNumber}`,
-      replicas: 1,
-      image: DEFAULT_IMAGE,
-      command: DEFAULT_COMMAND,
-      labels: { role: `role-${newGroupNumber}` },
-    };
-    setNodeGroups([...nodeGroups, newGroup]);
-    setSelectedGroupId(newGroup.name);
-  }, [nodeGroups]);
-
-  const handleDeleteGroup = useCallback((groupId: string) => {
-    setNodeGroups(prev => prev.filter(g => g.name !== groupId));
-    if (selectedGroupId === groupId) {
-      setSelectedGroupId(null);
-    }
-  }, [selectedGroupId]);
-
-  const handleUpdateGroup = useCallback((groupId: string, updates: Partial<NodeGroup>) => {
-    setNodeGroups(prev => prev.map(g => {
-      if (g.name !== groupId) return g;
-      
-      // Handle name change - need to update group name
-      if (updates.name && updates.name !== groupId) {
-        return { ...g, ...updates };
-      }
-      return { ...g, ...updates };
-    }));
   }, []);
 
   // Handle submit
   const handleSubmit = useCallback(async () => {
-    const topology = currentTopology;
-    
+    if (!topology) return;
+
     setCreating(true);
     setCreateError(null);
-    
+
     try {
       let response;
       if (isEdit) {
@@ -261,10 +244,10 @@ export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTop
       } else {
         response = await apiClient.createTopology(topology);
       }
-      
+
       if (response.success) {
         console.log(isEdit ? 'Topology updated successfully:' : 'Topology created successfully:', response.data);
-        onCreated?.(name, namespace);
+        onCreated?.(topology.metadata.name, topology.metadata.namespace || DEFAULT_NAMESPACE);
       } else {
         setCreateError(response.error || `Failed to ${isEdit ? 'update' : 'create'} topology`);
       }
@@ -275,18 +258,17 @@ export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTop
     } finally {
       setCreating(false);
     }
-  }, [currentTopology, isEdit, name, namespace, onCreated]);
+  }, [topology, isEdit, onCreated]);
 
-  // Handle import from session storage (topology import feature)
+  // Handle import from session storage
   useEffect(() => {
     const importedTopologyJson = sessionStorage.getItem('importedTopology');
     if (importedTopologyJson) {
       try {
         const importedTopology = JSON.parse(importedTopologyJson) as NetworkTopology;
-        setName(importedTopology.metadata.name);
-        setNamespace(importedTopology.metadata.namespace || DEFAULT_NAMESPACE);
-        setNodeGroups(importedTopology.spec.nodeGroups);
-        setYamlContent(topologyToYaml(importedTopology));
+        const yamlStr = yaml.dump(importedTopology, { indent: 2, lineWidth: -1, noRefs: true });
+        setYamlContent(yamlStr);
+        setTopology(importedTopology);
         sessionStorage.removeItem('importedTopology');
       } catch {
         console.error('Failed to parse imported topology');
@@ -295,11 +277,12 @@ export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTop
   }, []);
 
   // Calculate stats
+  const nodeGroups = topology?.spec?.nodeGroups || [];
   const totalNodes = nodeGroups.reduce((sum, g) => sum + g.replicas, 0);
-  const groupCount = nodeGroups.length;
+  const isValid = topology !== null && !parseError;
 
   return (
-    <div className="topology-create">
+    <div className="topology-create yaml-first-layout">
       {/* Header */}
       <div className="create-header">
         <div className="create-header-left">
@@ -311,115 +294,79 @@ export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTop
           <h2>{isEdit ? 'Edit Topology' : 'Create Topology'}</h2>
         </div>
         <div className="create-header-right">
-          {/* Mode Toggle */}
-          <div className="mode-toggle">
-            <button
-              className={`mode-btn ${mode === 'visual' ? 'active' : ''}`}
-              onClick={() => handleModeChange('visual')}
-            >
-              Visual
-            </button>
-            <button
-              className={`mode-btn ${mode === 'yaml' ? 'active' : ''}`}
-              onClick={() => handleModeChange('yaml')}
-            >
-              YAML
-            </button>
+          <div className="header-stats">
+            <span className="stat-badge">{nodeGroups.length} groups</span>
+            <span className="stat-badge">{totalNodes} nodes</span>
           </div>
+          <button
+            className="btn-primary"
+            onClick={handleSubmit}
+            disabled={!isValid || creating}
+          >
+            {creating ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update Topology' : 'Create Topology')}
+          </button>
         </div>
       </div>
 
       {/* Error Banner */}
-      {error && (
+      {(parseError || createError) && (
         <div className="error-banner">
           <span className="error-icon">⚠</span>
-          <span className="error-message">{error}</span>
+          <span className="error-message">{parseError || createError}</span>
         </div>
       )}
 
-      {createError && (
-        <div className="error-banner">
-          <span className="error-icon">❌</span>
-          <span className="error-message">{createError}</span>
+      {/* Main Content - Split Layout */}
+      <div className="create-content-split">
+        {/* Left: YAML Editor */}
+        <div className="yaml-editor-panel">
+          <div className="panel-header">
+            <h3>YAML Definition</h3>
+            <span className="hint">Define your topology in YAML format</span>
+          </div>
+          <div className="yaml-editor-wrapper">
+            <Editor
+              height="100%"
+              defaultLanguage="yaml"
+              value={yamlContent}
+              onChange={handleYamlChange}
+              theme="vs-dark"
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                lineNumbers: 'on',
+                wordWrap: 'on',
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                tabSize: 2,
+                folding: true,
+                renderWhitespace: 'selection',
+              }}
+            />
+          </div>
         </div>
-      )}
 
-      {/* Content */}
-      <div className="create-content">
-        {mode === 'visual' ? (
-          <>
-            {/* Visual Editor Panel */}
-            <div className="visual-panel">
-              <div className="panel-header">
-                <h3>Topology Editor</h3>
-                <div className="panel-stats">
-                  <span className="stat">{groupCount} groups</span>
-                  <span className="stat">{totalNodes} nodes</span>
+        {/* Right: Topology Preview */}
+        <div className="topology-preview-panel">
+          <div className="panel-header">
+            <h3>Live Preview</h3>
+            <span className="hint">
+              {isValid ? 'Topology visualization' : 'Fix YAML errors to see preview'}
+            </span>
+          </div>
+          <div className="topology-preview-wrapper">
+            {isValid ? (
+              <TopologyPreview nodeGroups={nodeGroups} />
+            ) : (
+              <div className="preview-placeholder">
+                <div className="placeholder-icon">📊</div>
+                <div className="placeholder-text">
+                  {parseError ? 'Fix YAML errors to see preview' : 'Enter YAML to see preview'}
                 </div>
               </div>
-              <div className="visual-panel-content">
-                <VisualEditor
-                  nodeGroups={nodeGroups}
-                  selectedGroupId={selectedGroupId}
-                  onSelectGroup={setSelectedGroupId}
-                  onAddGroup={handleAddGroup}
-                />
-              </div>
-            </div>
-
-            {/* Config Panel */}
-            <ConfigPanel
-              name={name}
-              namespace={namespace}
-              nodeGroups={nodeGroups}
-              selectedGroupId={selectedGroupId}
-              onNameChange={setName}
-              onNamespaceChange={setNamespace}
-              onAddGroup={handleAddGroup}
-              onSelectGroup={setSelectedGroupId}
-              onDeleteGroup={handleDeleteGroup}
-              onUpdateGroup={handleUpdateGroup}
-              onSubmit={handleSubmit}
-              submitLabel={isEdit ? 'Update Topology' : 'Create Topology'}
-              isSubmitting={creating}
-            />
-          </>
-        ) : (
-          /* YAML Editor Panel */
-          <div className="yaml-panel">
-            <div className="panel-header">
-              <h3>YAML Editor</h3>
-              <span className="hint">Edit the topology definition</span>
-              <div className="yaml-actions">
-                <button
-                  className="btn-primary"
-                  onClick={handleSubmit}
-                  disabled={!!error || creating}
-                >
-                  {creating ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update Topology' : 'Create Topology')}
-                </button>
-              </div>
-            </div>
-            <div className="yaml-editor-container">
-              <Editor
-                height="100%"
-                defaultLanguage="yaml"
-                value={yamlContent}
-                onChange={handleYamlChange}
-                theme="vs-dark"
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  lineNumbers: 'on',
-                  wordWrap: 'on',
-                  automaticLayout: true,
-                  scrollBeyondLastLine: false,
-                  tabSize: 2,
-                }}
-              />
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
