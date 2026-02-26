@@ -1,8 +1,7 @@
-import { useCallback, useRef, useMemo } from 'react';
+import { useCallback, useRef } from 'react';
 import { ReactFlowProvider, useReactFlow } from 'reactflow';
 import { TopologyCanvas } from '../components/topology';
 import { TrafficControlPanel } from '../components';
-import { TsnToggle, TsnSyncStatus, TsnTimeline } from '../components/tsn';
 import {
   useTopologyStore,
   useTopologyStats,
@@ -15,8 +14,7 @@ import {
   useLinkActions,
 } from '../stores';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
-import type { TrafficPolicy, TopologyLink, TSNSchedule, TimeSyncStatus } from '../types/api';
-import { generateMockTsnSchedule, generateMockTimeSyncStatuses } from '../api/mock';
+import type { TrafficPolicy, TopologyLink } from '../types/api';
 import './TopologyDetail.css';
 
 // ============================================================================
@@ -27,12 +25,6 @@ interface TopologyDetailProps {
   topologyName: string;
   namespace?: string;
   onBack?: () => void;
-}
-
-// TSN State (local to component)
-interface TsnState {
-  schedule: TSNSchedule | null;
-  syncStatuses: TimeSyncStatus[];
 }
 
 // ============================================================================
@@ -263,8 +255,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   } = useTopologySelection();
   
   const { 
-    detailSidebarCollapsed, 
-    tsnConfig 
+    detailSidebarCollapsed
   } = useTopologyUI();
   
   // Get Actions from store - stable references
@@ -280,21 +271,6 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   
   // Get computed stats (use original nodes for total stats)
   const stats = useTopologyStats();
-  
-  // TSN State - memoize with stable keys to prevent re-generation
-  // Only regenerate when the actual IDs change, not on every render
-  const linksIdKey = useMemo(() => links.map(l => l.id).sort().join(','), [links]);
-  const nodesIdKey = useMemo(() => nodes.map(n => n.id).sort().join(','), [nodes]);
-  
-  const tsnState = useMemo<TsnState>(() => {
-    if (links.length > 0 && nodes.length > 0) {
-      return {
-        schedule: generateMockTsnSchedule(links),
-        syncStatuses: generateMockTimeSyncStatuses(nodes),
-      };
-    }
-    return { schedule: null, syncStatuses: [] };
-  }, [links.length, nodes.length, linksIdKey, nodesIdKey]);
 
   // Refresh function for auto-refresh
   const refreshData = useCallback(async () => {
@@ -392,10 +368,6 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
             </span>
           </div>
         </div>
-        <div className="topology-detail__header-center">
-          {/* TSN Toggle */}
-          <TsnToggle config={tsnConfig} onToggle={actions.setTsnEnabled} />
-        </div>
         <div className="topology-detail__header-right">
           {isRefreshing && (
             <span className="topology-detail__refreshing" title="Refreshing...">
@@ -428,7 +400,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
         {/* Sidebar - Traffic Controls & TSN */}
         <aside className={`topology-detail__sidebar ${detailSidebarCollapsed ? 'topology-detail__sidebar--collapsed' : ''}`}>
           <div className="sidebar-header">
-            <h3>{tsnConfig.enabled ? 'TSN & Traffic Controls' : 'Traffic Controls'}</h3>
+            <h3>Traffic Controls</h3>
             <button 
               className="sidebar-toggle"
               onClick={() => actions.setDetailSidebarCollapsed(!detailSidebarCollapsed)}
@@ -438,20 +410,6 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
           </div>
           {!detailSidebarCollapsed && (
             <div className="sidebar-content">
-              {/* TSN Time Sync Status (only in TSN mode) */}
-              {tsnConfig.enabled && (
-                <div className="sidebar-section">
-                  <TsnSyncStatus nodes={nodes} syncStatuses={tsnState.syncStatuses} />
-                </div>
-              )}
-              
-              {/* TSN Schedule Timeline (only in TSN mode) */}
-              {tsnConfig.enabled && tsnState.schedule && (
-                <div className="sidebar-section">
-                  <TsnTimeline schedule={tsnState.schedule} links={links} />
-                </div>
-              )}
-              
               {/* Traffic Controls */}
               <div className="sidebar-section">
                 <h4 className="sidebar-section-title">Traffic Controls</h4>
@@ -517,7 +475,6 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
               onSave={handlePolicySave}
               onReset={handlePolicyReset}
               onClose={actions.clearSelection}
-              tsnMode={tsnConfig.enabled}
             />
           </div>
         )}
