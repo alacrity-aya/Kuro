@@ -215,6 +215,18 @@ export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTop
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // Parse initial YAML on mount
+  useEffect(() => {
+    const { topology: parsed, error } = yamlToTopology(yamlContent);
+    if (error) {
+      setParseError(error);
+      setTopology(null);
+    } else {
+      setParseError(null);
+      setTopology(parsed);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Parse YAML on change
   const handleYamlChange = useCallback((value: string | undefined) => {
     const content = value || '';
