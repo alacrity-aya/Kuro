@@ -341,17 +341,24 @@ func (m *BpfManager) EnsurePodAttached(podName, podIP string, hostIfIndex int, n
 	// 3. Initialize Metrics & Rate Defaults
 	// ==========================================
 
-	// init Metrics Map
+	// Note: We need to initialize metrics for BOTH hostIfIndex and podIfIndex
+	// - Download hook (handle_edt_download) runs on host veth -> uses hostIfIndex
+	// - Upload hook (handle_edt_upload) runs on pod eth0 -> uses podIfIndex
 	zeroStats := make([]TcPodStats, runtime.NumCPU())
-	key := uint32(hostIfIndex)
-	_ = m.objects.MetricsMap.Put(&key, zeroStats)
-
-	// init Latency Map
 	zeroHist := make([]TcLatencyHist, runtime.NumCPU())
-	_ = m.objects.LatencyMap.Put(&key, zeroHist)
+
+	// Initialize for host interface (Download direction)
+	keyHost := uint32(hostIfIndex)
+	_ = m.objects.MetricsMap.Put(&keyHost, zeroStats)
+	_ = m.objects.LatencyMap.Put(&keyHost, zeroHist)
+
+	// Initialize for pod interface (Upload direction) - CRITICAL FIX
+	keyPodMetrics := uint32(prog.podIfIndex)
+	_ = m.objects.MetricsMap.Put(&keyPodMetrics, zeroStats)
+	_ = m.objects.LatencyMap.Put(&keyPodMetrics, zeroHist)
 
 	zeroRate := TcIoRate{}
-	_ = m.objects.RateMap.Update(&key, &zeroRate, ebpf.UpdateAny) // Host Key
+	_ = m.objects.RateMap.Update(&keyHost, &zeroRate, ebpf.UpdateAny) // Host Key
 	keyPod := uint32(prog.podIfIndex)
 	_ = m.objects.RateMap.Update(&keyPod, &zeroRate, ebpf.UpdateAny) // Pod Key
 
@@ -455,16 +462,29 @@ func (m *BpfManager) AddPod(podName string, hostIfIndex int, nsHandle netns.NsHa
 	}
 
 	// 3. Initialize Metrics & Latency Maps (PerCPU)
+	// Note: We need to initialize metrics for BOTH hostIfIndex and podIfIndex
+	// - Download hook (handle_edt_download) runs on host veth -> uses hostIfIndex
+	// - Upload hook (handle_edt_upload) runs on pod eth0 -> uses podIfIndex
 	log.Println("[BPF] Initializing Metrics and Latency Maps...")
 	zeroStats := make([]TcPodStats, runtime.NumCPU())
-	key := uint32(hostIfIndex)
-	if err := m.objects.MetricsMap.Put(&key, zeroStats); err != nil {
-		log.Printf("[BPF] Warning: Failed to init metrics map for %s: %v", podName, err)
+	zeroHist := make([]TcLatencyHist, runtime.NumCPU())
+
+	// Initialize for host interface (Download direction)
+	keyHost := uint32(hostIfIndex)
+	if err := m.objects.MetricsMap.Put(&keyHost, zeroStats); err != nil {
+		log.Printf("[BPF] Warning: Failed to init metrics map (host) for %s: %v", podName, err)
+	}
+	if err := m.objects.LatencyMap.Put(&keyHost, zeroHist); err != nil {
+		log.Printf("[BPF] Warning: Failed to init latency map (host) for %s: %v", podName, err)
 	}
 
-	zeroHist := make([]TcLatencyHist, runtime.NumCPU())
-	if err := m.objects.LatencyMap.Put(&key, zeroHist); err != nil {
-		log.Printf("[BPF] Warning: Failed to init latency map for %s: %v", podName, err)
+	// Initialize for pod interface (Upload direction) - CRITICAL FIX
+	keyPod := uint32(prog.podIfIndex)
+	if err := m.objects.MetricsMap.Put(&keyPod, zeroStats); err != nil {
+		log.Printf("[BPF] Warning: Failed to init metrics map (pod) for %s: %v", podName, err)
+	}
+	if err := m.objects.LatencyMap.Put(&keyPod, zeroHist); err != nil {
+		log.Printf("[BPF] Warning: Failed to init latency map (pod) for %s: %v", podName, err)
 	}
 
 	m.programs[hostIfIndex] = prog
