@@ -502,6 +502,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
             onSelectionChange={handleSelectionChange}
             fitView
             showMiniMap
+            topologyId={`${namespace}-${topologyName}`}
           />
           <ZoomControls />
         </div>

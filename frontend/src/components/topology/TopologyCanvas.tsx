@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useEffect } from 'react';
+import { memo, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -10,6 +10,7 @@ import {
   type Edge,
   type EdgeChange,
   type OnConnect,
+  type NodeChange,
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -36,6 +37,8 @@ export interface TopologyCanvasProps {
   fitView?: boolean;
   showMiniMap?: boolean;
   className?: string;
+  /** Unique key for storing node positions in localStorage */
+  topologyId?: string;
 }
 
 interface CustomNodeData {
@@ -106,6 +109,29 @@ function getLayoutedElements(
 }
 
 // ============================================================================
+// Position Persistence
+// ============================================================================
+
+const POSITION_STORAGE_PREFIX = 'kuro_topology_positions_';
+
+function saveNodePositions(topologyId: string, positions: Record<string, { x: number; y: number }>) {
+  try {
+    localStorage.setItem(POSITION_STORAGE_PREFIX + topologyId, JSON.stringify(positions));
+  } catch {
+    console.warn('Failed to save node positions to localStorage');
+  }
+}
+
+function loadNodePositions(topologyId: string): Record<string, { x: number; y: number }> | null {
+  try {
+    const data = localStorage.getItem(POSITION_STORAGE_PREFIX + topologyId);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
 // Data Transformation
 // ============================================================================
 
@@ -170,7 +196,11 @@ function TopologyCanvas({
   fitView = true,
   showMiniMap = true,
   className,
+  topologyId,
 }: TopologyCanvasProps) {
+  // Ref to track saved positions for persistence
+  const nodePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  
   // Transform topology data to React Flow format
   const initialNodes = useMemo(
     () => transformTopologyNodesToFlowNodes(topologyNodes, selectedNodeId),
@@ -184,13 +214,35 @@ function TopologyCanvas({
 
   // Layout nodes on mount or when data changes
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(() => {
-    // Only apply layout if nodes don't have positions
-    const needsLayout = topologyNodes.some((n) => n.x === undefined || n.y === undefined);
+    // Try to load saved positions first
+    let savedPositions: Record<string, { x: number; y: number }> | null = null;
+    if (topologyId) {
+      savedPositions = loadNodePositions(topologyId);
+      if (savedPositions) {
+        nodePositionsRef.current = savedPositions;
+      }
+    }
+    
+    // Check if nodes have positions from API or saved positions
+    const needsLayout = topologyNodes.some((n) => 
+      n.x === undefined || n.y === undefined
+    ) && !savedPositions;
+    
     if (needsLayout) {
       return getLayoutedElements(initialNodes, initialEdges);
     }
+    
+    // Apply saved positions if available
+    if (savedPositions) {
+      const nodesWithSavedPositions = initialNodes.map((node) => ({
+        ...node,
+        position: savedPositions![node.id] || node.position,
+      }));
+      return { nodes: nodesWithSavedPositions, edges: initialEdges };
+    }
+    
     return { nodes: initialNodes, edges: initialEdges };
-  }, [initialNodes, initialEdges, topologyNodes]);
+  }, [initialNodes, initialEdges, topologyNodes, topologyId]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges);
@@ -203,6 +255,36 @@ function TopologyCanvas({
   useEffect(() => {
     setEdges(layoutedEdges);
   }, [layoutedEdges, setEdges]);
+
+  // Handle node drag stop - save position
+  const handleNodeDragStop = useCallback(
+    (_event: React.MouseEvent, node: Node<CustomNodeData>) => {
+      if (topologyId) {
+        // Update the position in ref
+        nodePositionsRef.current[node.id] = node.position;
+        // Save all positions to localStorage
+        saveNodePositions(topologyId, nodePositionsRef.current);
+      }
+    },
+    [topologyId]
+  );
+
+  // Handle nodes change - intercept position changes
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      onNodesChange(changes);
+      
+      // Save positions when nodes are moved
+      if (topologyId) {
+        for (const change of changes) {
+          if (change.type === 'position' && change.position) {
+            nodePositionsRef.current[change.id] = change.position;
+          }
+        }
+      }
+    },
+    [onNodesChange, topologyId]
+  );
 
   // Handle node click
   const handleNodeClick = useCallback(
@@ -271,11 +353,12 @@ function TopologyCanvas({
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onNodeClick={handleNodeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
+        onNodeDragStop={handleNodeDragStop}
         onEdgeClick={handleEdgeClick}
         onPaneClick={onPaneClick}
         onSelectionChange={handleSelectionChange}
