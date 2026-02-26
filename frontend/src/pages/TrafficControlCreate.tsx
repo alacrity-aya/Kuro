@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { validatePolicy, type PolicyValidationResult } from '../utils/policyValidator';
 import type { NetworkTopology, TrafficControl, NodeGroup } from '../types/api';
 import './TrafficControlCreate.css';
 
@@ -34,6 +35,7 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [policyErrors, setPolicyErrors] = useState<Record<string, string>>({});
 
   // Load topologies on mount
   useEffect(() => {
@@ -75,6 +77,14 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
   // Handle policy field change
   const handlePolicyChange = (field: keyof typeof policy, value: string) => {
     setPolicy((prev) => ({ ...prev, [field]: value }));
+    // Clear error for this field when user types
+    if (policyErrors[field]) {
+      setPolicyErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
   };
 
   // Validate form
@@ -97,6 +107,14 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
     if (sourceGroup === destGroup) {
       return 'Source and destination node groups must be different';
     }
+    
+    // Validate policy values
+    const policyValidation: PolicyValidationResult = validatePolicy(policy);
+    if (!policyValidation.isValid) {
+      setPolicyErrors(policyValidation.errors);
+      return 'Please fix the policy validation errors';
+    }
+    
     return null;
   };
 
@@ -332,13 +350,17 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
                 <input
                   id="bandwidth"
                   type="text"
-                  className="form-input"
+                  className={`form-input${policyErrors.bandwidth ? ' form-input--error' : ''}`}
                   placeholder="10Mbps"
                   value={policy.bandwidth}
                   onChange={(e) => handlePolicyChange('bandwidth', e.target.value)}
                   disabled={submitting}
                 />
-                <span className="form-hint">e.g., 10Mbps, 1Gbps</span>
+                {policyErrors.bandwidth ? (
+                  <span className="form-hint form-hint--error">{policyErrors.bandwidth}</span>
+                ) : (
+                  <span className="form-hint">e.g., 10Mbps, 1Gbps</span>
+                )}
               </div>
 
               <div className="form-group">
@@ -348,13 +370,17 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
                 <input
                   id="latency"
                   type="text"
-                  className="form-input"
+                  className={`form-input${policyErrors.latency ? ' form-input--error' : ''}`}
                   placeholder="10ms"
                   value={policy.latency}
                   onChange={(e) => handlePolicyChange('latency', e.target.value)}
                   disabled={submitting}
                 />
-                <span className="form-hint">e.g., 10ms, 100ms</span>
+                {policyErrors.latency ? (
+                  <span className="form-hint form-hint--error">{policyErrors.latency}</span>
+                ) : (
+                  <span className="form-hint">e.g., 10ms, 100ms</span>
+                )}
               </div>
             </div>
 
@@ -366,13 +392,17 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
                 <input
                   id="jitter"
                   type="text"
-                  className="form-input"
+                  className={`form-input${policyErrors.jitter ? ' form-input--error' : ''}`}
                   placeholder="5ms"
                   value={policy.jitter}
                   onChange={(e) => handlePolicyChange('jitter', e.target.value)}
                   disabled={submitting}
                 />
-                <span className="form-hint">e.g., 5ms, 20ms</span>
+                {policyErrors.jitter ? (
+                  <span className="form-hint form-hint--error">{policyErrors.jitter}</span>
+                ) : (
+                  <span className="form-hint">e.g., 5ms, 20ms</span>
+                )}
               </div>
 
               <div className="form-group">
@@ -382,13 +412,17 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
                 <input
                   id="packet-loss"
                   type="text"
-                  className="form-input"
+                  className={`form-input${policyErrors.packetLoss ? ' form-input--error' : ''}`}
                   placeholder="0.1%"
                   value={policy.packetLoss}
                   onChange={(e) => handlePolicyChange('packetLoss', e.target.value)}
                   disabled={submitting}
                 />
-                <span className="form-hint">e.g., 0.1%, 1%</span>
+                {policyErrors.packetLoss ? (
+                  <span className="form-hint form-hint--error">{policyErrors.packetLoss}</span>
+                ) : (
+                  <span className="form-hint">e.g., 0.1%, 1%</span>
+                )}
               </div>
             </div>
           </section>

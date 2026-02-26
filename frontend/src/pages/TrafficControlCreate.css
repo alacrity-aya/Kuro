@@ -177,6 +177,16 @@
   cursor: not-allowed;
 }
 
+.form-input--error {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+
+.form-input--error:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
 /* Form Select */
 .form-select {
   width: 100%;
@@ -217,6 +227,10 @@
 
 .form-hint--warning {
   color: #d97706;
+}
+
+.form-hint--error {
+  color: #dc2626;
 }
 
 /* Preview Panel */
