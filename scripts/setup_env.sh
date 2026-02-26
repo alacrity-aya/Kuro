@@ -197,26 +197,45 @@ deploy_agent_external() {
 setup_port_forward() {
     echo -e "${GREEN}>>> [Phase 3] Setting Up Port Forwarding${NC}"
     
-    # Kill existing port-forward processes for kuro-controller
+    # Kill existing port-forward processes
     pkill -f "port-forward.*kuro-controller" 2>/dev/null || true
+    pkill -f "port-forward.*kuro-monitor" 2>/dev/null || true
     sleep 1
     
     # Port forward controller HTTP API (8080)
     echo -e "${YELLOW}Port forwarding kuro-controller HTTP API (8080)...${NC}"
     kubectl port-forward svc/kuro-controller -n kuro-system 8080:8080 > /dev/null 2>&1 &
-    echo "  PID: $!"
+    echo "  Controller PID: $!"
     
-    # Port forward controller gRPC (9090) - optional, for debugging
-    # kubectl port-forward svc/kuro-controller -n kuro-system 9090:9090 > /dev/null 2>&1 &
+    # Port forward Grafana (30092)
+    echo -e "${YELLOW}Port forwarding Grafana (30092)...${NC}"
+    kubectl port-forward svc/grafana -n kuro-monitor 30092:3000 > /dev/null 2>&1 &
+    echo "  Grafana PID: $!"
+    
+    # Port forward Prometheus (30091)
+    echo -e "${YELLOW}Port forwarding Prometheus (30091)...${NC}"
+    kubectl port-forward svc/prometheus -n kuro-monitor 30091:9090 > /dev/null 2>&1 &
+    echo "  Prometheus PID: $!"
     
     sleep 2
     
-    # Verify port forward is working
+    # Verify port forwards are working
     if curl -s --max-time 2 http://localhost:8080/health > /dev/null 2>&1; then
         echo -e "${GREEN}Port forward verified: API is reachable at http://localhost:8080${NC}"
     else
         echo -e "${YELLOW}Port forward started. API may take a moment to be ready.${NC}"
-        echo -e "${YELLOW}Test with: curl http://localhost:8080/api/v1/namespaces/default/networktopologies${NC}"
+    fi
+    
+    if curl -s --max-time 2 http://localhost:30092 > /dev/null 2>&1; then
+        echo -e "${GREEN}Grafana is reachable at http://localhost:30092${NC}"
+    else
+        echo -e "${YELLOW}Grafana port forward started. May take a moment to be ready.${NC}"
+    fi
+    
+    if curl -s --max-time 2 http://localhost:30091/-/healthy > /dev/null 2>&1; then
+        echo -e "${GREEN}Prometheus is reachable at http://localhost:30091${NC}"
+    else
+        echo -e "${YELLOW}Prometheus port forward started. May take a moment to be ready.${NC}"
     fi
 }
 
