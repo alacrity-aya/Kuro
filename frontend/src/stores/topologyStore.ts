@@ -24,6 +24,7 @@ interface TopologyState {
   nodes: TopologyNode[];
   links: TopologyLink[];
   trafficControls: TrafficControl[];
+  selectedTrafficControlIds: string[];  // IDs of selected TCs for edge filtering
   
   // Selection
   selectedNode: TopologyNode | null;
@@ -71,6 +72,11 @@ interface TopologyState {
   setTsnConfig: (config: Partial<TSNConfig>) => void;
   setTimeSyncStatuses: (statuses: TimeSyncStatus[]) => void;
   
+  // Actions - TC Filter
+  setSelectedTrafficControlIds: (ids: string[]) => void;
+  toggleTrafficControlSelection: (id: string) => void;
+  clearTrafficControlSelection: () => void;
+  
   // Actions - Updates
   updateLinkPolicy: (linkId: string, policy: TrafficPolicy) => void;
   updateNodeStatus: (nodeId: string, status: TopologyNode['status']) => void;
@@ -90,6 +96,7 @@ const initialState = {
   nodes: [],
   links: [],
   trafficControls: [],
+  selectedTrafficControlIds: [],
   
   // Selection
   selectedNode: null,
@@ -267,6 +274,32 @@ export const useTopologyStore = create<TopologyState>()(
       
       setTimeSyncStatuses: (statuses) => {
         set({ timeSyncStatuses: statuses });
+      },
+      
+      // ========================================================================
+      // TC Filter Actions
+      // ========================================================================
+      
+      setSelectedTrafficControlIds: (ids) => {
+        set({ selectedTrafficControlIds: ids });
+      },
+      
+      toggleTrafficControlSelection: (id) => {
+        set((state) => {
+          const exists = state.selectedTrafficControlIds.includes(id);
+          if (exists) {
+            return { 
+              selectedTrafficControlIds: state.selectedTrafficControlIds.filter((i) => i !== id) 
+            };
+          }
+          return { 
+            selectedTrafficControlIds: [...state.selectedTrafficControlIds, id] 
+          };
+        });
+      },
+      
+      clearTrafficControlSelection: () => {
+        set({ selectedTrafficControlIds: [] });
       },
       
       // ========================================================================
@@ -509,6 +542,21 @@ export function useLinkActions() {
       selectLink: state.selectLink,
       clearSelection: state.clearSelection,
       updateLinkPolicy: state.updateLinkPolicy,
+    }))
+  );
+}
+
+/**
+ * Hook for TrafficControl filter state
+ */
+export function useTrafficControlFilter() {
+  return useTopologyStore(
+    useShallow((state: TopologyState) => ({
+      trafficControls: state.trafficControls,
+      selectedTrafficControlIds: state.selectedTrafficControlIds,
+      setSelectedTrafficControlIds: state.setSelectedTrafficControlIds,
+      toggleTrafficControlSelection: state.toggleTrafficControlSelection,
+      clearTrafficControlSelection: state.clearTrafficControlSelection,
     }))
   );
 }
