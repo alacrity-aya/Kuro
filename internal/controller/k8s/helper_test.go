@@ -49,6 +49,22 @@ func TestParseLinkPolicy_Bandwidth(t *testing.T) {
 			bandwidth: "500kbps",
 			expected:  500_000,
 		},
+		// Edge cases
+		{
+			name:      "0bps unlimited",
+			bandwidth: "0bps",
+			expected:  0, // 0 = no rate limiting (unlimited)
+		},
+		{
+			name:      "0Mbps unlimited",
+			bandwidth: "0Mbps",
+			expected:  0, // 0 = no rate limiting (unlimited)
+		},
+		{
+			name:      "0 unlimited",
+			bandwidth: "0",
+			expected:  0, // 0 = no rate limiting (unlimited)
+		},
 	}
 
 	for _, tt := range tests {
@@ -91,6 +107,17 @@ func TestParseLinkPolicy_Latency(t *testing.T) {
 			latency:  "1.5s",
 			expected: 1_500_000_000,
 		},
+		// Edge cases
+		{
+			name:     "0ms no delay",
+			latency:  "0ms",
+			expected: 0, // 0 = no artificial delay
+		},
+		{
+			name:     "0s no delay",
+			latency:  "0s",
+			expected: 0, // 0 = no artificial delay
+		},
 	}
 
 	for _, tt := range tests {
@@ -122,6 +149,17 @@ func TestParseLinkPolicy_Jitter(t *testing.T) {
 			name:     "100us",
 			jitter:   "100us",
 			expected: 100_000,
+		},
+		// Edge cases
+		{
+			name:     "0ms no jitter",
+			jitter:   "0ms",
+			expected: 0, // 0 = no jitter
+		},
+		{
+			name:     "0s no jitter",
+			jitter:   "0s",
+			expected: 0, // 0 = no jitter
 		},
 	}
 
@@ -160,6 +198,17 @@ func TestParseLinkPolicy_PacketLoss(t *testing.T) {
 			loss:     "10%",
 			expected: 100000, // 10% = 100000 PPM
 		},
+		// Edge cases
+		{
+			name:     "0% no drops",
+			loss:     "0%",
+			expected: 0, // 0% = 0 PPM (no packet loss)
+		},
+		{
+			name:     "100% all drops",
+			loss:     "100%",
+			expected: 1000000, // 100% = 1,000,000 PPM (all packets dropped)
+		},
 	}
 
 	for _, tt := range tests {
@@ -167,6 +216,34 @@ func TestParseLinkPolicy_PacketLoss(t *testing.T) {
 			p, err := ParseLinkPolicy("", "", "", tt.loss)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, p.CorruptionRatePpm)
+		})
+	}
+}
+
+func TestParseLinkPolicy_PacketLossOutOfRange(t *testing.T) {
+	tests := []struct {
+		name string
+		loss string
+	}{
+		{
+			name: "negative packet loss",
+			loss: "-10%",
+		},
+		{
+			name: "over 100 percent",
+			loss: "150%",
+		},
+		{
+			name: "just over 100",
+			loss: "100.1%",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseLinkPolicy("", "", "", tt.loss)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "must be between 0% and 100%")
 		})
 	}
 }
