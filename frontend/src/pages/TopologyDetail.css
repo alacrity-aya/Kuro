@@ -503,6 +503,25 @@
   color: #475569;
 }
 
+/* Traffic Control Tags in Node Detail */
+.detail-field__tc-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.detail-field__tc-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .role-badge {
   display: inline-flex;
   align-items: center;

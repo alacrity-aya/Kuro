@@ -16,7 +16,7 @@ import {
 } from '../stores';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { getTrafficControlColor } from '../utils/colorPalette';
-import type { TrafficPolicy, TopologyLink } from '../types/api';
+import type { TrafficPolicy, TopologyLink, TrafficControl } from '../types/api';
 import './TopologyDetail.css';
 
 // ============================================================================
@@ -67,10 +67,30 @@ function ZoomControls() {
 // Node Detail Panel
 // ============================================================================
 
-function NodeDetailPanel() {
+interface NodeDetailPanelProps {
+  namespace?: string;
+  topologyName?: string;
+  trafficControls?: TrafficControl[];
+}
+
+function NodeDetailPanel({ namespace, topologyName, trafficControls }: NodeDetailPanelProps) {
   const { selectedNode } = useTopologySelection();
   const { clearSelection, enterLocalView } = useNodeActions();
   const localViewNodeId = useTopologyStore((state) => state.localViewNodeId);
+
+  // Compute related TrafficControls where this node is source or destination
+  const relatedTrafficControls = useMemo(() => {
+    if (!selectedNode || !trafficControls) return [];
+    
+    const nodeRole = selectedNode.labels?.role;
+    if (!nodeRole) return [];
+    
+    return trafficControls.filter(tc => {
+      const sourceRole = tc.spec.source.matchLabels['role'];
+      const destRole = tc.spec.destination.matchLabels['role'];
+      return sourceRole === nodeRole || destRole === nodeRole;
+    });
+  }, [selectedNode, trafficControls]);
 
   if (!selectedNode) return null;
 
@@ -125,6 +145,34 @@ function NodeDetailPanel() {
             ))}
           </div>
         </div>
+        
+        {/* Context Information */}
+        {namespace && (
+          <div className="detail-field">
+            <span className="detail-field__label">Namespace</span>
+            <span className="detail-field__value">{namespace}</span>
+          </div>
+        )}
+        {topologyName && (
+          <div className="detail-field">
+            <span className="detail-field__label">Topology</span>
+            <span className="detail-field__value">{topologyName}</span>
+          </div>
+        )}
+        
+        {/* Related Traffic Controls */}
+        {relatedTrafficControls.length > 0 && (
+          <div className="detail-field">
+            <span className="detail-field__label">Traffic Controls</span>
+            <div className="detail-field__tc-list">
+              {relatedTrafficControls.map(tc => (
+                <span key={tc.metadata.uid} className="detail-field__tc-tag">
+                  {tc.metadata.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         
         {/* Local View Button */}
         {!isInLocalView && (
@@ -493,7 +541,13 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
         </div>
 
         {/* Detail Panels */}
-        {selectedNode && <NodeDetailPanel />}
+        {selectedNode && (
+          <NodeDetailPanel
+            namespace={namespace}
+            topologyName={topologyName}
+            trafficControls={trafficControls}
+          />
+        )}
         {selectedLink && (
           <div className="topology-detail__panels">
             <LinkDetailPanel />
