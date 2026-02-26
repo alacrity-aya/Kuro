@@ -87,7 +87,7 @@ export function GrafanaEmbed({
 
   // Build iframe URL
   const iframeUrl = useMemo(() => {
-    // Use d-solo for single panel, d for full dashboard
+    // Full mode - no kiosk, shows complete Grafana UI
     const embedPath = panelId
       ? `/d-solo/${dashboardUid}`
       : `/d/${dashboardUid}`;
@@ -95,8 +95,6 @@ export function GrafanaEmbed({
     const searchParams = new URLSearchParams({
       orgId: '1',
       theme,
-      // Hide Grafana navigation when embedding
-      kiosk: panelId ? '' : 'tv',
       ...(currentRefresh !== '0' && { refresh: currentRefresh }),
       ...(panelId && { panelId: panelId.toString() }),
       ...(params || {}),
