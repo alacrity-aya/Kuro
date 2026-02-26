@@ -320,42 +320,6 @@
   background: #2563eb;
 }
 
-/* Quick Actions */
-.quick-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-}
-
-.quick-action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 24px;
-  background: #f9fafb;
-  border: 2px dashed #e5e7eb;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.quick-action-btn:hover {
-  background: #eff6ff;
-  border-color: #3b82f6;
-}
-
-.quick-action-btn__icon {
-  font-size: 32px;
-}
-
-.quick-action-btn__label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #374151;
-}
-
 /* Phase Summary */
 .phase-summary {
   display: flex;
@@ -433,10 +397,6 @@
   .topology-card__body {
     grid-template-columns: 1fr;
     gap: 8px;
-  }
-
-  .quick-actions {
-    grid-template-columns: repeat(2, 1fr);
   }
 
   .phase-summary {

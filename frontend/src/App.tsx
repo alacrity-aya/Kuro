@@ -80,8 +80,8 @@ function AppContent() {
     >
       <div className="app-container">
         <Routes>
-          <Route path="/" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
-          <Route path="/dashboard" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
+          <Route path="/" element={<Dashboard onViewTopology={handleViewTopology} />} />
+          <Route path="/dashboard" element={<Dashboard onViewTopology={handleViewTopology} />} />
           <Route path="/topologies" element={<TopologyList onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
           <Route 
             path="/topologies/create" 
@@ -115,7 +115,7 @@ function AppContent() {
               />
             } 
           />
-          <Route path="*" element={<Dashboard onViewTopology={handleViewTopology} onCreateTopology={handleCreateTopology} />} />
+          <Route path="*" element={<Dashboard onViewTopology={handleViewTopology} />} />
         </Routes>
       </div>
     </Layout>

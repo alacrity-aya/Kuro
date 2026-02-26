@@ -4,7 +4,6 @@ import './Dashboard.css';
 
 interface DashboardProps {
   onViewTopology?: (name: string, namespace: string) => void;
-  onCreateTopology?: () => void;
 }
 
 interface StatsCardProps {
@@ -37,22 +36,7 @@ function StatsCard({ title, value, subtitle, icon, trend, trendValue }: StatsCar
   );
 }
 
-interface QuickActionButtonProps {
-  icon: string;
-  label: string;
-  onClick: () => void;
-}
-
-function QuickActionButton({ icon, label, onClick }: QuickActionButtonProps) {
-  return (
-    <button className="quick-action-btn" onClick={onClick}>
-      <span className="quick-action-btn__icon">{icon}</span>
-      <span className="quick-action-btn__label">{label}</span>
-    </button>
-  );
-}
-
-function Dashboard({ onViewTopology, onCreateTopology }: DashboardProps) {
+function Dashboard({ onViewTopology }: DashboardProps) {
   // Get state from store
   const topologies = useTopologyStore((state) => state.topologies);
   const trafficControls = useTopologyStore((state) => state.trafficControls);
@@ -89,24 +73,6 @@ function Dashboard({ onViewTopology, onCreateTopology }: DashboardProps) {
     },
     {} as Record<string, number>
   );
-
-  const handleCreateTopology = () => {
-    if (onCreateTopology) {
-      onCreateTopology();
-    }
-  };
-
-  const handleCreateTrafficControl = () => {
-    console.log('Create traffic control clicked');
-  };
-
-  const handleViewTopologies = () => {
-    console.log('View topologies clicked');
-  };
-
-  const handleViewMetrics = () => {
-    console.log('View metrics clicked');
-  };
 
   const handleViewTopology = (name: string, namespace: string) => {
     if (onViewTopology) {
@@ -182,9 +148,6 @@ function Dashboard({ onViewTopology, onCreateTopology }: DashboardProps) {
               <div className="empty-state">
                 <span className="empty-state__icon">🌐</span>
                 <p>No topologies found</p>
-                <button className="btn btn--primary" onClick={handleCreateTopology}>
-                  Create Topology
-                </button>
               </div>
             ) : (
               topologies.map((topology) => (
@@ -224,33 +187,6 @@ function Dashboard({ onViewTopology, onCreateTopology }: DashboardProps) {
                 </div>
               ))
             )}
-          </div>
-        </section>
-
-        {/* Quick Actions */}
-        <section className="dashboard__section">
-          <h2 className="section-title">Quick Actions</h2>
-          <div className="quick-actions">
-            <QuickActionButton
-              icon="➕"
-              label="Create Topology"
-              onClick={handleCreateTopology}
-            />
-            <QuickActionButton
-              icon="🚦"
-              label="Add Traffic Control"
-              onClick={handleCreateTrafficControl}
-            />
-            <QuickActionButton
-              icon="📋"
-              label="View Topologies"
-              onClick={handleViewTopologies}
-            />
-            <QuickActionButton
-              icon="📊"
-              label="View Metrics"
-              onClick={handleViewMetrics}
-            />
           </div>
         </section>
 
