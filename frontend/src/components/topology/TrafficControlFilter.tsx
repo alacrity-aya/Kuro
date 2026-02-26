@@ -1,6 +1,6 @@
 // frontend/src/components/topology/TrafficControlFilter.tsx
 
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import type { TrafficControl } from '../../types/api';
 import { getTrafficControlColor } from '../../utils/colorPalette';
 import './TrafficControlFilter.css';
@@ -12,7 +12,7 @@ interface TrafficControlFilterProps {
   onClear: () => void;
 }
 
-export function TrafficControlFilter({
+function TrafficControlFilter({
   trafficControls,
   selectedIds,
   onToggle,
@@ -25,7 +25,6 @@ export function TrafficControlFilter({
       name: tc.metadata.name,
       color: getTrafficControlColor(index),
       policy: tc.spec.policy,
-      phase: tc.status?.phase ?? 'Unknown',
     })),
     [trafficControls]
   );
@@ -56,6 +55,7 @@ export function TrafficControlFilter({
               key={tc.id}
               className={`tc-filter__item ${isSelected ? 'tc-filter__item--selected' : ''}`}
               onClick={() => onToggle(tc.id)}
+              aria-pressed={isSelected}
             >
               <span 
                 className="tc-filter__color" 
@@ -72,3 +72,5 @@ export function TrafficControlFilter({
     </div>
   );
 }
+
+export default memo(TrafficControlFilter);
