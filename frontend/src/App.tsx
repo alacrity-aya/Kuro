@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
-import { Dashboard, TopologyList, TopologyDetail, TopologyCreate, MetricsPage, TrafficControlList, TrafficControlCreate } from './pages';
+import { Dashboard, TopologyList, TopologyDetail, TopologyCreate, TrafficControlList, TrafficControlCreate } from './pages';
 import { useTopologyStore } from './stores';
 import { apiClient } from './api/client';
 import type { MenuItem, NetworkTopology } from './types/api';
@@ -12,7 +12,7 @@ const menuItems: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'topologies', label: 'Topologies', icon: 'topology' },
   { id: 'traffic-controls', label: 'Traffic Controls', icon: 'node' },
-  { id: 'metrics', label: 'Metrics', icon: 'metrics' },
+  { id: 'grafana', label: 'Grafana', icon: 'grafana' },
 ];
 
 // Get active menu item from current path
@@ -20,7 +20,6 @@ function getActiveMenuItem(pathname: string): string {
   if (pathname === '/' || pathname === '/dashboard') return 'dashboard';
   if (pathname.startsWith('/topologies')) return 'topologies';
   if (pathname.startsWith('/traffic-controls')) return 'traffic-controls';
-  if (pathname.startsWith('/metrics')) return 'metrics';
   return 'dashboard';
 }
 
@@ -46,8 +45,10 @@ function AppContent() {
       case 'traffic-controls':
         navigate('/traffic-controls');
         break;
-      case 'metrics':
-        navigate('/metrics');
+      case 'grafana':
+        // Open Grafana in new tab
+        const grafanaUrl = import.meta.env.VITE_GRAFANA_URL || 'http://localhost:30092';
+        window.open(grafanaUrl, '_blank');
         break;
       default:
         navigate('/');
@@ -104,7 +105,6 @@ function AppContent() {
               />
             } 
           />
-          <Route path="/metrics" element={<MetricsPage />} />
           <Route path="/traffic-controls" element={<TrafficControlList />} />
           <Route 
             path="/traffic-controls/create" 

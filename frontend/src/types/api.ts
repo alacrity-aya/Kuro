@@ -8,7 +8,7 @@
 export type Phase = 'Pending' | 'Running' | 'Succeeded' | 'Failed' | 'Unknown';
 
 // Sidebar Menu Item
-export type MenuItemIcon = 'dashboard' | 'topology' | 'node' | 'metrics' | 'settings';
+export type MenuItemIcon = 'dashboard' | 'topology' | 'node' | 'grafana' | 'settings';
 
 export interface MenuItem {
   id: string;

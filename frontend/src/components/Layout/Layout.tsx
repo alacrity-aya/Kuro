@@ -14,7 +14,7 @@ const defaultMenuItems: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'topologies', label: 'Topologies', icon: 'topology' },
   { id: 'nodes', label: 'Nodes', icon: 'node' },
-  { id: 'metrics', label: 'Metrics', icon: 'metrics' },
+  { id: 'grafana', label: 'Grafana', icon: 'grafana' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 

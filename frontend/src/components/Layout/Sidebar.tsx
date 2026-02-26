@@ -3,7 +3,7 @@ import './Sidebar.css';
 export interface MenuItem {
   id: string;
   label: string;
-  icon: 'dashboard' | 'topology' | 'node' | 'metrics' | 'settings';
+  icon: 'dashboard' | 'topology' | 'node' | 'grafana' | 'settings';
 }
 
 interface SidebarProps {
@@ -18,7 +18,7 @@ const iconMap: Record<MenuItem['icon'], string> = {
   dashboard: '📊',
   topology: '🔗',
   node: '📦',
-  metrics: '📈',
+  grafana: '📈',
   settings: '⚙️',
 };
 
