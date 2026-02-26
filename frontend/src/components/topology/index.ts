@@ -12,3 +12,4 @@ export { default as ConfigPanel } from './ConfigPanel';
 export type { ConfigPanelProps } from './ConfigPanel';
 export { default as VisualEditor } from './VisualEditor';
 export type { VisualEditorProps } from './VisualEditor';
+export { TrafficControlFilter } from './TrafficControlFilter';
