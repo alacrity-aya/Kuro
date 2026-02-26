@@ -19,6 +19,7 @@ import { TimeRangeSelector, calculateTimeRange, getRecommendedStep } from '../co
 import { RefreshControl } from '../components/metrics/RefreshControl';
 import { PodSelector } from '../components/metrics/PodSelector';
 import { GrafanaEmbed } from '../components/metrics/GrafanaEmbed';
+import { PromQLEditor } from '../components/metrics/PromQLEditor';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { prometheusClient, kuroQueries, bytesToMbps } from '../api/prometheus';
 import type { MetricsSummary, TimeSeriesPoint } from '../types/api';
@@ -122,8 +123,8 @@ export default function MetricsPage() {
   // Time range state
   const [timeRange, setTimeRange] = useState('15m');
   
-  // View mode state (charts or grafana)
-  const [viewMode, setViewMode] = useState<'charts' | 'grafana'>('charts');
+  // View mode state (charts, grafana, or query)
+  const [viewMode, setViewMode] = useState<'charts' | 'grafana' | 'query'>('charts');
   
   // Pod selection state
   const [selectedPods, setSelectedPods] = useState<string[]>([]);
@@ -342,6 +343,13 @@ export default function MetricsPage() {
                 Charts
               </button>
               <button
+                className={`metrics-page__view-btn ${viewMode === 'query' ? 'metrics-page__view-btn--active' : ''}`}
+                onClick={() => setViewMode('query')}
+                title="PromQL query editor"
+              >
+                Query
+              </button>
+              <button
                 className={`metrics-page__view-btn ${viewMode === 'grafana' ? 'metrics-page__view-btn--active' : ''}`}
                 onClick={() => setViewMode('grafana')}
                 title="Show Grafana dashboard"
@@ -488,6 +496,25 @@ export default function MetricsPage() {
             height={600}
             title="Kuro Network Dashboard"
           />
+        </section>
+      )}
+
+      {/* PromQL Query Editor - only show in query mode */}
+      {viewMode === 'query' && (
+        <section className="metrics-page__section metrics-page__section--query">
+          <h2 className="metrics-page__section-title">PromQL Query Editor</h2>
+          <PromQLEditor
+            timeRange={timeRange}
+            height={500}
+          />
+          <div className="metrics-page__query-hint">
+            <p>💡 <strong>Tips:</strong></p>
+            <ul>
+              <li>Use <code>Ctrl+Enter</code> to execute query</li>
+              <li>Click <strong>Templates</strong> for common queries</li>
+              <li>Query history is saved locally</li>
+            </ul>
+          </div>
         </section>
       )}
 

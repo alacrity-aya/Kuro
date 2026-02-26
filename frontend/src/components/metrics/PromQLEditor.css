@@ -1,0 +1,358 @@
+/**
+ * PromQL Editor Styles
+ */
+
+.promql-editor {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface, #1e1e24);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Input Section */
+.promql-editor__input-section {
+  padding: 12px;
+  background: var(--color-surface-dark, #161619);
+  border-bottom: 1px solid var(--color-border, #333);
+}
+
+.promql-editor__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.promql-editor__toolbar-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--color-surface, #25252d);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #9ca3af);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.promql-editor__toolbar-btn:hover {
+  background: var(--color-surface-light, #2d2d36);
+  color: var(--color-text, #e5e7eb);
+}
+
+.promql-editor__toolbar-spacer {
+  flex: 1;
+}
+
+.promql-editor__hint {
+  font-size: 11px;
+  color: var(--color-text-muted, #6b7280);
+}
+
+/* Dropdown */
+.promql-editor__dropdown {
+  position: absolute;
+  top: 100%;
+  left: 12px;
+  right: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-surface, #25252d);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  margin-top: 4px;
+}
+
+.promql-editor__template-item,
+.promql-editor__history-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border, #333);
+  color: var(--color-text, #e5e7eb);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.promql-editor__template-item:last-child,
+.promql-editor__history-item:last-child {
+  border-bottom: none;
+}
+
+.promql-editor__template-item:hover,
+.promql-editor__history-item:hover {
+  background: var(--color-surface-light, #2d2d36);
+}
+
+.promql-editor__template-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.promql-editor__template-desc {
+  font-size: 11px;
+  color: var(--color-text-secondary, #9ca3af);
+  margin-bottom: 6px;
+}
+
+.promql-editor__template-query,
+.promql-editor__history-item code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: var(--color-primary, #4ade87);
+  background: var(--color-surface-dark, #1a1a1f);
+  padding: 2px 6px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
+/* Input Row */
+.promql-editor__input-row {
+  display: flex;
+  gap: 8px;
+  position: relative;
+}
+
+.promql-editor__input {
+  flex: 1;
+  padding: 10px 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  background: var(--color-surface, #1a1a1f);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 6px;
+  color: var(--color-text, #e5e7eb);
+  resize: none;
+  line-height: 1.5;
+}
+
+.promql-editor__input:focus {
+  outline: none;
+  border-color: var(--color-primary, #4ade87);
+  box-shadow: 0 0 0 2px rgba(74, 222, 135, 0.2);
+}
+
+.promql-editor__input::placeholder {
+  color: var(--color-text-muted, #6b7280);
+}
+
+.promql-editor__execute-btn {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--color-primary, #4ade87);
+  border: none;
+  border-radius: 6px;
+  color: #000;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.promql-editor__execute-btn:hover:not(:disabled) {
+  background: var(--color-primary-light, #6ee7a0);
+}
+
+.promql-editor__execute-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Results Section */
+.promql-editor__results {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.promql-editor__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: #fca5a5;
+}
+
+.promql-editor__results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.promql-editor__results-info {
+  font-size: 12px;
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+.promql-editor__view-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--color-surface-dark, #161619);
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.promql-editor__view-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary, #9ca3af);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.promql-editor__view-btn:hover {
+  color: var(--color-text, #e5e7eb);
+}
+
+.promql-editor__view-btn--active {
+  background: var(--color-surface, #25252d);
+  color: var(--color-primary, #4ade87);
+}
+
+/* Result Table */
+.promql-result-table {
+  overflow-x: auto;
+}
+
+.promql-result-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.promql-result-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--color-surface-dark, #161619);
+  color: var(--color-text-secondary, #9ca3af);
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border, #333);
+}
+
+.promql-result-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border, #222);
+}
+
+.promql-result-table tr:hover td {
+  background: rgba(74, 222, 135, 0.05);
+}
+
+.promql-result-table__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.promql-result-table__label {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+
+.promql-result-table__label-key {
+  color: var(--color-primary, #4ade87);
+}
+
+.promql-result-table__label-value {
+  color: #fbbf24;
+}
+
+.promql-result-table__value {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: var(--color-text, #e5e7eb);
+}
+
+.promql-result-table__count {
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+/* Result Graph */
+.promql-result-graph {
+  padding: 16px;
+}
+
+.promql-result-graph--instant {
+  max-width: 600px;
+}
+
+.promql-result-graph__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.promql-result-graph__bar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.promql-result-graph__bar {
+  height: 20px;
+  background: linear-gradient(90deg, var(--color-primary, #4ade87), var(--color-primary-light, #6ee7a0));
+  border-radius: 3px;
+  min-width: 4px;
+}
+
+.promql-result-graph__bar-label {
+  font-size: 12px;
+  color: var(--color-text, #e5e7eb);
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.promql-result-graph__bar-value {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+.promql-result-graph__placeholder {
+  text-align: center;
+  padding: 40px;
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+/* Empty State */
+.promql-editor__empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .promql-editor__input-row {
+    flex-direction: column;
+  }
+  
+  .promql-editor__execute-btn {
+    width: 100%;
+  }
+  
+  .promql-result-table {
+    font-size: 11px;
+  }
+  
+  .promql-result-table th,
+  .promql-result-table td {
+    padding: 6px 8px;
+  }
+}

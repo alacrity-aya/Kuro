@@ -192,6 +192,18 @@ deploy_agent_external() {
 
     echo "Waiting for Agents to be ready..."
     kubectl rollout status daemonset/kuro-agent -n kuro-system --timeout=60s
+
+    # Deploy monitoring stack (Prometheus + Grafana)
+    MONITOR_YAML="$PROJECT_ROOT/deploy/quick-monitor.yaml"
+    if [ -f "$MONITOR_YAML" ]; then
+        echo -e "${YELLOW}Deploying monitoring stack (Prometheus + Grafana)...${NC}"
+        kubectl apply -f "$MONITOR_YAML"
+        echo "Waiting for Prometheus and Grafana to be ready..."
+        kubectl rollout status deployment/prometheus -n kuro-monitor --timeout=60s || true
+        kubectl rollout status deployment/grafana -n kuro-monitor --timeout=60s || true
+    else
+        echo -e "${RED}Warning: Monitoring stack YAML not found at $MONITOR_YAML${NC}"
+    fi
 }
 
 setup_port_forward() {

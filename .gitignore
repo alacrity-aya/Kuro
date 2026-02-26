@@ -20,3 +20,5 @@
 /logs
 
 /docs/plans
+
+/.playwright-cli
