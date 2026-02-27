@@ -22,3 +22,6 @@
 /docs/plans
 
 /.playwright-cli
+
+# Git worktrees
+.worktrees/
