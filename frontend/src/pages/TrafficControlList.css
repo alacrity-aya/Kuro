@@ -483,25 +483,26 @@
   font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
   font-size: 13px;
   line-height: 1.5;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
   resize: vertical;
-  background: #f9fafb;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .tc-import-modal__textarea:focus {
   outline: none;
-  border-color: #3b82f6;
-  background: #ffffff;
+  border-color: var(--brand-accent);
+  background: var(--bg-secondary);
 }
 
 .tc-import-modal__error {
   margin-top: 12px;
   padding: 12px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 6px;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--border-radius-sm);
+  color: var(--danger);
   font-size: 13px;
 }
 
@@ -510,9 +511,9 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 16px 24px;
-  border-top: 1px solid #e5e7eb;
-  background: #f9fafb;
-  border-radius: 0 0 12px 12px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
 }
 
 /* Responsive */
