@@ -9,13 +9,15 @@
 - Provide precise traffic shaping using eBPF EDT (Earliest Departure Time) algorithm
 - Isolate simulation traffic from system/business traffic on shared infrastructure
 - Collect real-time telemetry and metrics from simulated networks
+- Visual topology management and monitoring through a modern web UI
 
 ### Key Technologies
-- **Language:** Go 1.25+
+- **Language:** Go 1.25.1
 - **eBPF:** Cilium/ebpf library, TC (Traffic Control), XDP programs
-- **Kubernetes:** Controller-Runtime, Custom Resource Definitions (CRDs)
+- **Kubernetes:** Controller-Runtime 0.23.1, Custom Resource Definitions (CRDs)
 - **Communication:** gRPC (bi-directional streaming) between Agent and Controller
 - **Metrics:** Prometheus-compatible endpoints
+- **Frontend:** React 19, Vite 7, TypeScript, ReactFlow, ECharts, Monaco Editor, Zustand
 
 ---
 
@@ -30,6 +32,7 @@
 │  - Schedules K8s resources                                    │
 │  - Calculates routing and bandwidth policies                  │
 │  - gRPC Server (port 9090) + HTTP API (port 8080)            │
+│  - RESTful API for frontend integration                       │
 └─────────────────────────────────────────────────────────────┘
                               │
                     gRPC (bi-directional)
@@ -47,6 +50,14 @@
 │  - TC Egress: Download (host veth) + Upload (pod eth0)       │
 │  - XDP Ingress: Physical NIC protection                       │
 │  - EDT-based traffic shaping                                  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    WEB FRONTEND (React)                       │
+│  - Topology visualization (ReactFlow)                         │
+│  - Traffic control management                                 │
+│  - Metrics dashboards (ECharts)                               │
+│  - YAML editor (Monaco)                                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,6 +79,7 @@
 - `rate_map`: Per-interface bandwidth limits (Sim/Sys up/down)
 - `topology_policy_map`: Per-link policies (bandwidth, latency, jitter, packet loss)
 - `edt_download_state_map` / `edt_upload_state_map`: EDT state tracking
+- `ingress_config_map` / `ingress_state_map`: XDP ingress rate limiting
 - `metrics_map`: Per-CPU flow statistics
 - `latency_map`: Latency histogram
 
@@ -87,36 +99,57 @@ kuro/
 │   ├── tc.c                   # Main TC/XDP programs
 │   └── include/
 │       ├── map.h              # BPF map definitions
-│       └── helper.h           # Helper functions
+│       ├── helper.h           # Helper functions
+│       └── log.h              # Logging utilities
 ├── cmd/                       # Entry points
 │   ├── agent/main.go          # Agent binary
 │   └── controller/main.go     # Controller binary
 ├── deploy/                    # Kubernetes manifests
 │   ├── agent.yaml             # Agent DaemonSet
 │   ├── controller.yaml        # Controller Deployment
+│   ├── crd/                   # Generated CRD YAMLs
 │   ├── test-topology.yaml     # Sample NetworkTopology CR
 │   └── test-traffic.yaml      # Sample TrafficControl CR
+├── frontend/                  # React web application
+│   ├── src/
+│   │   ├── api/               # API clients (Kuro & Prometheus)
+│   │   ├── components/        # React components
+│   │   │   ├── topology/      # Topology visualization
+│   │   │   ├── metrics/       # Metrics dashboards
+│   │   │   ├── tsn/           # TSN scheduling components
+│   │   │   └── Layout/        # Page layouts
+│   │   ├── pages/             # Page components
+│   │   ├── hooks/             # Custom React hooks
+│   │   ├── stores/            # Zustand state stores
+│   │   ├── types/             # TypeScript definitions
+│   │   └── utils/             # Utility functions
+│   ├── package.json
+│   └── vite.config.ts
 ├── internal/
 │   ├── agent/                 # Agent implementation
 │   │   ├── agent.go           # Main agent logic
+│   │   ├── grpc_impl.go       # gRPC service implementation
 │   │   ├── bpf/               # BPF manager (Go bindings)
 │   │   ├── opsapi/            # HTTP metrics service
 │   │   ├── remote/            # gRPC client
 │   │   └── watch/             # Local Pod watcher
 │   ├── controller/            # Controller implementation
 │   │   ├── controller.go      # Controller manager
-│   │   ├── api/               # HTTP API server
+│   │   ├── api/               # HTTP REST API server
 │   │   ├── k8s/               # K8s reconcilers
 │   │   └── rpc/               # gRPC server
 │   └── domain/                # Domain models
+│       └── models.go
 ├── test/
 │   ├── bpf/                   # eBPF integration tests
 │   ├── e2e/                   # End-to-end tests
 │   └── benchmark/             # Performance benchmarks
 ├── docker/                    # Dockerfiles
 ├── scripts/                   # Build and test scripts
+├── docs/                      # Design documentation
+├── agent-harness/             # AI agent development harness
 ├── Makefile                   # Build automation
-└── doc/                       # Design documentation
+└── README.md
 ```
 
 ---
@@ -124,7 +157,8 @@ kuro/
 ## Building and Running
 
 ### Prerequisites
-- Go 1.25+
+- Go 1.25.1+
+- Node.js 18+ (for frontend)
 - LLVM/Clang (for eBPF compilation)
 - bpftool
 - Docker
@@ -152,6 +186,30 @@ make images
 make clean
 ```
 
+### Frontend Commands
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Development server (proxies API to localhost:8080)
+npm run dev
+
+# Build for production
+npm run build
+
+# Run tests
+npm run test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Lint code
+npm run lint
+```
+
 ### Running Locally
 
 1. **Build images:**
@@ -171,6 +229,11 @@ make clean
    kubectl apply -f deploy/test-traffic.yaml
    ```
 
+4. **Run the frontend:**
+   ```bash
+   cd frontend && npm run dev
+   ```
+
 ### Environment Variables
 
 **Agent:**
@@ -181,11 +244,17 @@ make clean
 **Controller:**
 - Flags: `-grpc-port`, `-http-port`, `-metrics-bind-address`
 
+**Frontend:**
+- `VITE_USE_MOCK_API`: Use mock Kuro API (default: `true`)
+- `VITE_USE_MOCK_PROMETHEUS`: Use mock Prometheus (default: `true`)
+- `VITE_API_BASE_URL`: Kuro API base URL (default: `/api/v1`)
+- `VITE_PROMETHEUS_URL`: Prometheus service address
+
 ---
 
 ## Testing
 
-### Test Script (`scripts/test.sh`)
+### Backend Tests (`scripts/test.sh`)
 
 ```bash
 # Run standard unit tests (non-root)
@@ -213,19 +282,87 @@ make clean
 - `k8s`: Kubernetes integration tests
 - `benchmark`: Performance benchmarks
 
+### Frontend Tests
+```bash
+cd frontend
+npm run test           # Run tests in watch mode
+npm run test:run       # Run tests once
+npm run test:coverage  # Run with coverage
+```
+
+---
+
+## API Reference
+
+### REST API (Controller HTTP Server)
+
+**Base URL:** `/api/v1`
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/namespaces/{ns}/networktopologies` | GET, POST | List/Create topologies |
+| `/namespaces/{ns}/networktopologies/{name}` | GET, DELETE | Get/Delete topology |
+| `/namespaces/{ns}/trafficcontrols` | GET, POST | List/Create traffic controls |
+| `/namespaces/{ns}/trafficcontrols/{name}` | GET, PUT, DELETE | Traffic control CRUD |
+| `/namespaces/{ns}/topologies/{name}/nodes` | GET | Get topology nodes for visualization |
+| `/namespaces/{ns}/topologies/{name}/links` | GET | Get topology links for visualization |
+
+**Response Format:**
+```typescript
+interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+```
+
+### gRPC Protocol
+
+**Service:** `SimulationAgentService`
+
+**Messages (Agent → Controller):**
+- `Heartbeat`: Node liveness and pod count
+- `PodLifecycleEvent`: Pod added/modified/deleted
+- `CommandAck`: Acknowledgment for controller commands
+
+**Messages (Controller → Agent):**
+- `ApplyLinkPolicy`: Set per-link policy in `topology_policy_map`
+- `ApplyPodPolicy`: Set interface rate limits in `rate_map`
+- `ApplyNodePolicy`: Set XDP ingress limits
+
+---
+
+## Metrics
+
+Agent exposes Prometheus metrics at `:8080/metrics`:
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `kuro_pod_traffic_bytes_total` | pod, direction, traffic_type | Total bytes transmitted |
+| `kuro_pod_traffic_packets_total` | pod, direction, traffic_type | Total packets transmitted |
+| `kuro_pod_drop_bytes_total` | pod, direction, traffic_type | Dropped bytes |
+| `kuro_pod_drop_packets_total` | pod, direction, traffic_type | Dropped packets |
+| `kuro_pod_latency_seconds_bucket` | pod, direction, traffic_type | Latency histogram |
+
+**Label Values:**
+- `direction`: `download` | `upload`
+- `traffic_type`: `sim` | `sys`
+
 ---
 
 ## Development Conventions
 
 ### Code Style
-- Go: Standard `gofmt` formatting
-- BPF C: Clang-format (see `bpf/.clang-format`)
+- **Go:** Standard `gofmt` formatting
+- **BPF C:** Clang-format (see `bpf/.clang-format`)
+- **TypeScript/React:** ESLint + Prettier (see `frontend/eslint.config.js`)
 
 ### Naming Conventions
 - **CRDs:** `NetworkTopology`, `TrafficControl` (group: `simulation.kuro.io`)
 - **Protobuf:** PascalCase for messages, snake_case for fields
 - **BPF Maps:** snake_case with `_map` suffix
 - **Go Packages:** lowercase, single word preferred
+- **React Components:** PascalCase files and components
 
 ### Key Patterns
 
@@ -251,10 +388,16 @@ func bpsToScaledCost(bps uint64) uint64 {
 2. Build policy key `{src_ip, dst_ip}`
 3. Lookup `topology_policy_map` → Found = Sim, Not found = Sys
 
+**4. Frontend State Management:**
+- Zustand for global state (topology editor, etc.)
+- React Query for API data fetching and caching
+- Local component state for UI-specific state
+
 ### Error Handling
 - Agent: Log errors and continue running (resilient)
 - Controller: Update CRD status with error messages
 - BPF: Graceful fallback (return `TC_ACT_OK` on lookup failure)
+- Frontend: Toast notifications for user-facing errors
 
 ---
 
@@ -263,6 +406,11 @@ func bpsToScaledCost(bps uint64) uint64 {
 ### NetworkTopology
 Defines a group of simulation nodes (pods):
 ```yaml
+apiVersion: simulation.kuro.io/v1alpha1
+kind: NetworkTopology
+metadata:
+  name: drone-simulation
+  namespace: kuro-experiment
 spec:
   nodeGroups:
     - name: drones
@@ -270,11 +418,21 @@ spec:
       image: simulation-node:latest
       labels:
         role: drone
+    - name: ground-stations
+      replicas: 3
+      image: simulation-node:latest
+      labels:
+        role: ground-station
 ```
 
 ### TrafficControl
 Defines link policies between node groups:
 ```yaml
+apiVersion: simulation.kuro.io/v1alpha1
+kind: TrafficControl
+metadata:
+  name: drone-to-ground
+  namespace: kuro-experiment
 spec:
   source:
     matchLabels: { role: drone }
@@ -289,31 +447,6 @@ spec:
 
 ---
 
-## gRPC Protocol
-
-**Service:** `SimulationAgentService`
-
-**Messages (Agent → Controller):**
-- `Heartbeat`: Node liveness and pod count
-- `PodLifecycleEvent`: Pod added/modified/deleted
-- `CommandAck`: Acknowledgment for controller commands
-
-**Messages (Controller → Agent):**
-- `ApplyLinkPolicy`: Set per-link policy in `topology_policy_map`
-- `ApplyPodPolicy`: Set interface rate limits in `rate_map`
-- `ApplyNodePolicy`: Set XDP ingress limits
-
----
-
-## Metrics
-
-Agent exposes Prometheus metrics at `:8080/metrics`:
-- Per-interface packet/byte counters
-- Drop statistics
-- Latency histogram
-
----
-
 ## Important Files
 
 | File | Purpose |
@@ -321,8 +454,12 @@ Agent exposes Prometheus metrics at `:8080/metrics`:
 | `bpf/tc.c` | Core eBPF traffic control logic |
 | `bpf/include/map.h` | BPF map structure definitions |
 | `internal/agent/bpf/manager.go` | Go BPF loader and manager |
+| `internal/controller/controller.go` | Main controller logic |
+| `internal/controller/api/server.go` | HTTP REST API implementation |
 | `internal/controller/k8s/traffic_controller.go` | TrafficControl reconciler |
 | `api/proto/v1/simulation.proto` | gRPC API contract |
+| `frontend/src/api/client.ts` | Frontend API client |
+| `frontend/src/types/api.ts` | TypeScript type definitions |
 | `Makefile` | Build automation |
 
 ---
@@ -331,7 +468,7 @@ Agent exposes Prometheus metrics at `:8080/metrics`:
 
 1. **Enable BPF debug prints:**
    ```c
-   // In bpf/include/helper.h
+   // In bpf/include/log.h
    #define ENABLE_PRINT 1
    ```
 
@@ -339,6 +476,7 @@ Agent exposes Prometheus metrics at `:8080/metrics`:
    ```bash
    sudo bpftool map list
    sudo bpftool map dump name rate_map
+   sudo bpftool map dump name topology_policy_map
    ```
 
 3. **Verify TC attachment:**
@@ -349,6 +487,17 @@ Agent exposes Prometheus metrics at `:8080/metrics`:
 4. **Check XDP attachment:**
    ```bash
    sudo ip link show <interface>
+   ```
+
+5. **View Agent logs:**
+   ```bash
+   kubectl logs -n kuro-system daemonset/kuro-agent
+   ```
+
+6. **Test API endpoints:**
+   ```bash
+   kubectl port-forward svc/kuro-controller 8080:8080
+   curl http://localhost:8080/api/v1/namespaces/default/networktopologies
    ```
 
 ---
@@ -362,3 +511,16 @@ Agent exposes Prometheus metrics at `:8080/metrics`:
 3. **TODO in `helper.h`:** Remove unnecessary if statement in `parse_ipv4`.
 
 4. **Project status:** Work In Progress - expect breaking changes.
+
+---
+
+## Related Documentation
+
+| Document | Description |
+|----------|-------------|
+| `docs/frontend-backend-api.md` | Frontend-Backend API integration guide |
+| `docs/design.md` | System design overview |
+| `docs/crd-design.md` | CRD design details |
+| `docs/traffic_control.md` | Traffic control implementation |
+| `docs/grafana-setup.md` | Grafana dashboard setup |
+| `agent-harness/README.md` | AI agent development harness |
