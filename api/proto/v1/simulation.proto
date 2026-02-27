@@ -68,6 +68,10 @@ message ControllerCmd {
 
     // 3. Node Policy: Update XDP Ingress (Eth0)
     ApplyNodePolicy apply_node_policy = 4;
+
+    // New: Probe tasks for RTT detection
+    ApplyProbeTask apply_probe_task = 5;
+    RemoveProbeTask remove_probe_task = 6;
   }
 }
 
@@ -107,4 +111,28 @@ message RateLimit {
 message ApplyNodePolicy {
   uint64 ingress_limit_bps = 1;
   uint64 ingress_burst_bytes = 2;
+}
+
+// =============================================================
+// Probe Task Messages (RTT Detection)
+// =============================================================
+
+enum ProbeType {
+  SIM = 0;
+  SYS = 1;
+}
+
+message ApplyProbeTask {
+  string task_id = 1;
+  string src_pod = 2;
+  string src_ip = 3;
+  string dst_pod = 4;
+  string dst_ip = 5;
+  ProbeType type = 6;
+  int32 interval_seconds = 7;
+  int32 target_port = 8;
+}
+
+message RemoveProbeTask {
+  string task_id = 1;
 }
