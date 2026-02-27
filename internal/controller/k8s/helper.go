@@ -12,6 +12,19 @@ import (
 )
 
 // ParseLinkPolicy converts string configurations from the CRD into the domain's integer-based configurations.
+//
+// Edge Case Handling:
+//   - Bandwidth = 0 or "0bps": No rate limiting (unlimited bandwidth)
+//   - Latency = 0 or "0ms": No artificial delay
+//   - Jitter = 0 or "0ms": No jitter
+//   - Packet Loss = 0%: No packet drops
+//   - Packet Loss = 100%: All packets dropped (Note: due to BPF random comparison,
+//     there's a 1 in ~4.3 billion chance a packet passes; this is negligible in practice)
+//
+// Limits:
+//   - Bandwidth: No upper limit enforced (depends on physical network)
+//   - Latency: No upper limit enforced (user responsibility for reasonable values)
+//   - Packet Loss: 0% - 100% (strictly enforced)
 func ParseLinkPolicy(specBandwidth, specLatency, specJitter, specLoss string) (domain.LinkPolicy, error) {
 	p := domain.LinkPolicy{}
 
@@ -73,6 +86,10 @@ func ParseLinkPolicy(specBandwidth, specLatency, specJitter, specLoss string) (d
 		f, err := strconv.ParseFloat(s, 64)
 		if err != nil {
 			return p, fmt.Errorf("invalid packet loss %s: %w", specLoss, err)
+		}
+		// Validate range: 0-100%
+		if f < 0 || f > 100 {
+			return p, fmt.Errorf("packet loss %s must be between 0%% and 100%%", specLoss)
 		}
 		// 1% = 10,000 PPM
 		p.CorruptionRatePpm = uint32(f * 10000)

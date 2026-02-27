@@ -192,6 +192,63 @@ deploy_agent_external() {
 
     echo "Waiting for Agents to be ready..."
     kubectl rollout status daemonset/kuro-agent -n kuro-system --timeout=60s
+
+    # Deploy monitoring stack (Prometheus + Grafana)
+    MONITOR_YAML="$PROJECT_ROOT/deploy/quick-monitor.yaml"
+    if [ -f "$MONITOR_YAML" ]; then
+        echo -e "${YELLOW}Deploying monitoring stack (Prometheus + Grafana)...${NC}"
+        kubectl apply -f "$MONITOR_YAML"
+        echo "Waiting for Prometheus and Grafana to be ready..."
+        kubectl rollout status deployment/prometheus -n kuro-monitor --timeout=60s || true
+        kubectl rollout status deployment/grafana -n kuro-monitor --timeout=60s || true
+    else
+        echo -e "${RED}Warning: Monitoring stack YAML not found at $MONITOR_YAML${NC}"
+    fi
+}
+
+setup_port_forward() {
+    echo -e "${GREEN}>>> [Phase 3] Setting Up Port Forwarding${NC}"
+    
+    # Kill existing port-forward processes
+    pkill -f "port-forward.*kuro-controller" 2>/dev/null || true
+    pkill -f "port-forward.*kuro-monitor" 2>/dev/null || true
+    sleep 1
+    
+    # Port forward controller HTTP API (8080)
+    echo -e "${YELLOW}Port forwarding kuro-controller HTTP API (8080)...${NC}"
+    kubectl port-forward svc/kuro-controller -n kuro-system 8080:8080 > /dev/null 2>&1 &
+    echo "  Controller PID: $!"
+    
+    # Port forward Grafana (30092)
+    echo -e "${YELLOW}Port forwarding Grafana (30092)...${NC}"
+    kubectl port-forward svc/grafana -n kuro-monitor 30092:3000 > /dev/null 2>&1 &
+    echo "  Grafana PID: $!"
+    
+    # Port forward Prometheus (30091)
+    echo -e "${YELLOW}Port forwarding Prometheus (30091)...${NC}"
+    kubectl port-forward svc/prometheus -n kuro-monitor 30091:9090 > /dev/null 2>&1 &
+    echo "  Prometheus PID: $!"
+    
+    sleep 2
+    
+    # Verify port forwards are working
+    if curl -s --max-time 2 http://localhost:8080/health > /dev/null 2>&1; then
+        echo -e "${GREEN}Port forward verified: API is reachable at http://localhost:8080${NC}"
+    else
+        echo -e "${YELLOW}Port forward started. API may take a moment to be ready.${NC}"
+    fi
+    
+    if curl -s --max-time 2 http://localhost:30092 > /dev/null 2>&1; then
+        echo -e "${GREEN}Grafana is reachable at http://localhost:30092${NC}"
+    else
+        echo -e "${YELLOW}Grafana port forward started. May take a moment to be ready.${NC}"
+    fi
+    
+    if curl -s --max-time 2 http://localhost:30091/-/healthy > /dev/null 2>&1; then
+        echo -e "${GREEN}Prometheus is reachable at http://localhost:30091${NC}"
+    else
+        echo -e "${YELLOW}Prometheus port forward started. May take a moment to be ready.${NC}"
+    fi
 }
 
 # ================= Execution =================
@@ -199,5 +256,7 @@ deploy_agent_external() {
 parse_args "$@"
 setup_infrastructure
 deploy_agent_external
+setup_port_forward
 
 echo -e "\n${GREEN}>>> All Systems Go! Cluster is running in [${FLANNEL_BACKEND}] mode.${NC}"
+echo -e "${GREEN}>>> Frontend can now connect to backend at http://localhost:8080${NC}"

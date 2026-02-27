@@ -4,4 +4,4 @@ RUN apk add --no-cache bash curl util-linux iproute2
 WORKDIR /root/
 COPY bin/controller .
 RUN chmod +x controller
-CMD ["./controller"]
+ENTRYPOINT ["./controller"]

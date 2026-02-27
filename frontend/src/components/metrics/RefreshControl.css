@@ -1,0 +1,99 @@
+/**
+ * Refresh Control Styles
+ * 深色主题
+ */
+
+.refresh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: #1a1a2e;
+  border-radius: 6px;
+  border: 1px solid #2a2a3e;
+}
+
+.refresh-control__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  color: #8b8ba7;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.refresh-control__btn:hover:not(:disabled) {
+  background: #252538;
+  color: #d4d4d4;
+}
+
+.refresh-control__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.refresh-control__btn--refresh:hover:not(:disabled) {
+  background: #252538;
+  color: #4A90D9;
+}
+
+.refresh-control__btn--toggle.active {
+  color: #00d9ff;
+}
+
+.refresh-control__icon {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+.refresh-control__icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.refresh-control__select {
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #d4d4d4;
+  background: #252538;
+  border: 1px solid #3a3a4e;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.refresh-control__select:hover:not(:disabled) {
+  border-color: #4A90D9;
+}
+
+.refresh-control__select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.refresh-control__select:focus {
+  outline: none;
+  border-color: #4A90D9;
+}
+
+.refresh-control__time {
+  font-size: 12px;
+  color: #6b6b87;
+  min-width: 60px;
+}

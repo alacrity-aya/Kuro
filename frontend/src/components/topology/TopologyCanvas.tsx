@@ -1,0 +1,413 @@
+import { memo, useCallback, useMemo, useEffect, useRef } from 'react';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+  type Node,
+  type Edge,
+  type EdgeChange,
+  type OnConnect,
+  type NodeChange,
+  MarkerType,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import dagre from 'dagre';
+
+import type { TopologyNode, TopologyLink } from '../../types/api';
+import NodeCard from './NodeCard';
+import './TopologyCanvas.css';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface TopologyCanvasProps {
+  nodes: TopologyNode[];
+  links: TopologyLink[];
+  selectedNodeId?: string;
+  selectedLinkId?: string;
+  onNodeClick?: (node: TopologyNode) => void;
+  onNodeDoubleClick?: (node: TopologyNode) => void;
+  onEdgeClick?: (link: TopologyLink) => void;
+  onPaneClick?: () => void;
+  onSelectionChange?: (nodeIds: string[], edgeIds: string[]) => void;
+  fitView?: boolean;
+  showMiniMap?: boolean;
+  className?: string;
+  /** Unique key for storing node positions in localStorage */
+  topologyId?: string;
+  /** Mapping from link ID to TrafficControl color for colored edges */
+  trafficControlColors?: Map<string, string>;
+  /** Set of link IDs that should be highlighted (non-highlighted links will be dimmed) */
+  highlightedLinkIds?: Set<string>;
+}
+
+interface CustomNodeData {
+  node: TopologyNode;
+  isSelected: boolean;
+}
+
+interface CustomEdgeData {
+  link: TopologyLink;
+}
+
+// ============================================================================
+// Constants - defined outside component to prevent React Flow warnings
+// ============================================================================
+
+const NODE_TYPES = {
+  custom: NodeCard,
+};
+
+const DAGRE_CONFIG = {
+  rankdir: 'LR' as const,
+  nodesep: 80,
+  ranksep: 120,
+  align: 'UL' as const,
+};
+
+const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 0.8 };
+
+// ============================================================================
+// Layout Algorithm
+// ============================================================================
+
+function getLayoutedElements(
+  nodes: Node[],
+  edges: Edge[],
+  direction: 'TB' | 'LR' = 'LR'
+): { nodes: Node[]; edges: Edge[] } {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+  
+  dagreGraph.setGraph({
+    ...DAGRE_CONFIG,
+    rankdir: direction,
+  });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: 160, height: 80 });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - 80,
+        y: nodeWithPosition.y - 40,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
+}
+
+// ============================================================================
+// Position Persistence
+// ============================================================================
+
+const POSITION_STORAGE_PREFIX = 'kuro_topology_positions_';
+
+function saveNodePositions(topologyId: string, positions: Record<string, { x: number; y: number }>) {
+  try {
+    localStorage.setItem(POSITION_STORAGE_PREFIX + topologyId, JSON.stringify(positions));
+  } catch {
+    console.warn('Failed to save node positions to localStorage');
+  }
+}
+
+function loadNodePositions(topologyId: string): Record<string, { x: number; y: number }> | null {
+  try {
+    const data = localStorage.getItem(POSITION_STORAGE_PREFIX + topologyId);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
+// Data Transformation
+// ============================================================================
+
+function transformTopologyNodesToFlowNodes(
+  nodes: TopologyNode[],
+  selectedNodeId?: string
+): Node<CustomNodeData>[] {
+  return nodes.map((node) => ({
+    id: node.id,
+    type: 'custom',
+    position: { x: node.x ?? 0, y: node.y ?? 0 },
+    data: {
+      node,
+      isSelected: node.id === selectedNodeId,
+    } satisfies CustomNodeData,
+  }));
+}
+
+function transformTopologyLinksToFlowEdges(
+  links: TopologyLink[],
+  selectedLinkId?: string,
+  trafficControlColors?: Map<string, string>,
+  highlightedLinkIds?: Set<string>
+): Edge<CustomEdgeData>[] {
+  const hasHighlight = highlightedLinkIds && highlightedLinkIds.size > 0;
+
+  return links.map((link) => {
+    const isSelected = link.id === selectedLinkId;
+    const isHighlighted = highlightedLinkIds?.has(link.id) ?? false;
+    const shouldDim = hasHighlight && !isHighlighted;
+
+    // Get color from TC mapping or default
+    const tcColor = trafficControlColors?.get(link.id);
+    const strokeColor = isSelected ? '#3b82f6' : (tcColor || '#94a3b8');
+
+    return {
+      id: link.id,
+      source: link.sourceId,
+      target: link.targetId,
+      type: 'smoothstep',
+      animated: link.status === 'active',
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: strokeColor,
+      },
+      style: {
+        stroke: strokeColor,
+        strokeWidth: isSelected ? 2.5 : (isHighlighted ? 2 : 1.5),
+        opacity: shouldDim ? 0.15 : 1,
+      },
+      label: link.policy ? `${link.policy.bandwidth}` : undefined,
+      labelStyle: { fill: '#64748b', fontWeight: 500, fontSize: 10 },
+      labelBgStyle: { fill: '#ffffff', fillOpacity: 0.9 },
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+      data: {
+        link,
+      } satisfies CustomEdgeData,
+    };
+  });
+}
+
+// ============================================================================
+// Component
+// ============================================================================
+
+function TopologyCanvas({
+  nodes: topologyNodes,
+  links: topologyLinks,
+  selectedNodeId,
+  selectedLinkId,
+  onNodeClick,
+  onNodeDoubleClick,
+  onEdgeClick,
+  onPaneClick,
+  onSelectionChange,
+  fitView = true,
+  showMiniMap = true,
+  className,
+  topologyId,
+  trafficControlColors,
+  highlightedLinkIds,
+}: TopologyCanvasProps) {
+  // Ref to track saved positions for persistence
+  const nodePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  
+  // Transform topology data to React Flow format
+  const initialNodes = useMemo(
+    () => transformTopologyNodesToFlowNodes(topologyNodes, selectedNodeId),
+    [topologyNodes, selectedNodeId]
+  );
+
+  const initialEdges = useMemo(
+    () => transformTopologyLinksToFlowEdges(topologyLinks, selectedLinkId, trafficControlColors, highlightedLinkIds),
+    [topologyLinks, selectedLinkId, trafficControlColors, highlightedLinkIds]
+  );
+
+  // Layout nodes on mount or when data changes
+  const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(() => {
+    // Try to load saved positions first
+    let savedPositions: Record<string, { x: number; y: number }> | null = null;
+    if (topologyId) {
+      savedPositions = loadNodePositions(topologyId);
+      if (savedPositions) {
+        nodePositionsRef.current = savedPositions;
+      }
+    }
+    
+    // Check if nodes have positions from API or saved positions
+    const needsLayout = topologyNodes.some((n) => 
+      n.x === undefined || n.y === undefined
+    ) && !savedPositions;
+    
+    if (needsLayout) {
+      return getLayoutedElements(initialNodes, initialEdges);
+    }
+    
+    // Apply saved positions if available
+    if (savedPositions) {
+      const nodesWithSavedPositions = initialNodes.map((node) => ({
+        ...node,
+        position: savedPositions![node.id] || node.position,
+      }));
+      return { nodes: nodesWithSavedPositions, edges: initialEdges };
+    }
+    
+    return { nodes: initialNodes, edges: initialEdges };
+  }, [initialNodes, initialEdges, topologyNodes, topologyId]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges);
+
+  // Update nodes/edges when props change
+  useEffect(() => {
+    setNodes(layoutedNodes);
+  }, [layoutedNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(layoutedEdges);
+  }, [layoutedEdges, setEdges]);
+
+  // Handle node drag stop - save position
+  const handleNodeDragStop = useCallback(
+    (_event: React.MouseEvent, node: Node<CustomNodeData>) => {
+      if (topologyId) {
+        // Update the position in ref
+        nodePositionsRef.current[node.id] = node.position;
+        // Save all positions to localStorage
+        saveNodePositions(topologyId, nodePositionsRef.current);
+      }
+    },
+    [topologyId]
+  );
+
+  // Handle nodes change - intercept position changes
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      onNodesChange(changes);
+      
+      // Save positions when nodes are moved
+      if (topologyId) {
+        for (const change of changes) {
+          if (change.type === 'position' && change.position) {
+            nodePositionsRef.current[change.id] = change.position;
+          }
+        }
+      }
+    },
+    [onNodesChange, topologyId]
+  );
+
+  // Handle node click
+  const handleNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node<CustomNodeData>) => {
+      onNodeClick?.(node.data.node);
+    },
+    [onNodeClick]
+  );
+
+  // Handle node double click
+  const handleNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: Node<CustomNodeData>) => {
+      onNodeDoubleClick?.(node.data.node);
+    },
+    [onNodeDoubleClick]
+  );
+
+  // Handle edge click
+  const handleEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge<CustomEdgeData>) => {
+      if (edge.data?.link) {
+        onEdgeClick?.(edge.data.link);
+      }
+    },
+    [onEdgeClick]
+  );
+
+  // Handle edges change - detect selection changes
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      // Call the original onEdgesChange to update state
+      onEdgesChange(changes);
+      
+      // Check for selection changes
+      for (const change of changes) {
+        if (change.type === 'select' && change.selected) {
+          // Find the edge data and trigger onEdgeClick
+          const edge = edges.find(e => e.id === change.id);
+          if (edge?.data?.link) {
+            onEdgeClick?.(edge.data.link);
+          }
+        }
+      }
+    },
+    [onEdgesChange, edges, onEdgeClick]
+  );
+
+  // Handle selection change
+  const handleSelectionChange = useCallback(
+    ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
+      onSelectionChange?.(
+        selectedNodes.map((n) => n.id),
+        selectedEdges.map((e) => e.id)
+      );
+    },
+    [onSelectionChange]
+  );
+
+  // Handle connect (for potential future use)
+  const onConnect: OnConnect = useCallback(() => {
+    // Connection handling - read-only for now
+  }, []);
+
+  return (
+    <div className={`topology-canvas ${className || ''}`}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
+        onConnect={onConnect}
+        onNodeClick={handleNodeClick}
+        onNodeDoubleClick={handleNodeDoubleClick}
+        onNodeDragStop={handleNodeDragStop}
+        onEdgeClick={handleEdgeClick}
+        onPaneClick={onPaneClick}
+        onSelectionChange={handleSelectionChange}
+        nodeTypes={NODE_TYPES}
+        fitView={fitView}
+        defaultViewport={DEFAULT_VIEWPORT}
+        minZoom={0.2}
+        maxZoom={2}
+        attributionPosition="bottom-left"
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background gap={16} size={1} />
+        <Controls showInteractive={false} />
+        {showMiniMap && (
+          <MiniMap
+            nodeColor={(node) => {
+              const data = node.data as CustomNodeData | undefined;
+              if (data?.node.status === 'running') return '#10b981';
+              if (data?.node.status === 'pending') return '#f59e0b';
+              if (data?.node.status === 'failed') return '#ef4444';
+              return '#6b7280';
+            }}
+            maskColor="rgba(0, 0, 0, 0.05)"
+          />
+        )}
+      </ReactFlow>
+    </div>
+  );
+}
+
+export default memo(TopologyCanvas);

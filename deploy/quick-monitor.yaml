@@ -132,7 +132,543 @@ spec:
       nodePort: 30091
 ---
 # ==============================================================================
-# 5. Grafana
+# 5. Grafana Dashboard ConfigMap
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-kuro
+  namespace: kuro-monitor
+  labels:
+    grafana_dashboard: "1"
+data:
+  kuro-network-metrics.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Bandwidth",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "Bps"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 7, "w": 12, "x": 0, "y": 0},
+          "id": 1,
+          "options": {
+            "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sim\", pod=~\"$pod\", direction=~\"$direction\"}[1m])) by (pod, direction)",
+              "legendFormat": "{{ pod }} ({{ direction }})",
+              "refId": "A"
+            }
+          ],
+          "title": "Sim Traffic Bandwidth",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Bandwidth",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "Bps"
+            },
+            "overrides": [
+              {"matcher": {"id": "byRegexp", "options": ".*"}, "properties": [{"id": "custom.lineStyle", "value": {"dash": [5, 5], "fill": "dash"}}]}]
+          },
+          "gridPos": {"h": 7, "w": 12, "x": 12, "y": 0},
+          "id": 7,
+          "options": {
+            "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sys\", pod=~\"$pod\", direction=~\"$direction\"}[1m])) by (pod, direction)",
+              "legendFormat": "{{ pod }} ({{ direction }})",
+              "refId": "A"
+            }
+          ],
+          "title": "Sys Traffic Bandwidth",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Bandwidth",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {"group": "A", "mode": "normal"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "Bps"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 7},
+          "id": 5,
+          "options": {
+            "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sim\", pod=~\"$pod\", direction=~\"$direction\"}[1m])) by (direction)",
+              "legendFormat": "Sim {{ direction }}",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sys\", pod=~\"$pod\", direction=~\"$direction\"}[1m])) by (direction)",
+              "legendFormat": "Sys {{ direction }}",
+              "refId": "B"
+            }
+          ],
+          "title": "Total Bandwidth (Stacked)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Drop Rate",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "max": 1,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 0.01},
+                  {"color": "red", "value": 0.05}
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 7},
+          "id": 3,
+          "options": {
+            "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_drop_packets_total{pod=~\"$pod\"}[1m])) by (pod) / sum(rate(kuro_pod_traffic_packets_total{pod=~\"$pod\"}[1m])) by (pod)",
+              "legendFormat": "{{ pod }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Packet Drop Rate per Pod",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"hideFrom": {"legend": false, "tooltip": false, "viz": false}},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 7, "w": 12, "x": 0, "y": 13},
+          "id": 2,
+          "options": {
+            "calculate": false,
+            "cellGap": 1,
+            "color": {"exponent": 0.5, "fill": "dark-orange", "mode": "scheme", "reverse": false, "scale": "exponential", "scheme": "Oranges", "steps": 64},
+            "exemplars": {"color": "rgba(255,0,255,0.7)"},
+            "filterValues": {"le": 1e-9},
+            "legend": {"show": true},
+            "rowsFrame": {"layout": "auto"},
+            "tooltip": {"show": true, "yHistogram": false},
+            "yAxis": {"axisPlacement": "left", "reverse": false}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_latency_seconds_bucket{pod=~\"$pod\"}[1m])) by (le, pod)",
+              "format": "heatmap",
+              "legendFormat": "{{ pod }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Latency Distribution per Pod",
+          "type": "heatmap"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "custom": {
+                "align": "auto",
+                "cellOptions": {"type": "auto"},
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "none"
+            },
+            "overrides": [
+              {"matcher": {"id": "byRegexp", "options": ".*download.*"}, "properties": [{"id": "unit", "value": "Bps"}, {"id": "decimals", "value": 0}]},
+              {"matcher": {"id": "byRegexp", "options": ".*upload.*"}, "properties": [{"id": "unit", "value": "Bps"}, {"id": "decimals", "value": 0}]}
+            ]
+          },
+          "gridPos": {"h": 7, "w": 12, "x": 12, "y": 13},
+          "id": 4,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false},
+            "showHeader": true,
+            "sortBy": []
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sim\", direction=\"download\", pod=~\"$pod\"}[1m])) by (pod)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "__auto",
+              "refId": "sim_dl"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sim\", direction=\"upload\", pod=~\"$pod\"}[1m])) by (pod)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "__auto",
+              "refId": "sim_ul"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sys\", direction=\"download\", pod=~\"$pod\"}[1m])) by (pod)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "__auto",
+              "refId": "sys_dl"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sys\", direction=\"upload\", pod=~\"$pod\"}[1m])) by (pod)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "__auto",
+              "refId": "sys_ul"
+            }
+          ],
+          "title": "Pod Traffic Summary",
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {"Time": true, "Time 1": true, "Time 2": true, "Time 3": true},
+                "indexByName": {},
+                "renameByName": {
+                  "Value #sim_dl": "sim_download",
+                  "Value #sim_ul": "sim_upload",
+                  "Value #sys_dl": "sys_download",
+                  "Value #sys_ul": "sys_upload"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 10}]},
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 20},
+          "id": 6,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "count(count by (pod) (kuro_pod_traffic_bytes_total{pod=~\"$pod\"}))",
+              "legendFormat": "Active Pods",
+              "refId": "A"
+            }
+          ],
+          "title": "Active Pods",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 50}, {"color": "red", "value": 100}]},
+              "unit": "Bps"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 20},
+          "id": 8,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(kuro_pod_traffic_bytes_total{type=\"sim\", pod=~\"$pod\", direction=~\"$direction\"}[1m]))",
+              "legendFormat": "Total Sim",
+              "refId": "A"
+            }
+          ],
+          "title": "Total Sim Traffic",
+          "type": "stat"
+        }
+      ],
+      "refresh": "5s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["kuro", "network", "ebpf"],
+      "templating": {
+        "list": [
+          {
+            "current": {
+              "selected": true,
+              "text": ["All"],
+              "value": ["$__all"]
+            },
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "definition": "label_values(kuro_pod_traffic_bytes_total, pod)",
+            "description": "Filter by pod name",
+            "hide": 0,
+            "includeAll": true,
+            "label": "Pod",
+            "multi": true,
+            "name": "pod",
+            "options": [],
+            "query": {"query": "label_values(kuro_pod_traffic_bytes_total, pod)", "refId": "PrometheusVariableQueryEditor-0"},
+            "refresh": 2,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "current": {
+              "selected": true,
+              "text": ["All"],
+              "value": ["$__all"]
+            },
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "definition": "label_values(kuro_pod_traffic_bytes_total, type)",
+            "hide": 0,
+            "includeAll": true,
+            "label": "Traffic Type",
+            "multi": true,
+            "name": "traffic_type",
+            "options": [],
+            "query": {"query": "label_values(kuro_pod_traffic_bytes_total, type)", "refId": "PrometheusVariableQueryEditor-0"},
+            "refresh": 2,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "current": {
+              "selected": true,
+              "text": ["All"],
+              "value": ["$__all"]
+            },
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "definition": "label_values(kuro_pod_traffic_bytes_total, direction)",
+            "hide": 0,
+            "includeAll": true,
+            "label": "Direction",
+            "multi": true,
+            "name": "direction",
+            "options": [],
+            "query": {"query": "label_values(kuro_pod_traffic_bytes_total, direction)", "refId": "PrometheusVariableQueryEditor-0"},
+            "refresh": 2,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 1,
+            "type": "query"
+          }
+        ]
+      },
+      "time": {"from": "now-15m", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Kuro Network Metrics",
+      "uid": "kuro-network-metrics",
+      "version": 1,
+      "weekStart": ""
+    }
+---
+# ==============================================================================
+# 6. Grafana Datasource ConfigMap
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource
+  namespace: kuro-monitor
+  labels:
+    grafana_datasource: "1"
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+---
+# ==============================================================================
+# 7. Grafana Dashboard Provider ConfigMap
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: kuro-monitor
+data:
+  dashboard-provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'kuro'
+        orgId: 1
+        folder: ''
+        folderUid: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+# ==============================================================================
+# 8. Grafana
 # ==============================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -157,6 +693,31 @@ spec:
           env:
             - name: GF_SECURITY_ADMIN_PASSWORD
               value: "admin"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Editor"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: "/var/lib/grafana/dashboards/kuro-network-metrics.json"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          volumeMounts:
+            - name: dashboard-volume
+              mountPath: /var/lib/grafana/dashboards
+            - name: dashboard-provider-volume
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: datasource-volume
+              mountPath: /etc/grafana/provisioning/datasources
+      volumes:
+        - name: dashboard-volume
+          configMap:
+            name: grafana-dashboard-kuro
+        - name: dashboard-provider-volume
+          configMap:
+            name: grafana-dashboard-provider
+        - name: datasource-volume
+          configMap:
+            name: grafana-datasource
 ---
 apiVersion: v1
 kind: Service
@@ -171,3 +732,4 @@ spec:
     - port: 3000
       targetPort: 3000
       nodePort: 30092
+

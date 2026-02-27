@@ -87,6 +87,12 @@ func (r *TopologyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	// 3. Update status
+	if err := r.updateStatus(ctx, &topo); err != nil {
+		logger.Error(err, "unable to update NetworkTopology status")
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -119,8 +125,10 @@ func (r *TopologyReconciler) constructConfigMap(topo *kurov1alpha1.NetworkTopolo
 func (r *TopologyReconciler) constructDeployment(topo *kurov1alpha1.NetworkTopology, group *kurov1alpha1.NodeGroup, cmName string) (*appsv1.Deployment, error) {
 	labels := make(map[string]string)
 	maps.Copy(labels, group.Labels)
-	// Inject critical labels for Agent identification
+	// Inject critical labels for Agent identification and API queries
 	labels["kuro.io/sim-node"] = "true"
+	labels["kuro.io/topology"] = topo.Name
+	labels["kuro.io/node-group"] = group.Name
 	labels["app"] = group.Name
 
 	replicas := group.Replicas
@@ -175,4 +183,50 @@ func (r *TopologyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kurov1alpha1.NetworkTopology{}).
 		Owns(&appsv1.Deployment{}). // Automatically re-trigger reconcile if deployment is deleted
 		Complete(r)
+}
+
+// updateStatus calculates and updates the NetworkTopology status
+func (r *TopologyReconciler) updateStatus(ctx context.Context, topo *kurov1alpha1.NetworkTopology) error {
+	// Calculate total expected nodes
+	totalNodes := int32(0)
+	readyNodes := int32(0)
+
+	for _, group := range topo.Spec.NodeGroups {
+		totalNodes += int32(group.Replicas)
+
+		// Get deployment status
+		deployName := fmt.Sprintf("%s-%s", topo.Name, group.Name)
+		deploy := &appsv1.Deployment{}
+		if err := r.Get(ctx, client.ObjectKey{Name: deployName, Namespace: topo.Namespace}, deploy); err == nil {
+			readyNodes += deploy.Status.ReadyReplicas
+		}
+	}
+
+	// Determine phase
+	phase := "Pending"
+	if readyNodes == totalNodes && totalNodes > 0 {
+		phase = "Running"
+	} else if readyNodes > 0 {
+		phase = "Running" // Partially running
+	}
+
+	// Update status if changed
+	needsUpdate := false
+	if topo.Status.NodeCount != int(totalNodes) {
+		topo.Status.NodeCount = int(totalNodes)
+		needsUpdate = true
+	}
+	if topo.Status.ReadyNodes != int(readyNodes) {
+		topo.Status.ReadyNodes = int(readyNodes)
+		needsUpdate = true
+	}
+	if topo.Status.Phase != phase {
+		topo.Status.Phase = phase
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		return r.Status().Update(ctx, topo)
+	}
+	return nil
 }

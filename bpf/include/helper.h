@@ -1,5 +1,6 @@
 #pragma once
 
+#include "log.h"
 #include "map.h"
 #include "vmlinux.h"
 #include <bpf/bpf_endian.h>
@@ -13,13 +14,13 @@
 
 #define DEFAULT_EDT_HORIZON_NS (500ULL * 1000000ULL) // 500ms
 
-#define ENABLE_PRINT 0
-
-#if ENABLE_PRINT
-    #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
-#else
-    #define kuro_debug(fmt, ...)
-#endif
+// #define ENABLE_PRINT 1
+//
+// #if ENABLE_PRINT
+//     #define kuro_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
+// #else
+//     #define kuro_debug(fmt, ...)
+// #endif
 
 static __always_inline void get_global_config(__u64* horizon) {
     __u32 key = 0;
@@ -123,8 +124,12 @@ static __always_inline void
 update_metrics(__u32 ifindex, __u64 len, int ret, int is_sim, int direction) {
     struct pod_stats* metrics = bpf_map_lookup_elem(&metrics_map, &ifindex);
     if (!metrics) {
+        kuro_debug("update_metrics: ifindex=%u NOT FOUND in metrics_map", ifindex);
         return;
     }
+
+    kuro_debug("update_metrics: ifindex=%u len=%lu is_sim=%d dir=%d ret=%d",
+               ifindex, len, is_sim, direction, ret);
 
     struct flow_metrics* target;
 

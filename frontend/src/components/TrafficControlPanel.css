@@ -1,0 +1,266 @@
+/* Traffic Control Panel Styles */
+
+.traffic-control-panel {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  min-width: 280px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.traffic-control-panel--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+/* Empty State */
+.tcp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+.tcp-empty__icon {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+.tcp-empty__text {
+  color: #666;
+  font-size: 14px;
+}
+
+/* Header */
+.tcp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.tcp-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.tcp-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.tcp-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+/* Link Info */
+.tcp-link-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.tcp-link-info__label {
+  color: #666;
+  font-weight: 500;
+}
+
+.tcp-link-info__value {
+  color: #333;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+/* Sliders Container */
+.tcp-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Individual Slider */
+.tc-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tc-slider--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.tc-slider__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tc-slider__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #444;
+}
+
+.tc-slider__value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0066cc;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+.tc-slider__input {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e0e0e0;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.tc-slider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0066cc;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tc-slider__input::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(0, 102, 204, 0.3);
+}
+
+.tc-slider__input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0066cc;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.tc-slider__bounds {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #999;
+}
+
+/* Preview */
+.tcp-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: #f0f7ff;
+  border-radius: 6px;
+  border: 1px solid #cce4ff;
+}
+
+.tcp-preview__label {
+  font-size: 12px;
+  color: #666;
+}
+
+.tcp-preview__code {
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 12px;
+  color: #0066cc;
+}
+
+/* Actions */
+.tcp-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+
+.tcp-btn {
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.tcp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tcp-btn--primary {
+  background: #0066cc;
+  color: #fff;
+  border: none;
+}
+
+.tcp-btn--primary:hover:not(:disabled) {
+  background: #0055aa;
+}
+
+.tcp-btn--secondary {
+  background: #fff;
+  color: #666;
+  border: 1px solid #ddd;
+}
+
+.tcp-btn--secondary:hover:not(:disabled) {
+  background: #f5f5f5;
+  border-color: #ccc;
+}
+
+/* Unsaved Indicator */
+.tcp-unsaved {
+  text-align: center;
+  font-size: 12px;
+  color: #e67e00;
+  background: #fff8e6;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid #ffd699;
+}
+
+/* Responsive */
+@media (max-width: 400px) {
+  .traffic-control-panel {
+    min-width: 100%;
+    max-width: 100%;
+  }
+  
+  .tcp-actions {
+    flex-direction: column;
+  }
+}

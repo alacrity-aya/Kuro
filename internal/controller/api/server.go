@@ -5,11 +5,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
-	"kuro/internal/domain"
-
+	"github.com/gorilla/mux"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	v1alpha1 "kuro/api/crd/v1alpha1"
+	"kuro/internal/domain"
 )
 
 type AgentManager interface {
@@ -31,18 +37,84 @@ func NewHTTPServer(manager AgentManager, port int) *HTTPServer {
 	}
 }
 
-func (s *HTTPServer) Run() error {
-	mux := http.NewServeMux()
+// respondJSON sends a JSON response with the given status code
+func (s *HTTPServer) respondJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
 
-	mux.HandleFunc("/api/v1/topology", s.handleGetTopology)
-	mux.HandleFunc("/api/v1/agents", s.handleListAgents)
-	mux.HandleFunc("/api/v1/policy/link", s.handleApplyLinkPolicy)
-	mux.HandleFunc("/api/v1/policy/pod", s.handleApplyPodPolicy)
-	mux.HandleFunc("/api/v1/policy/node", s.handleApplyNodePolicy)
+// respondSuccess sends a successful response
+func (s *HTTPServer) respondSuccess(w http.ResponseWriter, data any) {
+	s.respondJSON(w, http.StatusOK, domain.ApiResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
+// respondError sends an error response
+func (s *HTTPServer) respondError(w http.ResponseWriter, status int, message string) {
+	s.respondJSON(w, status, domain.ApiResponse{
+		Success: false,
+		Error:   message,
+	})
+}
+
+// respondCreated sends a 201 response with data
+func (s *HTTPServer) respondCreated(w http.ResponseWriter, data any) {
+	s.respondJSON(w, http.StatusCreated, domain.ApiResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
+// getPathParam extracts a path parameter from the request
+func getPathParam(r *http.Request, key string) string {
+	return mux.Vars(r)[key]
+}
+
+// getQueryParam extracts a query parameter with a default value
+func getQueryParam(r *http.Request, key, defaultValue string) string {
+	if v := r.URL.Query().Get(key); v != "" {
+		return v
+	}
+	return defaultValue
+}
+
+func (s *HTTPServer) Run() error {
+	r := mux.NewRouter()
+
+	// API v1 routes
+	api := r.PathPrefix("/api/v1").Subrouter()
+
+	// NetworkTopology CRUD
+	api.HandleFunc("/namespaces/{namespace}/networktopologies", s.listNetworkTopologies).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies", s.createNetworkTopology).Methods("POST")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.getNetworkTopology).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.updateNetworkTopology).Methods("PUT")
+	api.HandleFunc("/namespaces/{namespace}/networktopologies/{name}", s.deleteNetworkTopology).Methods("DELETE")
+
+	// TrafficControl CRUD
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols", s.listTrafficControls).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols", s.createTrafficControl).Methods("POST")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols/{name}", s.getTrafficControl).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols/{name}", s.updateTrafficControl).Methods("PUT")
+	api.HandleFunc("/namespaces/{namespace}/trafficcontrols/{name}", s.deleteTrafficControl).Methods("DELETE")
+
+	// Topology Visualization
+	api.HandleFunc("/namespaces/{namespace}/topologies/{name}/nodes", s.getTopologyNodes).Methods("GET")
+	api.HandleFunc("/namespaces/{namespace}/topologies/{name}/links", s.getTopologyLinks).Methods("GET")
+
+	// Legacy endpoints (for backward compatibility)
+	api.HandleFunc("/topology", s.handleGetTopology).Methods("GET")
+	api.HandleFunc("/agents", s.handleListAgents).Methods("GET")
+	api.HandleFunc("/policy/link", s.handleApplyLinkPolicy).Methods("POST")
+	api.HandleFunc("/policy/pod", s.handleApplyPodPolicy).Methods("POST")
+	api.HandleFunc("/policy/node", s.handleApplyNodePolicy).Methods("POST")
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.port),
-		Handler: mux,
+		Handler: r,
 	}
 
 	log.Printf("[API] HTTP Server listening on :%d", s.port)
@@ -50,16 +122,532 @@ func (s *HTTPServer) Run() error {
 }
 
 // =============================================================
-// Handlers
+// NetworkTopology Handlers
 // =============================================================
 
-// 1. 获取拓扑结构
-func (s *HTTPServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// GET /api/v1/namespaces/{namespace}/networktopologies
+func (s *HTTPServer) listNetworkTopologies(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+
+	list := &v1alpha1.NetworkTopologyList{}
+	opts := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+
+	// Support label filtering
+	if labelSelector := getQueryParam(r, "labelSelector", ""); labelSelector != "" {
+		selector, err := labels.Parse(labelSelector)
+		if err != nil {
+			s.respondError(w, http.StatusBadRequest, "invalid label selector: "+err.Error())
+			return
+		}
+		opts = append(opts, client.MatchingLabelsSelector{Selector: selector})
+	}
+
+	if err := s.manager.GetK8sClient().List(r.Context(), list, opts...); err != nil {
+		log.Printf("[API] Failed to list NetworkTopologies: %v", err)
+		s.respondError(w, http.StatusInternalServerError, "failed to list NetworkTopologies")
 		return
 	}
 
+	s.respondSuccess(w, domain.ListResult{
+		Items:      list.Items,
+		TotalCount: len(list.Items),
+	})
+}
+
+// GET /api/v1/namespaces/{namespace}/networktopologies/{name}
+func (s *HTTPServer) getNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	topo := &v1alpha1.NetworkTopology{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			log.Printf("[API] Failed to get NetworkTopology %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get NetworkTopology")
+		}
+		return
+	}
+
+	s.respondSuccess(w, topo)
+}
+
+// POST /api/v1/namespaces/{namespace}/networktopologies
+func (s *HTTPServer) createNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+
+	var req NetworkTopologyCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Input validation
+	if req.Name == "" {
+		s.respondError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	for i, ng := range req.Spec.NodeGroups {
+		if ng.Name == "" {
+			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("nodeGroups[%d].name is required", i))
+			return
+		}
+		if ng.Image == "" {
+			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("nodeGroups[%d].image is required", i))
+			return
+		}
+		if ng.Replicas < 0 {
+			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("nodeGroups[%d].replicas must be >= 0", i))
+			return
+		}
+	}
+
+	// Build CRD object
+	topo := &v1alpha1.NetworkTopology{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.Name,
+			Namespace: namespace,
+			Labels:    req.Labels,
+		},
+		Spec: v1alpha1.NetworkTopologySpec{
+			NodeGroups: convertNodeGroups(req.Spec.NodeGroups),
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Create(r.Context(), topo); err != nil {
+		log.Printf("[API] Failed to create NetworkTopology %s: %v", req.Name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to create NetworkTopology")
+		return
+	}
+
+	s.respondCreated(w, topo)
+}
+
+// DELETE /api/v1/namespaces/{namespace}/networktopologies/{name}
+func (s *HTTPServer) deleteNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	topo := &v1alpha1.NetworkTopology{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Delete(r.Context(), topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			log.Printf("[API] Failed to delete NetworkTopology %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to delete NetworkTopology")
+		}
+		return
+	}
+
+	s.respondSuccess(w, nil)
+}
+
+// PUT /api/v1/namespaces/{namespace}/networktopologies/{name}
+func (s *HTTPServer) updateNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	var req NetworkTopologyCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Get existing topology
+	topo := &v1alpha1.NetworkTopology{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			log.Printf("[API] Failed to get NetworkTopology %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get NetworkTopology")
+		}
+		return
+	}
+
+	// Update spec
+	topo.Spec.NodeGroups = convertNodeGroups(req.Spec.NodeGroups)
+	if req.Labels != nil {
+		topo.Labels = req.Labels
+	}
+
+	if err := s.manager.GetK8sClient().Update(r.Context(), topo); err != nil {
+		log.Printf("[API] Failed to update NetworkTopology %s/%s: %v", namespace, name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to update NetworkTopology")
+		return
+	}
+
+	s.respondSuccess(w, topo)
+}
+
+// convertNodeGroups converts request node groups to CRD node groups
+func convertNodeGroups(groups []NodeGroupRequest) []v1alpha1.NodeGroup {
+	result := make([]v1alpha1.NodeGroup, len(groups))
+	for i, g := range groups {
+		result[i] = v1alpha1.NodeGroup{
+			Name:     g.Name,
+			Replicas: g.Replicas,
+			Image:    g.Image,
+			Command:  g.Command,
+			Labels:   g.Labels,
+		}
+	}
+	return result
+}
+
+// =============================================================
+// TrafficControl Handlers
+// =============================================================
+
+// GET /api/v1/namespaces/{namespace}/trafficcontrols
+func (s *HTTPServer) listTrafficControls(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+
+	list := &v1alpha1.TrafficControlList{}
+	opts := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+
+	if labelSelector := getQueryParam(r, "labelSelector", ""); labelSelector != "" {
+		selector, err := labels.Parse(labelSelector)
+		if err != nil {
+			s.respondError(w, http.StatusBadRequest, "invalid label selector: "+err.Error())
+			return
+		}
+		opts = append(opts, client.MatchingLabelsSelector{Selector: selector})
+	}
+
+	if err := s.manager.GetK8sClient().List(r.Context(), list, opts...); err != nil {
+		log.Printf("[API] Failed to list TrafficControls: %v", err)
+		s.respondError(w, http.StatusInternalServerError, "failed to list TrafficControls")
+		return
+	}
+
+	s.respondSuccess(w, domain.ListResult{
+		Items:      list.Items,
+		TotalCount: len(list.Items),
+	})
+}
+
+// GET /api/v1/namespaces/{namespace}/trafficcontrols/{name}
+func (s *HTTPServer) getTrafficControl(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	tc := &v1alpha1.TrafficControl{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, tc); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "TrafficControl not found")
+		} else {
+			log.Printf("[API] Failed to get TrafficControl %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get TrafficControl")
+		}
+		return
+	}
+
+	s.respondSuccess(w, tc)
+}
+
+// POST /api/v1/namespaces/{namespace}/trafficcontrols
+func (s *HTTPServer) createTrafficControl(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+
+	var req TrafficControlCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Input validation
+	if req.Name == "" {
+		s.respondError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if len(req.Spec.Source.MatchLabels) == 0 && len(req.Spec.Source.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.source selector is required")
+		return
+	}
+	if len(req.Spec.Destination.MatchLabels) == 0 && len(req.Spec.Destination.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.destination selector is required")
+		return
+	}
+
+	tc := &v1alpha1.TrafficControl{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.Name,
+			Namespace: namespace,
+			Labels:    req.Labels,
+		},
+		Spec: v1alpha1.TrafficControlSpec{
+			Source:      req.Spec.Source,
+			Destination: req.Spec.Destination,
+			Policy: v1alpha1.LinkPolicySpec{
+				Bandwidth:  req.Spec.Policy.Bandwidth,
+				Latency:    req.Spec.Policy.Latency,
+				Jitter:     req.Spec.Policy.Jitter,
+				PacketLoss: req.Spec.Policy.PacketLoss,
+			},
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Create(r.Context(), tc); err != nil {
+		log.Printf("[API] Failed to create TrafficControl %s: %v", req.Name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to create TrafficControl")
+		return
+	}
+
+	s.respondCreated(w, tc)
+}
+
+// PUT /api/v1/namespaces/{namespace}/trafficcontrols/{name}
+func (s *HTTPServer) updateTrafficControl(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	var req TrafficControlUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// Input validation
+	if len(req.Spec.Source.MatchLabels) == 0 && len(req.Spec.Source.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.source selector is required")
+		return
+	}
+	if len(req.Spec.Destination.MatchLabels) == 0 && len(req.Spec.Destination.MatchExpressions) == 0 {
+		s.respondError(w, http.StatusBadRequest, "spec.destination selector is required")
+		return
+	}
+
+	// Get existing object
+	tc := &v1alpha1.TrafficControl{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name}, tc); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "TrafficControl not found")
+		} else {
+			log.Printf("[API] Failed to get TrafficControl %s/%s for update: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get TrafficControl")
+		}
+		return
+	}
+
+	// Update Spec
+	tc.Spec.Source = req.Spec.Source
+	tc.Spec.Destination = req.Spec.Destination
+	tc.Spec.Policy = v1alpha1.LinkPolicySpec{
+		Bandwidth:  req.Spec.Policy.Bandwidth,
+		Latency:    req.Spec.Policy.Latency,
+		Jitter:     req.Spec.Policy.Jitter,
+		PacketLoss: req.Spec.Policy.PacketLoss,
+	}
+
+	if err := s.manager.GetK8sClient().Update(r.Context(), tc); err != nil {
+		log.Printf("[API] Failed to update TrafficControl %s/%s: %v", namespace, name, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to update TrafficControl")
+		return
+	}
+
+	s.respondSuccess(w, tc)
+}
+
+// DELETE /api/v1/namespaces/{namespace}/trafficcontrols/{name}
+func (s *HTTPServer) deleteTrafficControl(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	name := getPathParam(r, "name")
+
+	tc := &v1alpha1.TrafficControl{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	if err := s.manager.GetK8sClient().Delete(r.Context(), tc); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "TrafficControl not found")
+		} else {
+			log.Printf("[API] Failed to delete TrafficControl %s/%s: %v", namespace, name, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to delete TrafficControl")
+		}
+		return
+	}
+
+	s.respondSuccess(w, nil)
+}
+
+// =============================================================
+// Topology Visualization Handlers
+// =============================================================
+
+// GET /api/v1/namespaces/{namespace}/topologies/{name}/nodes
+func (s *HTTPServer) getTopologyNodes(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	topoName := getPathParam(r, "name")
+
+	// 1. Get NetworkTopology CRD
+	topo := &v1alpha1.NetworkTopology{}
+	if err := s.manager.GetK8sClient().Get(r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: topoName}, topo); err != nil {
+		if errors.IsNotFound(err) {
+			s.respondError(w, http.StatusNotFound, "NetworkTopology not found")
+		} else {
+			log.Printf("[API] Failed to get NetworkTopology %s/%s: %v", namespace, topoName, err)
+			s.respondError(w, http.StatusInternalServerError, "failed to get NetworkTopology")
+		}
+		return
+	}
+
+	// 2. Query Pods for each NodeGroup
+	nodes := []domain.TopologyNodeViz{}
+
+	for _, group := range topo.Spec.NodeGroups {
+		podList := &corev1.PodList{}
+		opts := []client.ListOption{
+			client.InNamespace(namespace),
+			client.MatchingLabels{
+				"kuro.io/topology":   topoName,
+				"kuro.io/node-group": group.Name,
+			},
+		}
+
+		if err := s.manager.GetK8sClient().List(r.Context(), podList, opts...); err != nil {
+			log.Printf("[API] Failed to list pods for group %s: %v", group.Name, err)
+			continue
+		}
+
+		// Determine role from group labels
+		role := determineRole(group.Labels)
+
+		for _, pod := range podList.Items {
+			node := domain.TopologyNodeViz{
+				ID:      string(pod.UID),
+				Name:    pod.Name,
+				Role:    role,
+				IP:      pod.Status.PodIP,
+				Labels:  pod.Labels,
+				Status:  strings.ToLower(string(pod.Status.Phase)),
+				GroupID: group.Name,
+			}
+			nodes = append(nodes, node)
+		}
+	}
+
+	s.respondSuccess(w, nodes)
+}
+
+// determineRole extracts role from labels
+func determineRole(lbls map[string]string) string {
+	if role, ok := lbls["role"]; ok {
+		return role
+	}
+	if app, ok := lbls["app"]; ok {
+		return app
+	}
+	return "custom"
+}
+
+// GET /api/v1/namespaces/{namespace}/topologies/{name}/links
+func (s *HTTPServer) getTopologyLinks(w http.ResponseWriter, r *http.Request) {
+	namespace := getPathParam(r, "namespace")
+	topoName := getPathParam(r, "name")
+
+	// 1. Get all TrafficControls in namespace
+	tcList := &v1alpha1.TrafficControlList{}
+	if err := s.manager.GetK8sClient().List(r.Context(), tcList,
+		client.InNamespace(namespace)); err != nil {
+		log.Printf("[API] Failed to list TrafficControls: %v", err)
+		s.respondError(w, http.StatusInternalServerError, "failed to list TrafficControls")
+		return
+	}
+
+	// 2. Get all Pods in the topology
+	podList := &corev1.PodList{}
+	if err := s.manager.GetK8sClient().List(r.Context(), podList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{"kuro.io/topology": topoName}); err != nil {
+		log.Printf("[API] Failed to list pods for topology %s: %v", topoName, err)
+		s.respondError(w, http.StatusInternalServerError, "failed to list pods")
+		return
+	}
+
+	// 3. Build Pod IP -> Pod mapping
+	podMap := make(map[string]corev1.Pod)
+	for _, pod := range podList.Items {
+		if pod.Status.PodIP != "" {
+			podMap[pod.Status.PodIP] = pod
+		}
+	}
+
+	// 4. Build links from TrafficControls
+	links := []domain.TopologyLink{}
+	linkID := 0
+
+	for _, tc := range tcList.Items {
+		srcSelector, err := metav1.LabelSelectorAsSelector(&tc.Spec.Source)
+		if err != nil {
+			continue
+		}
+		dstSelector, err := metav1.LabelSelectorAsSelector(&tc.Spec.Destination)
+		if err != nil {
+			continue
+		}
+
+		// Find all matching source and destination pairs
+		for srcIP, srcPod := range podMap {
+			if !srcSelector.Matches(labels.Set(srcPod.Labels)) {
+				continue
+			}
+
+			for dstIP, dstPod := range podMap {
+				if srcIP == dstIP {
+					continue
+				}
+				if !dstSelector.Matches(labels.Set(dstPod.Labels)) {
+					continue
+				}
+
+				link := domain.TopologyLink{
+					ID:       fmt.Sprintf("link-%d", linkID),
+					SourceID: string(srcPod.UID),
+					TargetID: string(dstPod.UID),
+					Policy: &domain.LinkPolicyViz{
+						Bandwidth:  tc.Spec.Policy.Bandwidth,
+						Latency:    tc.Spec.Policy.Latency,
+						Jitter:     tc.Spec.Policy.Jitter,
+						PacketLoss: tc.Spec.Policy.PacketLoss,
+					},
+					Status: "active",
+				}
+
+				links = append(links, link)
+				linkID++
+			}
+		}
+	}
+
+	s.respondSuccess(w, links)
+}
+
+// =============================================================
+// Legacy Handlers
+// =============================================================
+
+// 1. Get topology structure
+func (s *HTTPServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 	k8sClient := s.manager.GetK8sClient()
 	if k8sClient == nil {
 		http.Error(w, "K8s client not initialized", http.StatusServiceUnavailable)
@@ -98,27 +686,18 @@ func (s *HTTPServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 		response.Nodes = append(response.Nodes, node)
 	}
 
-	s.jsonResponse(w, response)
+	s.respondSuccess(w, response)
 }
 
 func (s *HTTPServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	agents := s.manager.ListAgents()
-	s.jsonResponse(w, map[string]any{
+	s.respondSuccess(w, map[string]any{
 		"count": len(agents),
 		"nodes": agents,
 	})
 }
 
 func (s *HTTPServer) handleApplyLinkPolicy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		NodeName          string `json:"node_name"`
 		SrcIP             string `json:"src_ip"`
@@ -154,15 +733,10 @@ func (s *HTTPServer) handleApplyLinkPolicy(w http.ResponseWriter, r *http.Reques
 	}
 
 	log.Printf("[API] Applied LinkPolicy on %s", req.NodeName)
-	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
+	s.respondSuccess(w, map[string]string{"status": "ok", "command_id": cmdID})
 }
 
 func (s *HTTPServer) handleApplyPodPolicy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	type Rate struct {
 		Upload   uint64 `json:"upload"`
 		Download uint64 `json:"download"`
@@ -203,15 +777,10 @@ func (s *HTTPServer) handleApplyPodPolicy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
+	s.respondSuccess(w, map[string]string{"status": "ok", "command_id": cmdID})
 }
 
 func (s *HTTPServer) handleApplyNodePolicy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		NodeName          string `json:"node_name"`
 		IngressLimitBps   uint64 `json:"ingress_limit_bps"`
@@ -234,12 +803,5 @@ func (s *HTTPServer) handleApplyNodePolicy(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	s.jsonResponse(w, map[string]string{"status": "ok", "command_id": cmdID})
-}
-
-func (s *HTTPServer) jsonResponse(w http.ResponseWriter, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("[API] Failed to encode response: %v", err)
-	}
+	s.respondSuccess(w, map[string]string{"status": "ok", "command_id": cmdID})
 }

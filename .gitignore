@@ -6,3 +6,22 @@
 /todo.md
 /deploy/crd/
 /api/crd/v1alpha1/zz*
+
+# Agent Harness - Long running agent workflow files
+# These files are generated and maintained by agents during development
+/agent-harness/feature_list.json
+/agent-harness/claude-progress.txt
+/agent-harness/init.sh
+
+# iFlow CLI related files (user-specific configuration and cache)
+.iflow/
+*.iflow*
+
+/logs
+
+/docs/plans
+
+/.playwright-cli
+
+# Git worktrees
+.worktrees/

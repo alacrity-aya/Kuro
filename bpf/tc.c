@@ -1,4 +1,5 @@
 #include "include/helper.h"
+#include "include/log.h"
 #include "include/map.h"
 
 // =============================================================
@@ -24,10 +25,37 @@
 // =============================================================
 
 /**
- * EDT (Earliest Departure Time) Rate Limiting Core Logic (Used for Sim traffic)
- * @param rate: Limit rate (bps)
- * @param state_map: Pointer to the state Map
- * @param target_idx: Map Key (ifindex)
+ * throttle_flow - EDT (Earliest Departure Time) Rate Limiting Core Logic
+ *
+ * This function implements the EDT algorithm to enforce precise bandwidth limits
+ * by scheduling packet departure times. Unlike token bucket approaches, EDT
+ * provides smoother traffic pacing by calculating the earliest time each packet
+ * can be transmitted without exceeding the configured rate.
+ *
+ * Algorithm Overview:
+ * 1. Calculate transmission time for current packet based on scaled cost
+ * 2. Apply burst window allowance to handle idle periods gracefully
+ * 3. Schedule packet departure time (t_send) based on last transmission
+ * 4. Drop packet if scheduled time exceeds horizon (queue overflow protection)
+ * 5. Update skb->tstamp for the kernel's FQ scheduler to enforce
+ *
+ * Burst Window Logic:
+ * - If the flow was idle for longer than BURST_WINDOW_NS, we reset t_last
+ *   to (now - BURST_WINDOW_NS), allowing a small burst to catch up.
+ * - This prevents excessive latency spikes after idle periods (e.g., TCP ACKs).
+ *
+ * @skb:           Socket buffer containing the packet to throttle
+ * @cost_per_byte_scaled: Scaled transmission cost per byte.
+ *                        Formula: (NSEC_PER_SEC * 8 * 65536) / bandwidth_bps
+ *                        Zero value disables rate limiting (pass-through).
+ * @state_map:     BPF map containing EDT state entries (struct edt_state)
+ * @target_idx:    Key into state_map, typically encoded as:
+ *                  ifindex * 2 + traffic_type (0=sys, 1=sim)
+ * @now:           Current kernel timestamp in nanoseconds
+ * @horizon_ns:    Maximum scheduling horizon. Packets scheduled beyond
+ *                  (now + horizon_ns) are dropped to prevent queue overflow.
+ *
+ * Return: TC_ACT_OK on success (packet scheduled), TC_ACT_SHOT on drop (overflow)
  */
 static __always_inline int throttle_flow(
     struct __sk_buff* skb,
@@ -77,6 +105,8 @@ SEC("tc/edt_download")
 int handle_edt_download(struct __sk_buff* skb) {
     __u64 now = bpf_ktime_get_ns();
     __u32 ifindex = skb->ifindex;
+
+    // kuro_debug("handle_edt_download: ifindex=%u, pkt_len=%u", ifindex, skb->len);
 
     if (unlikely(ifindex >= MAX_IFINDEX_CAP))
         return TC_ACT_OK;
@@ -216,11 +246,14 @@ int handle_edt_upload(struct __sk_buff* skb) {
     get_global_config(&horizon_ns);
 
     if (is_sim_traffic) {
+        // kuro_debug("Sim Upload: %pI4:%u -> %pI4:%u", &src_ip, src_port, &dst_ip, dst_port);
+
         // === [Simulation Lane] ===
         skb->priority = 1; // High Priority
         offset_ns = 0; // Send on time
 
         if (policy) {
+            // kuro_debug("policy found, applying specific link settings");
             // Use specific link policy
             if (policy->cost_per_byte_scaled > 0) {
                 // Cost = (10^9 * 8 * 65536) / bw
@@ -257,12 +290,19 @@ int handle_edt_upload(struct __sk_buff* skb) {
 
     // 6. Post-processing: Physical Simulation & Offsets
     if (ret == TC_ACT_OK) {
+        // If no rate limiting was applied (target_cost=0), throttle_flow didn't set tstamp.
+        // Initialize to now so that latency offsets work correctly.
+        if (target_cost == 0) {
+            skb->tstamp = now;
+        }
+
         // Apply offset for system traffic
         skb->tstamp += offset_ns;
 
         // Apply physical delay for simulation traffic (Sim only)
         if (is_sim_traffic && policy) {
-            skb->tstamp += policy->base_latency_ns;
+            __u64 latency_ns = policy->base_latency_ns;
+            skb->tstamp += latency_ns;
 
             if (policy->jitter_ns > 0) {
                 // Simple jitter simulation: + Random(0, Jitter)

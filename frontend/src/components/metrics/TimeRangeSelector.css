@@ -1,0 +1,51 @@
+/**
+ * Time Range Selector Styles
+ * 深色主题
+ */
+
+.time-range-selector {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: #1a1a2e;
+  border-radius: 6px;
+  border: 1px solid #2a2a3e;
+}
+
+.time-range-selector.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.time-range-selector__btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8b8ba7;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.time-range-selector__btn:hover:not(:disabled) {
+  background: #252538;
+  color: #d4d4d4;
+}
+
+.time-range-selector__btn.active {
+  background: #4A90D9;
+  color: #fff;
+}
+
+.time-range-selector__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Focus state */
+.time-range-selector__btn:focus-visible {
+  outline: 2px solid #4A90D9;
+  outline-offset: 2px;
+}

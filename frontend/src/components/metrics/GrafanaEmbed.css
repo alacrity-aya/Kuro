@@ -1,0 +1,250 @@
+/**
+ * Grafana Embed Component Styles
+ * 
+ * 深色主题风格，与 MetricsPage 保持一致
+ */
+
+.grafana-embed {
+  background: #1a1a2e;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Fullscreen mode */
+.grafana-embed--fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  border-radius: 0;
+  border: none;
+}
+
+/* Toolbar */
+.grafana-embed__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #151528;
+  border-bottom: 1px solid #2a2a3e;
+  flex-shrink: 0;
+}
+
+.grafana-embed__toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.grafana-embed__toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.grafana-embed__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.grafana-embed__loading {
+  font-size: 12px;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.grafana-embed__loading::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border: 2px solid #444;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: grafana-spin 0.8s linear infinite;
+}
+
+@keyframes grafana-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.grafana-embed__error {
+  font-size: 12px;
+  color: #f87171;
+}
+
+/* Refresh controls */
+.grafana-embed__refresh {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.grafana-embed__refresh-select {
+  background: #2a2a3e;
+  border: 1px solid #3a3a4e;
+  border-radius: 4px;
+  color: #d4d4d4;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+.grafana-embed__refresh-select:hover {
+  border-color: #6366f1;
+}
+
+.grafana-embed__refresh-select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.grafana-embed__refresh-btn,
+.grafana-embed__fullscreen-btn,
+.grafana-embed__external-link {
+  background: #2a2a3e;
+  border: 1px solid #3a3a4e;
+  border-radius: 4px;
+  color: #d4d4d4;
+  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.grafana-embed__refresh-btn:hover,
+.grafana-embed__fullscreen-btn:hover,
+.grafana-embed__external-link:hover {
+  background: #3a3a4e;
+  border-color: #6366f1;
+  color: #fff;
+}
+
+/* Content container */
+.grafana-embed__content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.grafana-embed__iframe {
+  display: block;
+  border: none;
+  background: #111;
+}
+
+/* Error state */
+.grafana-embed__error-state {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a2e;
+  color: #d4d4d4;
+  text-align: center;
+  padding: 20px;
+}
+
+.grafana-embed__error-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.grafana-embed__error-message {
+  max-width: 400px;
+}
+
+.grafana-embed__error-message p {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.grafana-embed__error-message p:first-child {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.grafana-embed__error-detail {
+  color: #888;
+  font-size: 13px;
+}
+
+.grafana-embed__error-detail code {
+  background: #2a2a3e;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.grafana-embed__retry-btn {
+  margin-top: 16px;
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.grafana-embed__retry-btn:hover {
+  background: #4f46e5;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .grafana-embed__toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .grafana-embed__toolbar-right {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  
+  .grafana-embed__title {
+    font-size: 13px;
+  }
+  
+  .grafana-embed__refresh-select {
+    font-size: 11px;
+    padding: 3px 6px;
+  }
+}
+
+/* Loading overlay */
+.grafana-embed--loading .grafana-embed__content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(26, 26, 46, 0.8);
+  z-index: 1;
+}

@@ -294,6 +294,10 @@ func (m *BpfManager) GetSystemDashboard() ([]SystemOverview, error) {
 }
 
 // CollectAllMetrics collects statistics for all Pods (for Prometheus)
+// Note: BPF stores metrics with different keys:
+//   - Download direction (handle_edt_download): uses hostIfIndex as key
+//   - Upload direction (handle_edt_upload): uses podIfIndex as key
+// So we need to read from both and merge them.
 func (m *BpfManager) CollectAllMetrics() ([]PodMetricsResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -301,42 +305,54 @@ func (m *BpfManager) CollectAllMetrics() ([]PodMetricsResult, error) {
 	var results []PodMetricsResult
 
 	for ifIndex, prog := range m.programs {
-		key := uint32(ifIndex)
-
-		// 1. Collect Flow Stats (PerCPU Aggregation)
-		var statsPerCPU []TcPodStats
-		if err := m.objects.MetricsMap.Lookup(&key, &statsPerCPU); err != nil {
-			continue
-		}
+		hostKey := uint32(ifIndex)
+		podKey := uint32(prog.podIfIndex)
 
 		var totalStats TcPodStats
-		for _, cpuStat := range statsPerCPU {
-			// SimDownload
-			totalStats.SimDownload.Packets += cpuStat.SimDownload.Packets
-			totalStats.SimDownload.Bytes += cpuStat.SimDownload.Bytes
-			totalStats.SimDownload.DropPackets += cpuStat.SimDownload.DropPackets
-			totalStats.SimDownload.DropBytes += cpuStat.SimDownload.DropBytes
-			// SimUpload
-			totalStats.SimUpload.Packets += cpuStat.SimUpload.Packets
-			totalStats.SimUpload.Bytes += cpuStat.SimUpload.Bytes
-			totalStats.SimUpload.DropPackets += cpuStat.SimUpload.DropPackets
-			totalStats.SimUpload.DropBytes += cpuStat.SimUpload.DropBytes
-			// SysDownload
-			totalStats.SysDownload.Packets += cpuStat.SysDownload.Packets
-			totalStats.SysDownload.Bytes += cpuStat.SysDownload.Bytes
-			totalStats.SysDownload.DropPackets += cpuStat.SysDownload.DropPackets
-			totalStats.SysDownload.DropBytes += cpuStat.SysDownload.DropBytes
-			// SysUpload
-			totalStats.SysUpload.Packets += cpuStat.SysUpload.Packets
-			totalStats.SysUpload.Bytes += cpuStat.SysUpload.Bytes
-			totalStats.SysUpload.DropPackets += cpuStat.SysUpload.DropPackets
-			totalStats.SysUpload.DropBytes += cpuStat.SysUpload.DropBytes
+
+		// 1. Collect Download Stats (from hostIfIndex key)
+		var hostStatsPerCPU []TcPodStats
+		if err := m.objects.MetricsMap.Lookup(&hostKey, &hostStatsPerCPU); err == nil {
+			for _, cpuStat := range hostStatsPerCPU {
+				// Download metrics are stored with hostIfIndex
+				totalStats.SimDownload.Packets += cpuStat.SimDownload.Packets
+				totalStats.SimDownload.Bytes += cpuStat.SimDownload.Bytes
+				totalStats.SimDownload.DropPackets += cpuStat.SimDownload.DropPackets
+				totalStats.SimDownload.DropBytes += cpuStat.SimDownload.DropBytes
+				totalStats.SysDownload.Packets += cpuStat.SysDownload.Packets
+				totalStats.SysDownload.Bytes += cpuStat.SysDownload.Bytes
+				totalStats.SysDownload.DropPackets += cpuStat.SysDownload.DropPackets
+				totalStats.SysDownload.DropBytes += cpuStat.SysDownload.DropBytes
+			}
 		}
 
-		// 2. Collect Latency Histogram
-		var latHists []TcLatencyHist
+		// 2. Collect Upload Stats (from podIfIndex key) - CRITICAL FIX
+		var podStatsPerCPU []TcPodStats
+		if err := m.objects.MetricsMap.Lookup(&podKey, &podStatsPerCPU); err == nil {
+			for _, cpuStat := range podStatsPerCPU {
+				// Upload metrics are stored with podIfIndex
+				totalStats.SimUpload.Packets += cpuStat.SimUpload.Packets
+				totalStats.SimUpload.Bytes += cpuStat.SimUpload.Bytes
+				totalStats.SimUpload.DropPackets += cpuStat.SimUpload.DropPackets
+				totalStats.SimUpload.DropBytes += cpuStat.SimUpload.DropBytes
+				totalStats.SysUpload.Packets += cpuStat.SysUpload.Packets
+				totalStats.SysUpload.Bytes += cpuStat.SysUpload.Bytes
+				totalStats.SysUpload.DropPackets += cpuStat.SysUpload.DropPackets
+				totalStats.SysUpload.DropBytes += cpuStat.SysUpload.DropBytes
+			}
+		}
+
+		// 3. Collect Latency Histogram (from both keys)
 		var totalLatency TcLatencyHist
-		if err := m.objects.LatencyMap.Lookup(&key, &latHists); err == nil {
+		var latHists []TcLatencyHist
+		if err := m.objects.LatencyMap.Lookup(&hostKey, &latHists); err == nil {
+			for _, h := range latHists {
+				for i := range 16 {
+					totalLatency.Buckets[i] += h.Buckets[i]
+				}
+			}
+		}
+		if err := m.objects.LatencyMap.Lookup(&podKey, &latHists); err == nil {
 			for _, h := range latHists {
 				for i := range 16 {
 					totalLatency.Buckets[i] += h.Buckets[i]

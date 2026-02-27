@@ -1,0 +1,256 @@
+.topology-editor {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.editor-sidebar {
+  width: auto;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+.editor-main {
+  flex: 1;
+  height: 100%;
+  position: relative;
+}
+
+.editor-config {
+  flex-shrink: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(30, 30, 46, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.topology-name-input {
+  margin-right: 12px;
+}
+
+.topology-name-field {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #313244;
+  background: #181825;
+  color: #cdd6f4;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 150px;
+  transition: all 0.15s ease;
+}
+
+.topology-name-field:focus {
+  outline: none;
+  border-color: #89b4fa;
+  box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
+}
+
+.topology-name-field::placeholder {
+  color: #6c7086;
+}
+
+.selection-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.selection-count {
+  font-size: 12px;
+  color: #89b4fa;
+  background: rgba(59, 130, 246, 0.15);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.editor-toolbar button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+}
+
+.editor-toolbar .btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.editor-toolbar .btn-primary:hover {
+  background: #2563eb;
+}
+
+.editor-toolbar .btn-secondary {
+  background: #374151;
+  color: #e5e7eb;
+}
+
+.editor-toolbar .btn-secondary:hover {
+  background: #4b5563;
+}
+
+.editor-toolbar .btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.editor-toolbar .btn-danger:hover {
+  background: #dc2626;
+}
+
+.editor-toolbar .btn-danger:disabled {
+  background: #4b5563;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.editor-toolbar .btn-template {
+  background: #6366f1;
+  color: white;
+}
+
+.editor-toolbar .btn-template:hover {
+  background: #4f46e5;
+}
+
+/* Config Panel Tabs */
+.config-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid #2d2d44;
+  background: #1a1a2e;
+}
+
+.config-panel-tab {
+  flex: 1;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.config-panel-tab:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.config-panel-tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* React Flow customizations for editor */
+.editor-main .react-flow {
+  background-color: #1a1a2e;
+}
+
+.editor-main .react-flow__background {
+  background-color: #1a1a2e;
+}
+
+.editor-main .react-flow__controls {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #2a2a3c;
+}
+
+.editor-main .react-flow__controls-button {
+  border: none;
+  border-bottom: 1px solid #333;
+  background: #2a2a3c;
+  fill: #94a3b8;
+}
+
+.editor-main .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.editor-main .react-flow__controls-button:hover {
+  background: #3a3a4c;
+}
+
+.editor-main .react-flow__minimap {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border: 1px solid #333;
+  background-color: #2a2a3c;
+}
+
+.editor-main .react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+.editor-main .react-flow__edge.selected .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-width: 2px;
+}
+
+.editor-main .react-flow__attribution {
+  display: none;
+}
+
+/* Multi-select box style */
+.editor-main .react-flow__selection {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px dashed #3b82f6;
+}
+
+/* Templates Dialog */
+.templates-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.templates-dialog {
+  width: 90%;
+  max-width: 800px;
+  max-height: 80vh;
+  background: var(--bg-secondary, #1a1a2e);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

@@ -41,6 +41,7 @@ else
     exit 1
 fi
 
+
 echo "[Setup] Starting iperf3 server inside Netns..."
 LOG_FILE="/tmp/iperf_server_${NS_NAME}.log"
 
