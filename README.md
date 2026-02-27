@@ -68,4 +68,11 @@ cd frontend && npx vitest run
 
 ## 📄 License
 
-🚧 This project is currently a Work In Progress.
+This project uses dual licensing:
+
+| Component | License |
+|-----------|---------|
+| Go source code (`cmd/`, `internal/`, `api/`) | [Apache-2.0](LICENSE) |
+| eBPF source code (`bpf/`) | [GPL-2.0-or-later](LICENSE) |
+
+See [LICENSE](LICENSE) for full details.
