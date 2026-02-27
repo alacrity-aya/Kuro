@@ -13,13 +13,13 @@
 .dashboard__title {
   font-size: 28px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
 .dashboard__subtitle {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -31,15 +31,15 @@
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #6b7280;
+  color: var(--text-muted);
   gap: 16px;
 }
 
 .dashboard__spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #e5e7eb;
-  border-top-color: #3b82f6;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--brand-accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -51,7 +51,7 @@
 }
 
 .dashboard__error {
-  color: #ef4444;
+  color: var(--danger);
 }
 
 /* Statistics Grid */
@@ -63,16 +63,20 @@
 }
 
 .stats-card {
-  background: #ffffff;
-  border-radius: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius-lg);
   padding: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e5e7eb;
-  transition: box-shadow 0.2s ease;
+  box-shadow: var(--glass-shadow);
+  border: var(--glass-border);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .stats-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .stats-card__header {
@@ -88,7 +92,7 @@
 
 .stats-card__title {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -100,12 +104,13 @@
 .stats-card__value {
   font-size: 32px;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--text-primary);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .stats-card__subtitle {
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--text-muted);
   margin-top: 4px;
 }
 
@@ -137,20 +142,22 @@
 }
 
 .dashboard__section {
-  background: #ffffff;
-  border-radius: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius-lg);
   padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e5e7eb;
+  box-shadow: var(--glass-shadow);
+  border: var(--glass-border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .section-title {
   font-size: 18px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   margin: 0 0 20px 0;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-color);
 }
 
 /* Topology Status Grid */
@@ -161,10 +168,10 @@
 }
 
 .topology-card {
-  background: #f9fafb;
-  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-md);
   padding: 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   transition: all 0.2s ease;
 }
 
@@ -173,13 +180,13 @@
 }
 
 .topology-card--clickable:hover {
-  border-color: #3b82f6;
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+  border-color: var(--brand-accent);
+  background: rgba(30, 41, 59, 0.9);
+  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15);
 }
 
 .topology-card:hover {
-  border-color: #3b82f6;
+  border-color: var(--brand-accent);
 }
 
 .topology-card__header {
@@ -192,7 +199,7 @@
 .topology-card__name {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -244,18 +251,18 @@
 
 .topology-card__stat-label {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-secondary);
 }
 
 .topology-card__stat-value {
   font-size: 14px;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .topology-card__footer {
   padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -263,7 +270,7 @@
 
 .topology-card__time {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .topology-card__action-hint {
@@ -312,12 +319,14 @@
 }
 
 .btn--primary {
-  background: #3b82f6;
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
   color: white;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
 
 .btn--primary:hover {
-  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
 }
 
 /* Phase Summary */
@@ -332,9 +341,9 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #f9fafb;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--border-color);
 }
 
 .phase-item__dot {
@@ -361,13 +370,13 @@
 
 .phase-item__label {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .phase-item__count {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   margin-left: auto;
 }
 
