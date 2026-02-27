@@ -4,6 +4,7 @@
   padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .dashboard__header {
