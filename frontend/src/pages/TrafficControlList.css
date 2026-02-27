@@ -195,7 +195,7 @@
 .tc-list__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 20px;
+  gap: 24px;
 }
 
 /* Traffic Control Card */
