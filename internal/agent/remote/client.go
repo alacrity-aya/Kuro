@@ -239,6 +239,17 @@ func (c *Client) handleCommand(cmd *pb.ControllerCmd) {
 		log.Printf("[Remote] Cmd: ApplyNodePolicy")
 		err = c.handler.ApplyNodePolicy(domainPolicy)
 
+	case *pb.ControllerCmd_ApplyProbeTask:
+		domainTask := FromProtoProbeTask(payload.ApplyProbeTask)
+		log.Printf("[Remote] Cmd: ApplyProbeTask (%s: %s -> %s, type=%s)",
+			domainTask.TaskID, domainTask.SrcPod, domainTask.DstPod, domainTask.Type)
+		err = c.handler.ApplyProbeTask(domainTask)
+
+	case *pb.ControllerCmd_RemoveProbeTask:
+		domainRemoval := FromProtoRemoveProbeTask(payload.RemoveProbeTask)
+		log.Printf("[Remote] Cmd: RemoveProbeTask (%s)", domainRemoval.TaskID)
+		err = c.handler.RemoveProbeTask(domainRemoval)
+
 	default:
 		log.Printf("[Remote] Unknown command type received")
 		return

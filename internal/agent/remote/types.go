@@ -18,4 +18,9 @@ type AgentHandler interface {
 
 	// ApplyLinkPolicy handles specific point-to-point link physics.
 	ApplyLinkPolicy(cmd domain.LinkPolicy) error
+	// ApplyProbeTask handles probe task assignments for RTT detection.
+	ApplyProbeTask(task domain.ProbeTask) error
+
+	// RemoveProbeTask handles probe task removal.
+	RemoveProbeTask(removal domain.ProbeTaskRemoval) error
 }

@@ -340,12 +340,65 @@ func (c *ControllerManager) processResyncBatch(ctx context.Context, nodes []stri
 		}
 	}
 
+	// 4.5. Dispatch Probe Tasks for RTT measurement
+	for _, nodeName := range nodes {
+		if pods, ok := nodePods[nodeName]; ok {
+			c.dispatchProbeTasksForNode(ctx, nodeName, pods, podList.Items)
+		}
+	}
+
 	// 5. Clear pending flags
 	for _, nodeName := range nodes {
 		c.resyncPending.Delete(nodeName)
 	}
 
 	log.Printf("[Controller] Resync batch completed for %d nodes", len(nodes))
+}
+
+// dispatchProbeTasksForNode generates and dispatches probe tasks for pods on a given node.
+// For each topology, it creates SIM and SYS probe tasks between all Pod pairs.
+func (c *ControllerManager) dispatchProbeTasksForNode(ctx context.Context, nodeName string, nodePods []corev1.Pod, allPods []corev1.Pod) {
+	for _, srcPod := range nodePods {
+		if srcPod.Status.PodIP == "" {
+			continue
+		}
+
+		for _, dstPod := range allPods {
+			if dstPod.Status.PodIP == "" || dstPod.Name == srcPod.Name {
+				continue
+			}
+
+			// SIM Probe: src -> dst on port 9090 (probe listener in Pod netns)
+			simTask := domain.ProbeTask{
+				TaskID:          fmt.Sprintf("probe-sim|%s|%s", srcPod.Name, dstPod.Name),
+				SrcPod:          srcPod.Name,
+				SrcIP:           srcPod.Status.PodIP,
+				DstPod:          dstPod.Name,
+				DstIP:           dstPod.Status.PodIP,
+				Type:            domain.ProbeTypeSIM,
+				IntervalSeconds: 5,
+				TargetPort:      9090,
+			}
+			if _, err := c.SendCommand(nodeName, "probe", simTask); err != nil {
+				log.Printf("[Controller] Failed to dispatch SIM probe task to %s: %v", nodeName, err)
+			}
+
+			// SYS Probe: src -> dst on port 9100 (agent metrics port on dst node)
+			sysTask := domain.ProbeTask{
+				TaskID:          fmt.Sprintf("probe-sys|%s|%s", srcPod.Name, dstPod.Name),
+				SrcPod:          srcPod.Name,
+				SrcIP:           srcPod.Status.PodIP,
+				DstPod:          dstPod.Name,
+				DstIP:           dstPod.Status.PodIP,
+				Type:            domain.ProbeTypeSYS,
+				IntervalSeconds: 5,
+				TargetPort:      9100,
+			}
+			if _, err := c.SendCommand(nodeName, "probe", sysTask); err != nil {
+				log.Printf("[Controller] Failed to dispatch SYS probe task to %s: %v", nodeName, err)
+			}
+		}
+	}
 }
 
 func (c *ControllerManager) UnregisterAgent(nodeName string) {

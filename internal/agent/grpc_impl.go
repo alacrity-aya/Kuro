@@ -123,3 +123,28 @@ func (a *Agent) ApplyNodePolicy(policy domain.NodePolicy) error {
 	log.Println("[Agent] Node Policy applied successfully")
 	return nil
 }
+
+// ApplyProbeTask handles a new or updated probe task from the Controller.
+func (a *Agent) ApplyProbeTask(task domain.ProbeTask) error {
+	log.Printf("[Agent] ApplyProbeTask: %s -> %s (type=%s, port=%d)",
+		task.SrcPod, task.DstPod, task.Type, task.TargetPort)
+
+	// If this is a SIM probe and the source pod is on this node,
+	// ensure the probe listener is running in the source pod's netns
+	if task.Type == domain.ProbeTypeSIM {
+		if podCtx, ok := a.localWatcher.GetPodContext(task.SrcPod); ok {
+			if err := a.probeListener.StartForPod(task.SrcPod, podCtx.NetnsHandle); err != nil {
+				log.Printf("[Agent] WARNING: Failed to start probe listener for %s: %v", task.SrcPod, err)
+			}
+		}
+	}
+
+	return a.probeManager.AddTask(task)
+}
+
+// RemoveProbeTask stops a running probe task.
+func (a *Agent) RemoveProbeTask(removal domain.ProbeTaskRemoval) error {
+	log.Printf("[Agent] RemoveProbeTask: %s", removal.TaskID)
+	a.probeManager.RemoveTask(removal.TaskID)
+	return nil
+}

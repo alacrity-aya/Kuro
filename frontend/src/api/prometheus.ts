@@ -329,6 +329,47 @@ export const kuroQueries = {
     packetsTotal: (type: 'sim' | 'sys' = 'sim') => 
       `sum(kuro_pod_traffic_packets_total{type="${type}"})`,
   },
+
+  /**
+   * Probe RTT queries (TCP Connect latency measurement)
+   */
+  probeRTT: {
+    /**
+     * Current RTT for all probe pairs
+     */
+    current: (type: 'sim' | 'sys' = 'sim') =>
+      `kuro_probe_rtt_seconds{type="${type}"}`,
+
+    /**
+     * P50 probe RTT
+     */
+    p50: (type: 'sim' | 'sys' = 'sim') =>
+      `histogram_quantile(0.50, sum(rate(kuro_probe_rtt_histogram_seconds_bucket{type="${type}"}[5m])) by (src_pod, dst_pod, le))`,
+
+    /**
+     * P95 probe RTT
+     */
+    p95: (type: 'sim' | 'sys' = 'sim') =>
+      `histogram_quantile(0.95, sum(rate(kuro_probe_rtt_histogram_seconds_bucket{type="${type}"}[5m])) by (src_pod, dst_pod, le))`,
+
+    /**
+     * P99 probe RTT
+     */
+    p99: (type: 'sim' | 'sys' = 'sim') =>
+      `histogram_quantile(0.99, sum(rate(kuro_probe_rtt_histogram_seconds_bucket{type="${type}"}[5m])) by (src_pod, dst_pod, le))`,
+
+    /**
+     * Probe success rate (percentage)
+     */
+    successRate: (type: 'sim' | 'sys' = 'sim') =>
+      `avg(kuro_probe_success{type="${type}"}) * 100`,
+
+    /**
+     * RTT between specific pods
+     */
+    betweenPods: (srcPod: string, dstPod: string, type: 'sim' | 'sys' = 'sim') =>
+      `kuro_probe_rtt_seconds{src_pod="${srcPod}",dst_pod="${dstPod}",type="${type}"}`,
+  },
 };
 
 // ============================================================================

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"kuro/internal/agent/bpf"
+	"kuro/internal/agent/probe"
 	"kuro/internal/agent/watch"
 )
 
@@ -16,13 +17,15 @@ import (
 type HTTPService struct {
 	localWatcher *watch.LocalWatcher
 	bpfManager   *bpf.BpfManager
+	probeMetrics *probe.MetricsStore
 }
 
 // NewHTTPService initializes HTTP service dependencies
-func NewHTTPService(watcher *watch.LocalWatcher, bpfMgr *bpf.BpfManager) *HTTPService {
+func NewHTTPService(watcher *watch.LocalWatcher, bpfMgr *bpf.BpfManager, probeMetrics *probe.MetricsStore) *HTTPService {
 	return &HTTPService{
 		localWatcher: watcher,
 		bpfManager:   bpfMgr,
+		probeMetrics: probeMetrics,
 	}
 }
 
@@ -210,6 +213,11 @@ func (s *HTTPService) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "kuro_pod_latency_seconds_count{pod=\"%s\"} %d\n", m.PodName, cumulative)
 	}
 
+
+	// Probe RTT Metrics
+	if s.probeMetrics != nil {
+		s.probeMetrics.WritePrometheus(&sb)
+	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	w.Write([]byte(sb.String()))
 }

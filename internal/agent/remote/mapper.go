@@ -96,3 +96,29 @@ func FromProtoNodePolicy(p *pb.ApplyNodePolicy) domain.NodePolicy {
 		IngressBurstBytes: p.IngressBurstBytes,
 	}
 }
+
+func FromProtoProbeTask(p *pb.ApplyProbeTask) domain.ProbeTask {
+	var probeType domain.ProbeType
+	switch p.Type {
+	case pb.ProbeType_SIM:
+		probeType = domain.ProbeTypeSIM
+	case pb.ProbeType_SYS:
+		probeType = domain.ProbeTypeSYS
+	}
+	return domain.ProbeTask{
+		TaskID:          p.TaskId,
+		SrcPod:          p.SrcPod,
+		SrcIP:           p.SrcIp,
+		DstPod:          p.DstPod,
+		DstIP:           p.DstIp,
+		Type:            probeType,
+		IntervalSeconds: p.IntervalSeconds,
+		TargetPort:      p.TargetPort,
+	}
+}
+
+func FromProtoRemoveProbeTask(p *pb.RemoveProbeTask) domain.ProbeTaskRemoval {
+	return domain.ProbeTaskRemoval{
+		TaskID: p.TaskId,
+	}
+}

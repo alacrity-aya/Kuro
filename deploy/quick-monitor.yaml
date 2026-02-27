@@ -539,6 +539,167 @@ data:
           ],
           "title": "Total Sim Traffic",
           "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "RTT",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 7, "w": 12, "x": 0, "y": 26},
+          "id": 20,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "kuro_probe_rtt_seconds{type=\"sim\"}",
+              "legendFormat": "{{ src_pod }} \u2192 {{ dst_pod }}",
+              "refId": "A"
+            }
+          ],
+          "title": "SIM Probe RTT",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "RTT",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "s"
+            },
+            "overrides": [
+              {"matcher": {"id": "byRegexp", "options": ".*"}, "properties": [{"id": "custom.lineStyle", "value": {"dash": [5, 5], "fill": "dash"}}]}
+            ]
+          },
+          "gridPos": {"h": 7, "w": 12, "x": 12, "y": 26},
+          "id": 21,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "kuro_probe_rtt_seconds{type=\"sys\"}",
+              "legendFormat": "{{ src_pod }} \u2192 {{ dst_pod }}",
+              "refId": "A"
+            }
+          ],
+          "title": "SYS Probe RTT",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "RTT",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 7, "w": 24, "x": 0, "y": 33},
+          "id": 22,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "histogram_quantile(0.50, sum(rate(kuro_probe_rtt_histogram_seconds_bucket{type=\"sim\"}[5m])) by (src_pod, dst_pod, le))",
+              "legendFormat": "SIM P50 {{ src_pod }} \u2192 {{ dst_pod }}",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "histogram_quantile(0.95, sum(rate(kuro_probe_rtt_histogram_seconds_bucket{type=\"sim\"}[5m])) by (src_pod, dst_pod, le))",
+              "legendFormat": "SIM P95 {{ src_pod }} \u2192 {{ dst_pod }}",
+              "refId": "B"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "histogram_quantile(0.50, sum(rate(kuro_probe_rtt_histogram_seconds_bucket{type=\"sys\"}[5m])) by (src_pod, dst_pod, le))",
+              "legendFormat": "SYS P50 {{ src_pod }} \u2192 {{ dst_pod }}",
+              "refId": "C"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "histogram_quantile(0.95, sum(rate(kuro_probe_rtt_histogram_seconds_bucket{type=\"sys\"}[5m])) by (src_pod, dst_pod, le))",
+              "legendFormat": "SYS P95 {{ src_pod }} \u2192 {{ dst_pod }}",
+              "refId": "D"
+            }
+          ],
+          "title": "Probe RTT Distribution (P50/P95 Comparison)",
+          "type": "timeseries"
         }
       ],
       "refresh": "5s",

@@ -63,6 +63,34 @@ func ToProtoCommand(cmd domain.ControllerCommand) *pb.ControllerCmd {
 				IngressBurstBytes: p.IngressBurstBytes,
 			},
 		}
+
+	case domain.ProbeTask:
+		var pbType pb.ProbeType
+		switch p.Type {
+		case domain.ProbeTypeSIM:
+			pbType = pb.ProbeType_SIM
+		case domain.ProbeTypeSYS:
+			pbType = pb.ProbeType_SYS
+		}
+		pbCmd.Payload = &pb.ControllerCmd_ApplyProbeTask{
+			ApplyProbeTask: &pb.ApplyProbeTask{
+				TaskId:          p.TaskID,
+				SrcPod:          p.SrcPod,
+				SrcIp:           p.SrcIP,
+				DstPod:          p.DstPod,
+				DstIp:           p.DstIP,
+				Type:            pbType,
+				IntervalSeconds: p.IntervalSeconds,
+				TargetPort:      p.TargetPort,
+			},
+		}
+
+	case domain.ProbeTaskRemoval:
+		pbCmd.Payload = &pb.ControllerCmd_RemoveProbeTask{
+			RemoveProbeTask: &pb.RemoveProbeTask{
+				TaskId: p.TaskID,
+			},
+		}
 	}
 
 	return pbCmd

@@ -9,6 +9,7 @@ import (
 
 	"kuro/internal/agent/bpf"
 	"kuro/internal/agent/opsapi"
+	"kuro/internal/agent/probe"
 	"kuro/internal/agent/remote"
 	"kuro/internal/agent/watch"
 
@@ -21,10 +22,13 @@ const (
 )
 
 type Agent struct {
-	localWatcher *watch.LocalWatcher // Local Pod Watcher (for Netns management)
-	bpfManager   *bpf.BpfManager
-	grpcClient   *remote.Client
-	httpService  *opsapi.HTTPService // Added HTTP service component
+	localWatcher  *watch.LocalWatcher
+	bpfManager    *bpf.BpfManager
+	grpcClient    *remote.Client
+	httpService   *opsapi.HTTPService
+	probeManager  *probe.Manager
+	probeListener *probe.Listener
+	probeMetrics  *probe.MetricsStore
 
 	nodeName string
 	errCh    chan error
@@ -42,14 +46,21 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 	}
 
 	localWatcher := watch.NewLocalWatcher(clientSet, containerRuntime, nodeName, targetNs)
-	httpSvc := opsapi.NewHTTPService(localWatcher, manager)
+	probeMetrics := probe.NewMetricsStore()
+	probeManager := probe.NewManager(probeMetrics)
+	probeListener := probe.NewListener()
+
+	httpSvc := opsapi.NewHTTPService(localWatcher, manager, probeMetrics)
 
 	a := &Agent{
-		localWatcher: localWatcher,
-		bpfManager:   manager,
-		httpService:  httpSvc,
-		nodeName:     nodeName,
-		errCh:        make(chan error, 1),
+		localWatcher:  localWatcher,
+		bpfManager:    manager,
+		httpService:   httpSvc,
+		probeManager:  probeManager,
+		probeListener: probeListener,
+		probeMetrics:  probeMetrics,
+		nodeName:      nodeName,
+		errCh:         make(chan error, 1),
 	}
 
 	// 'a' implements AgentHandler interface (using domain objects now)
@@ -123,6 +134,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			log.Println("[Agent] Context cancelled, shutting down...")
+			a.probeManager.StopAll()
+			a.probeListener.StopAll()
 			a.localWatcher.Stop()
 			a.grpcClient.Stop()
 			a.bpfManager.Close()
