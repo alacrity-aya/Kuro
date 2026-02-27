@@ -75,6 +75,45 @@ type NodePolicy struct {
 }
 
 // =======================
+// Probe (RTT Detection)
+// =======================
+
+type ProbeType int
+
+const (
+	ProbeTypeSIM ProbeType = iota
+	ProbeTypeSYS
+)
+
+func (p ProbeType) String() string {
+	switch p {
+	case ProbeTypeSIM:
+		return "sim"
+	case ProbeTypeSYS:
+		return "sys"
+	default:
+		return "unknown"
+	}
+}
+
+// ProbeTask defines a periodic RTT probe between two Pods.
+type ProbeTask struct {
+	TaskID          string
+	SrcPod          string
+	SrcIP           string
+	DstPod          string
+	DstIP           string
+	Type            ProbeType
+	IntervalSeconds int32
+	TargetPort      int32 // 9090 for SIM, 9100 for SYS
+}
+
+// ProbeTaskRemoval identifies a probe task to remove.
+type ProbeTaskRemoval struct {
+	TaskID string
+}
+
+// =======================
 // Controller Commands
 // =======================
 
