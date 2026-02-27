@@ -71,12 +71,15 @@ func TestHTTPAndTrafficControl(t *testing.T) {
 	}
 	controllerPodName = controllerPods.Items[0].Name
 
-	t.Log(">>> [Setup] Port-forwarding Controller :8080 -> :18080")
-	pfCmd := exec_portforward("kuro-system", controllerPodName, "8080", LocalHttpPort)
+	t.Log(">>> [Setup] Port-forwarding Controller :8088 -> :18080")
+	pfCmd := exec_portforward("kuro-system", controllerPodName, "8088", LocalHttpPort)
 	if err := pfCmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = pfCmd.Process.Kill() }()
+
+	// Wait for port-forward to be ready
+	time.Sleep(2 * time.Second)
 
 	baseUrl := "http://localhost:" + LocalHttpPort
 
@@ -89,12 +92,19 @@ func TestHTTPAndTrafficControl(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
+		// API returns: {"success":true,"data":{"count":N,"nodes":[...]}}
 		var res struct {
-			Nodes []string `json:"nodes"`
+			Success bool `json:"success"`
+			Data    struct {
+				Count int      `json:"count"`
+				Nodes []string `json:"nodes"`
+			} `json:"data"`
 		}
-		json.NewDecoder(resp.Body).Decode(&res)
-		if len(res.Nodes) > 0 {
-			agentNodeName = res.Nodes[0]
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			return false
+		}
+		if res.Success && len(res.Data.Nodes) > 0 {
+			agentNodeName = res.Data.Nodes[0]
 			return true
 		}
 		return false
