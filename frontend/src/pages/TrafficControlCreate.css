@@ -228,7 +228,7 @@
 .form-hint {
   display: block;
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-secondary);
   margin-top: 4px;
 }
 

@@ -43,9 +43,9 @@ class MockKuroApiClient implements KuroApiClient {
 
   async listTopologies(namespace: string = 'kuro-experiment'): Promise<ApiResponse<ListResult<NetworkTopology>>> {
     await delay(150);
-    
+
     const items = this.topologies.filter((t) => t.metadata.namespace === namespace);
-    
+
     return {
       success: true,
       data: {
@@ -57,37 +57,37 @@ class MockKuroApiClient implements KuroApiClient {
 
   async getTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<NetworkTopology>> {
     await delay(100);
-    
+
     const topology = this.topologies.find(
       (t) => t.metadata.name === name && t.metadata.namespace === namespace
     );
-    
+
     if (!topology) {
       return {
         success: false,
         error: `Topology '${name}' not found in namespace '${namespace}'`,
       };
     }
-    
+
     return { success: true, data: topology };
   }
 
   async createTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>> {
     await delay(200);
-    
+
     // Check if already exists
     const exists = this.topologies.find(
-      (t) => t.metadata.name === topology.metadata.name && 
-             t.metadata.namespace === topology.metadata.namespace
+      (t) => t.metadata.name === topology.metadata.name &&
+        t.metadata.namespace === topology.metadata.namespace
     );
-    
+
     if (exists) {
       return {
         success: false,
         error: `Topology '${topology.metadata.name}' already exists`,
       };
     }
-    
+
     const newTopology: NetworkTopology = {
       ...topology,
       metadata: {
@@ -101,27 +101,27 @@ class MockKuroApiClient implements KuroApiClient {
         readyNodes: 0,
       },
     };
-    
+
     this.topologies.push(newTopology);
-    
+
     return { success: true, data: newTopology };
   }
 
   async updateTopology(topology: NetworkTopology): Promise<ApiResponse<NetworkTopology>> {
     await delay(200);
-    
+
     const index = this.topologies.findIndex(
-      (t) => t.metadata.name === topology.metadata.name && 
-             t.metadata.namespace === topology.metadata.namespace
+      (t) => t.metadata.name === topology.metadata.name &&
+        t.metadata.namespace === topology.metadata.namespace
     );
-    
+
     if (index === -1) {
       return {
         success: false,
         error: `Topology '${topology.metadata.name}' not found`,
       };
     }
-    
+
     // Update the topology while preserving metadata
     const updatedTopology: NetworkTopology = {
       ...topology,
@@ -131,28 +131,55 @@ class MockKuroApiClient implements KuroApiClient {
       },
       status: this.topologies[index].status,
     };
-    
+
     this.topologies[index] = updatedTopology;
-    
+
     return { success: true, data: updatedTopology };
   }
 
   async deleteTopology(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {
     await delay(150);
-    
+
     const index = this.topologies.findIndex(
       (t) => t.metadata.name === name && t.metadata.namespace === namespace
     );
-    
+
     if (index === -1) {
       return {
         success: false,
         error: `Topology '${name}' not found`,
       };
     }
-    
+
+    // Collect all label values from the topology's node groups
+    const topology = this.topologies[index];
+    const topologyLabelValues = new Set<string>();
+    topology.spec.nodeGroups?.forEach((group) => {
+      // Collect role labels and node-group names used by TrafficControls
+      if (group.labels) {
+        Object.values(group.labels).forEach((v) => topologyLabelValues.add(v));
+      }
+      if (group.name) {
+        topologyLabelValues.add(group.name);
+      }
+    });
+
+    // Cascade delete: remove TCs in the same namespace whose source or destination
+    // matchLabels values are all contained within the topology's label values
+    this.trafficControls = this.trafficControls.filter((tc) => {
+      if (tc.metadata.namespace !== namespace) return true;
+
+      const srcValues = Object.values(tc.spec.source.matchLabels);
+      const dstValues = Object.values(tc.spec.destination.matchLabels);
+      const allTcValues = [...srcValues, ...dstValues];
+
+      // If all label values of this TC match the topology's label values, delete it
+      const shouldDelete = allTcValues.length > 0 && allTcValues.every((v) => topologyLabelValues.has(v));
+      return !shouldDelete;
+    });
+
     this.topologies.splice(index, 1);
-    
+
     return { success: true };
   }
 
@@ -162,9 +189,9 @@ class MockKuroApiClient implements KuroApiClient {
 
   async listTrafficControls(namespace: string = 'kuro-experiment'): Promise<ApiResponse<ListResult<TrafficControl>>> {
     await delay(150);
-    
+
     const items = this.trafficControls.filter((t) => t.metadata.namespace === namespace);
-    
+
     return {
       success: true,
       data: {
@@ -176,36 +203,36 @@ class MockKuroApiClient implements KuroApiClient {
 
   async getTrafficControl(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TrafficControl>> {
     await delay(100);
-    
+
     const tc = this.trafficControls.find(
       (t) => t.metadata.name === name && t.metadata.namespace === namespace
     );
-    
+
     if (!tc) {
       return {
         success: false,
         error: `TrafficControl '${name}' not found`,
       };
     }
-    
+
     return { success: true, data: tc };
   }
 
   async createTrafficControl(tc: TrafficControl): Promise<ApiResponse<TrafficControl>> {
     await delay(200);
-    
+
     const exists = this.trafficControls.find(
-      (t) => t.metadata.name === tc.metadata.name && 
-             t.metadata.namespace === tc.metadata.namespace
+      (t) => t.metadata.name === tc.metadata.name &&
+        t.metadata.namespace === tc.metadata.namespace
     );
-    
+
     if (exists) {
       return {
         success: false,
         error: `TrafficControl '${tc.metadata.name}' already exists`,
       };
     }
-    
+
     const newTc: TrafficControl = {
       ...tc,
       metadata: {
@@ -218,27 +245,27 @@ class MockKuroApiClient implements KuroApiClient {
         appliedLinks: 0,
       },
     };
-    
+
     this.trafficControls.push(newTc);
-    
+
     return { success: true, data: newTc };
   }
 
   async updateTrafficControl(tc: TrafficControl): Promise<ApiResponse<TrafficControl>> {
     await delay(200);
-    
+
     const index = this.trafficControls.findIndex(
-      (t) => t.metadata.name === tc.metadata.name && 
-             t.metadata.namespace === tc.metadata.namespace
+      (t) => t.metadata.name === tc.metadata.name &&
+        t.metadata.namespace === tc.metadata.namespace
     );
-    
+
     if (index === -1) {
       return {
         success: false,
         error: `TrafficControl '${tc.metadata.name}' not found`,
       };
     }
-    
+
     this.trafficControls[index] = {
       ...tc,
       status: {
@@ -247,26 +274,26 @@ class MockKuroApiClient implements KuroApiClient {
         conditions: tc.status?.conditions,
       },
     };
-    
+
     return { success: true, data: this.trafficControls[index] };
   }
 
   async deleteTrafficControl(name: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<void>> {
     await delay(150);
-    
+
     const index = this.trafficControls.findIndex(
       (t) => t.metadata.name === name && t.metadata.namespace === namespace
     );
-    
+
     if (index === -1) {
       return {
         success: false,
         error: `TrafficControl '${name}' not found`,
       };
     }
-    
+
     this.trafficControls.splice(index, 1);
-    
+
     return { success: true };
   }
 
@@ -276,40 +303,40 @@ class MockKuroApiClient implements KuroApiClient {
 
   async getTopologyNodes(topologyName: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TopologyNode[]>> {
     await delay(200);
-    
+
     const topology = this.topologies.find(
       (t) => t.metadata.name === topologyName && t.metadata.namespace === namespace
     );
-    
+
     if (!topology) {
       return {
         success: false,
         error: `Topology '${topologyName}' not found`,
       };
     }
-    
+
     const nodes = generateMockNodes(topology);
-    
+
     return { success: true, data: nodes };
   }
 
   async getTopologyLinks(topologyName: string, namespace: string = 'kuro-experiment'): Promise<ApiResponse<TopologyLink[]>> {
     await delay(200);
-    
+
     const topology = this.topologies.find(
       (t) => t.metadata.name === topologyName && t.metadata.namespace === namespace
     );
-    
+
     if (!topology) {
       return {
         success: false,
         error: `Topology '${topologyName}' not found`,
       };
     }
-    
+
     const nodes = generateMockNodes(topology);
     const links = generateMockLinks(nodes, this.trafficControls);
-    
+
     return { success: true, data: links };
   }
 
@@ -319,17 +346,17 @@ class MockKuroApiClient implements KuroApiClient {
 
   async getNodeMetrics(nodeId: string): Promise<ApiResponse<NodeMetrics>> {
     await delay(100);
-    
+
     const metrics = generateNodeMetrics(nodeId);
-    
+
     return { success: true, data: metrics };
   }
 
   async getLinkMetrics(linkId: string): Promise<ApiResponse<LinkMetricsHistory>> {
     await delay(100);
-    
+
     const metrics = generateLinkMetricsHistory(linkId);
-    
+
     return { success: true, data: metrics };
   }
 }
@@ -476,8 +503,8 @@ class RealKuroApiClient implements KuroApiClient {
 // ============================================================================
 
 // Use mock or real API based on environment variable
-export const apiClient: KuroApiClient = USE_MOCK_API 
-  ? new MockKuroApiClient() 
+export const apiClient: KuroApiClient = USE_MOCK_API
+  ? new MockKuroApiClient()
   : new RealKuroApiClient();
 
 // Also export classes for testing
