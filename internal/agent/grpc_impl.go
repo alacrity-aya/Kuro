@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"kuro/internal/agent/bpf"
+	"kuro/internal/agent/probe"
 	"kuro/internal/domain"
 )
 
@@ -129,13 +130,17 @@ func (a *Agent) ApplyProbeTask(task domain.ProbeTask) error {
 	log.Printf("[Agent] ApplyProbeTask: %s -> %s (type=%s, port=%d)",
 		task.SrcPod, task.DstPod, task.Type, task.TargetPort)
 
-	// If this is a SIM probe and the source pod is on this node,
-	// ensure the probe listener is running in the source pod's netns
-	if task.Type == domain.ProbeTypeSIM {
-		if podCtx, ok := a.localWatcher.GetPodContext(task.SrcPod); ok {
-			if err := a.probeListener.StartForPod(task.SrcPod, podCtx.NetnsHandle); err != nil {
-				log.Printf("[Agent] WARNING: Failed to start probe listener for %s: %v", task.SrcPod, err)
-			}
+	// Ensure the probe listener is running in the source pod's netns.
+	// Every Pod is both a source and destination, so all Pods eventually get listeners.
+	// SIM probes use port 9090, SYS probes use port 9100.
+	if podCtx, ok := a.localWatcher.GetPodContext(task.SrcPod); ok {
+		// Always start both SIM and SYS listeners for this pod,
+		// regardless of probe type — the pod will be a destination for other probes.
+		if err := a.probeListener.StartForPod(task.SrcPod, probe.SimListenerPort, podCtx.NetnsHandle); err != nil {
+			log.Printf("[Agent] WARNING: Failed to start SIM probe listener for %s: %v", task.SrcPod, err)
+		}
+		if err := a.probeListener.StartForPod(task.SrcPod, probe.SysListenerPort, podCtx.NetnsHandle); err != nil {
+			log.Printf("[Agent] WARNING: Failed to start SYS probe listener for %s: %v", task.SrcPod, err)
 		}
 	}
 

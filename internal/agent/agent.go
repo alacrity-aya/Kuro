@@ -13,6 +13,7 @@ import (
 	"kuro/internal/agent/remote"
 	"kuro/internal/agent/watch"
 
+	"github.com/vishvananda/netns"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -47,7 +48,8 @@ func NewAgent(socketpath string, clientSet kubernetes.Interface, nodeName string
 
 	localWatcher := watch.NewLocalWatcher(clientSet, containerRuntime, nodeName, targetNs)
 	probeMetrics := probe.NewMetricsStore()
-	probeManager := probe.NewManager(probeMetrics)
+	nsResolver := &watcherNetnsResolver{watcher: localWatcher}
+	probeManager := probe.NewManager(probeMetrics, nsResolver)
 	probeListener := probe.NewListener()
 
 	httpSvc := opsapi.NewHTTPService(localWatcher, manager, probeMetrics)
@@ -174,4 +176,17 @@ func (a *Agent) printDebugStats() {
 		)
 	}
 	log.Printf("------------------------------------------")
+}
+
+// watcherNetnsResolver adapts LocalWatcher to the probe.NetnsResolver interface.
+type watcherNetnsResolver struct {
+	watcher *watch.LocalWatcher
+}
+
+func (r *watcherNetnsResolver) GetNetns(podName string) (netns.NsHandle, bool) {
+	podCtx, ok := r.watcher.GetPodContext(podName)
+	if !ok {
+		return 0, false
+	}
+	return podCtx.NetnsHandle, true
 }

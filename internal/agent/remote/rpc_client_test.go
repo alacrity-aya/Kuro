@@ -52,6 +52,14 @@ func (m *MockAgentHandler) ApplyLinkPolicy(cmd domain.LinkPolicy) error {
 	return nil
 }
 
+func (m *MockAgentHandler) ApplyProbeTask(task domain.ProbeTask) error {
+	return nil
+}
+
+func (m *MockAgentHandler) RemoveProbeTask(removal domain.ProbeTaskRemoval) error {
+	return nil
+}
+
 // MockControllerServer simulates the Controller's gRPC service
 type MockControllerServer struct {
 	pb.UnimplementedSimulationAgentServiceServer
