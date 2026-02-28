@@ -78,7 +78,7 @@ func Benchmark_EDT_BPF(b *testing.B) {
 			setupBenchmarkEnv(b)
 			defer teardownBenchmarkEnv()
 
-			mgr, err := bpf.NewBpfManager()
+			mgr, err := bpf.NewBpfManager(false)
 			if err != nil {
 				b.Fatalf("NewBpfManager failed: %v", err)
 			}

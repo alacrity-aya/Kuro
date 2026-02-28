@@ -70,7 +70,7 @@ func Benchmark_XDP_Drop(b *testing.B) {
 			setupXdpBenchEnv(b)
 			defer teardownXdpBenchEnv()
 
-			mgr, err := bpf.NewBpfManager()
+			mgr, err := bpf.NewBpfManager(false)
 			if err != nil {
 				b.Fatalf("NewBpfManager failed: %v", err)
 			}
