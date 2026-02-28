@@ -194,7 +194,7 @@
 /* Traffic Controls Grid */
 .tc-list__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 24px;
 }
 
@@ -339,7 +339,7 @@
   display: flex;
   gap: 24px;
   padding-top: 8px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--border-color);
 }
 
 .tc-card__stat {
@@ -350,13 +350,13 @@
 
 .tc-card__stat-label {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--text-secondary);
 }
 
 .tc-card__stat-value {
   font-size: 14px;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 /* Actions */
@@ -364,7 +364,7 @@
   display: flex;
   gap: 8px;
   padding-top: 12px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--border-color);
 }
 
 /* Buttons */

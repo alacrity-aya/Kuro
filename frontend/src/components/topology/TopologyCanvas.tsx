@@ -82,7 +82,7 @@ function getLayoutedElements(
 ): { nodes: Node[]; edges: Edge[] } {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  
+
   dagreGraph.setGraph({
     ...DAGRE_CONFIG,
     rankdir: direction,
@@ -221,7 +221,7 @@ function TopologyCanvas({
 }: TopologyCanvasProps) {
   // Ref to track saved positions for persistence
   const nodePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
-  
+
   // Transform topology data to React Flow format
   const initialNodes = useMemo(
     () => transformTopologyNodesToFlowNodes(topologyNodes, selectedNodeId),
@@ -243,16 +243,14 @@ function TopologyCanvas({
         nodePositionsRef.current = savedPositions;
       }
     }
-    
-    // Check if nodes have positions from API or saved positions
-    const needsLayout = topologyNodes.some((n) => 
-      n.x === undefined || n.y === undefined
-    ) && !savedPositions;
-    
+
+    // Auto-layout on first visit (no saved positions) regardless of API positions
+    const needsLayout = !savedPositions;
+
     if (needsLayout) {
       return getLayoutedElements(initialNodes, initialEdges);
     }
-    
+
     // Apply saved positions if available
     if (savedPositions) {
       const nodesWithSavedPositions = initialNodes.map((node) => ({
@@ -261,7 +259,7 @@ function TopologyCanvas({
       }));
       return { nodes: nodesWithSavedPositions, edges: initialEdges };
     }
-    
+
     return { nodes: initialNodes, edges: initialEdges };
   }, [initialNodes, initialEdges, topologyNodes, topologyId]);
 
@@ -294,7 +292,7 @@ function TopologyCanvas({
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       onNodesChange(changes);
-      
+
       // Save positions when nodes are moved
       if (topologyId) {
         for (const change of changes) {
@@ -338,7 +336,7 @@ function TopologyCanvas({
     (changes: EdgeChange[]) => {
       // Call the original onEdgesChange to update state
       onEdgesChange(changes);
-      
+
       // Check for selection changes
       for (const change of changes) {
         if (change.type === 'select' && change.selected) {
