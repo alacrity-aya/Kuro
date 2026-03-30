@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiClient } from '../api/client';
 import { useTopologyStore } from '../stores';
 import { downloadTopologyYaml, parseImportedYaml, readFileAsText } from '../utils/topologyYaml';
 import './TopologyList.css';
@@ -34,28 +35,35 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
   }, [fetchTopologies]);
 
   // Filter topologies based on search and phase
-  const filteredTopologies = topologies.filter((t) => {
-    const matchesSearch =
-      t.metadata.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.metadata.namespace.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesPhase = filterPhase === 'all' || t.status?.phase === filterPhase;
-    return matchesSearch && matchesPhase;
-  });
+  const filteredTopologies = useMemo(() => {
+    return topologies.filter((t) => {
+      const matchesSearch =
+        t.metadata.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.metadata.namespace.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesPhase = filterPhase === 'all' || t.status?.phase === filterPhase;
+      return matchesSearch && matchesPhase;
+    });
+  }, [topologies, searchTerm, filterPhase]);
 
   // Calculate statistics
-  const phaseStats = topologies.reduce(
-    (acc, t) => {
-      const phase = t.status?.phase ?? 'Unknown';
-      acc[phase] = (acc[phase] ?? 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
+  const phaseStats = useMemo(() => {
+    return topologies.reduce(
+      (acc, t) => {
+        const phase = t.status?.phase ?? 'Unknown';
+        acc[phase] = (acc[phase] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+  }, [topologies]);
 
   const handleCreateTopology = () => {
     if (onCreateTopology) {
       onCreateTopology();
+      return;
     }
+
+    navigate('/topologies/create');
   };
 
   const handleDeleteTopology = async (name: string, namespace: string) => {
@@ -64,7 +72,6 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
     }
     
     try {
-      const { apiClient } = await import('../api/client');
       const response = await apiClient.deleteTopology(name, namespace);
       if (response.success) {
         fetchTopologies();
@@ -77,7 +84,6 @@ function TopologyList({ onViewTopology, onCreateTopology }: TopologyListProps) {
   };
 
   const handleViewTopology = (name: string, namespace: string) => {
-    console.log('View topology:', name, namespace);
     if (onViewTopology) {
       onViewTopology(name, namespace);
     }

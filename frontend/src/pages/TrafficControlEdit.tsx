@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { validatePolicy, type PolicyValidationResult } from '../utils/policyValidator';
@@ -35,12 +35,7 @@ function TrafficControlEdit({ onSaved, onCancel }: TrafficControlEditProps) {
   const [error, setError] = useState<string | null>(null);
   const [policyErrors, setPolicyErrors] = useState<Record<string, string>>({});
 
-  // Load TrafficControl and topologies on mount
-  useEffect(() => {
-    loadData();
-  }, [namespace, name]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -76,7 +71,12 @@ function TrafficControlEdit({ onSaved, onCancel }: TrafficControlEditProps) {
     }
 
     setLoading(false);
-  };
+  }, [name, namespace]);
+
+  // Load TrafficControl and topologies on mount
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Update node groups when topology changes
   useEffect(() => {
@@ -164,7 +164,6 @@ function TrafficControlEdit({ onSaved, onCancel }: TrafficControlEditProps) {
       const response = await apiClient.updateTrafficControl(updatedTc);
 
       if (response.success && response.data) {
-        console.log('TrafficControl updated successfully:', response.data);
         if (onSaved) {
           onSaved(name, namespace);
         } else {

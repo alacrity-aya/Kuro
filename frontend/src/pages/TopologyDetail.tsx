@@ -402,13 +402,7 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
   // Handle traffic policy save
   const handlePolicySave = useCallback((linkId: string, policy: TrafficPolicy) => {
     actions.updateLinkPolicy(linkId, policy);
-    console.log(`Policy saved for link ${linkId}:`, policy);
   }, [actions]);
-
-  // Handle traffic policy reset
-  const handlePolicyReset = useCallback((linkId: string) => {
-    console.log(`Policy reset for link ${linkId}`);
-  }, []);
 
   if (loading && nodes.length === 0) {
     return (
@@ -554,7 +548,6 @@ function TopologyDetailInner({ topologyName, namespace = 'default', onBack }: To
             <TrafficControlPanel
               link={selectedLink}
               onSave={handlePolicySave}
-              onReset={handlePolicyReset}
               onClose={actions.clearSelection}
             />
           </div>

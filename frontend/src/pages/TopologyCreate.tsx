@@ -258,7 +258,6 @@ export function TopologyCreate({ onCreated, onCancel, isEdit = false, initialTop
       }
 
       if (response.success) {
-        console.log(isEdit ? 'Topology updated successfully:' : 'Topology created successfully:', response.data);
         onCreated?.(topology.metadata.name, topology.metadata.namespace || DEFAULT_NAMESPACE);
       } else {
         setCreateError(response.error || `Failed to ${isEdit ? 'update' : 'create'} topology`);

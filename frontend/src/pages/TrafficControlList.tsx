@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { exportTrafficControlToYaml, downloadYaml, parseTrafficControlYaml, validateTrafficControlYaml } from '../utils/trafficControlYaml';
@@ -27,11 +27,7 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
-  useEffect(() => {
-    fetchTrafficControls();
-  }, []);
-
-  const fetchTrafficControls = async () => {
+  const fetchTrafficControls = useCallback(async () => {
     setLoading(true);
     setError(null);
     
@@ -42,27 +38,41 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
     } else {
       setError(response.error || 'Failed to load traffic controls');
     }
-    
+
     setLoading(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void fetchTrafficControls();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [fetchTrafficControls]);
 
   // Filter traffic controls based on search and phase
-  const filteredTrafficControls = trafficControls.filter((tc) => {
-    const matchesSearch =
-      tc.metadata.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesPhase = filterPhase === 'all' || tc.status?.phase === filterPhase;
-    return matchesSearch && matchesPhase;
-  });
+  const filteredTrafficControls = useMemo(() => {
+    return trafficControls.filter((tc) => {
+      const matchesSearch =
+        tc.metadata.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesPhase = filterPhase === 'all' || tc.status?.phase === filterPhase;
+      return matchesSearch && matchesPhase;
+    });
+  }, [trafficControls, searchTerm, filterPhase]);
 
   // Calculate statistics
-  const phaseStats = trafficControls.reduce(
-    (acc, tc) => {
-      const phase = tc.status?.phase ?? 'Unknown';
-      acc[phase] = (acc[phase] ?? 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
+  const phaseStats = useMemo(() => {
+    return trafficControls.reduce(
+      (acc, tc) => {
+        const phase = tc.status?.phase ?? 'Unknown';
+        acc[phase] = (acc[phase] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+  }, [trafficControls]);
 
   const handleCreateTrafficControl = () => {
     if (onCreateTrafficControl) {
@@ -83,7 +93,7 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
       fetchTrafficControls();
     } else {
       console.error('Failed to delete traffic control:', response.error);
-      alert(`Failed to delete: ${response.error}`);
+      setError(response.error || 'Failed to delete traffic control');
     }
   };
 
@@ -217,6 +227,15 @@ function TrafficControlList({ onCreateTrafficControl }: TrafficControlListProps)
           </button>
         </div>
       </header>
+
+      {error && (
+        <div className="tc-list__error">
+          <span>⚠️ {error}</span>
+          <button className="btn btn--secondary" onClick={() => fetchTrafficControls()}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Summary Bar */}
       <div className="tc-list__summary">

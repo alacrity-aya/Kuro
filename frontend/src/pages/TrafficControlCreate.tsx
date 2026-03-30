@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { validatePolicy, type PolicyValidationResult } from '../utils/policyValidator';
@@ -37,12 +37,7 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
   const [error, setError] = useState<string | null>(null);
   const [policyErrors, setPolicyErrors] = useState<Record<string, string>>({});
 
-  // Load topologies on mount
-  useEffect(() => {
-    loadTopologies();
-  }, []);
-
-  const loadTopologies = async () => {
+  const loadTopologies = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -55,7 +50,12 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
     }
 
     setLoading(false);
-  };
+  }, [namespace]);
+
+  // Load topologies on mount
+  useEffect(() => {
+    loadTopologies();
+  }, [loadTopologies]);
 
   // Update node groups when topology changes
   useEffect(() => {
@@ -163,7 +163,6 @@ function TrafficControlCreate({ onCreated, onCancel }: TrafficControlCreateProps
       const response = await apiClient.createTrafficControl(trafficControl);
 
       if (response.success && response.data) {
-        console.log('TrafficControl created successfully:', response.data);
         if (onCreated) {
           onCreated(name.trim(), namespace);
         } else {
